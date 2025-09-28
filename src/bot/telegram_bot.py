@@ -32,6 +32,7 @@ from src.bot.handlers import (
     help_handler,
     message_handler,
     document_handler,
+    diagnostic_handler,
     error_handler
 )
 from src.utils.exceptions import ConfigurationError
@@ -95,6 +96,7 @@ class StatisticalModelingBot:
         # Command handlers
         self.application.add_handler(CommandHandler("start", start_handler))
         self.application.add_handler(CommandHandler("help", help_handler))
+        self.application.add_handler(CommandHandler("diagnostic", diagnostic_handler))
 
         # Document handler (for CSV files, etc.)
         self.application.add_handler(
