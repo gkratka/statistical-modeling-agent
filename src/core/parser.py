@@ -73,7 +73,7 @@ class RequestParser:
             'variance': r'(variance|var)',
             'correlation': r'(correlation|correlate|relationship|corr)',
             'distribution': r'(distribution|histogram|frequency)',
-            'summary': r'(summary|describe|overview|descriptive\s*stats)',
+            'summary': r'(summary|describe|overview|descriptive\s*stats|calculate\s*statistics|statistics)',
             'min': r'(minimum|min)\s*(value)?',
             'max': r'(maximum|max)\s*(value)?',
             'count': r'(count|number\s*of)',

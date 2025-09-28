@@ -30,10 +30,54 @@ logger = get_logger(__name__)
 BOT_VERSION = "DataLoader-v2.0-NUCLEAR-FIX"
 FIXED_TIMESTAMP = "2025-01-27-NUCLEAR"
 BOT_INSTANCE_ID = f"BIH-{FIXED_TIMESTAMP}"
-
-# Version tracking for diagnostics
 HANDLERS_VERSION = "v2.0"
 LAST_UPDATED = "2025-01-27"
+
+# Message templates
+MESSAGE_TEMPLATES = {
+    "welcome": f"""🤖 Welcome to the Statistical Modeling Agent!
+🔧 Version: {BOT_VERSION}
+🔧 Instance: {BOT_INSTANCE_ID}
+
+I can help you with:
+📊 Statistical analysis of your data
+🧠 Machine learning model training
+📈 Data predictions and insights
+
+To get started:
+1. Upload a CSV file with your data
+2. Tell me what analysis you'd like
+3. I'll process it and send you results!
+
+Type /help for more information.""",
+
+    "help": """🆘 Statistical Modeling Agent Help
+
+Commands:
+/start - Start using the bot
+/help - Show this help message
+
+How to use:
+1. Upload Data: Send a CSV file
+2. Request Analysis: Tell me what you want:
+   • Calculate mean and std for age column
+   • Show correlation matrix
+   • Train a model to predict income
+3. Get Results: I'll analyze and respond
+
+Supported Operations:
+📊 Descriptive statistics
+📈 Correlation analysis
+🧠 Machine learning training
+🔮 Model predictions
+
+Example:
+1. Upload: housing_data.csv
+2. Message: Train a model to predict house prices
+3. Get: Model training results and performance metrics
+
+Need more help? Just ask me anything!"""
+}
 
 
 @telegram_handler
@@ -49,22 +93,7 @@ async def start_handler(
         update: Telegram update object
         context: Bot context
     """
-    welcome_message = (
-        f"🤖 Welcome to the Statistical Modeling Agent!\n"
-        f"🔧 Version: {BOT_VERSION}\n"
-        f"🔧 Instance: {BOT_INSTANCE_ID}\n\n"
-        "I can help you with:\n"
-        "📊 Statistical analysis of your data\n"
-        "🧠 Machine learning model training\n"
-        "📈 Data predictions and insights\n\n"
-        "To get started:\n"
-        "1. Upload a CSV file with your data\n"
-        "2. Tell me what analysis you'd like\n"
-        "3. I'll process it and send you results!\n\n"
-        "Type /help for more information."
-    )
-
-    await update.message.reply_text(welcome_message)
+    await update.message.reply_text(MESSAGE_TEMPLATES["welcome"])
 
 
 @telegram_handler
@@ -80,31 +109,7 @@ async def help_handler(
         update: Telegram update object
         context: Bot context
     """
-    help_message = (
-        "🆘 Statistical Modeling Agent Help\n\n"
-        "Commands:\n"
-        "/start - Start using the bot\n"
-        "/help - Show this help message\n\n"
-        "How to use:\n"
-        "1. Upload Data: Send a CSV file\n"
-        "2. Request Analysis: Tell me what you want:\n"
-        "   • Calculate mean and std for age column\n"
-        "   • Show correlation matrix\n"
-        "   • Train a model to predict income\n"
-        "3. Get Results: I'll analyze and respond\n\n"
-        "Supported Operations:\n"
-        "📊 Descriptive statistics\n"
-        "📈 Correlation analysis\n"
-        "🧠 Machine learning training\n"
-        "🔮 Model predictions\n\n"
-        "Example:\n"
-        "1. Upload: housing_data.csv\n"
-        "2. Message: Train a model to predict house prices\n"
-        "3. Get: Model training results and performance metrics\n\n"
-        "Need more help? Just ask me anything!"
-    )
-
-    await update.message.reply_text(help_message)
+    await update.message.reply_text(MESSAGE_TEMPLATES["help"])
 
 
 @telegram_handler
@@ -157,24 +162,89 @@ async def message_handler(
                 f"🔧 **DataLoader v2.0 active** - Ready for analysis!"
             )
         else:
-            # General response for other questions
-            response_message = (
-                f"🤖 **Statistical Modeling Agent**\n\n"
-                f"I received your message: \"{message_text}\"\n\n"
-                f"📊 **Your data:** {file_name} ({metadata.get('shape', (0, 0))[0]:,} rows)\n"
-                f"**Available columns:** {', '.join(metadata.get('columns', [])[:5])}"
-                + ("..." if len(metadata.get('columns', [])) > 5 else "")
-                + f"\n\n**What I can help with:**\n"
-                f"📈 Descriptive statistics and data analysis\n"
-                f"🔍 Correlation analysis between variables\n"
-                f"🧠 Machine learning model training\n"
-                f"📋 Data exploration and insights\n\n"
-                f"**Example requests:**\n"
-                f"• \"Calculate mean and standard deviation\"\n"
-                f"• \"Show me correlations\"\n"
-                f"• \"Train a model to predict [target]\"\n\n"
-                f"🔧 **Parser integration coming soon** - For now, ask about your data!"
-            )
+            # NEW: Full processing pipeline integration
+            try:
+                # Import required components
+                from src.core.parser import RequestParser
+                from src.core.orchestrator import TaskOrchestrator
+                from src.utils.result_formatter import TelegramResultFormatter
+                from src.utils.exceptions import ParseError, ValidationError, DataError
+
+                # Initialize components
+                parser = RequestParser()
+                orchestrator = TaskOrchestrator()
+                formatter = TelegramResultFormatter()
+
+                # Get user's dataframe
+                dataframe = user_data.get('dataframe')
+                if dataframe is None:
+                    raise DataError("User data corrupted or missing")
+
+                # Parse user request
+                task = parser.parse_request(
+                    text=message_text,
+                    user_id=user_id,
+                    conversation_id=f"chat_{update.effective_chat.id}",
+                    data_source=None  # Data already loaded
+                )
+
+                logger.info(f"🔧 TASK PARSED: {task.task_type}/{task.operation} for user {user_id}")
+
+                # Execute task through orchestrator
+                result = await orchestrator.execute_task(task, dataframe)
+
+                logger.info(f"🔧 TASK EXECUTED: success={result.get('success')} in {result.get('metadata', {}).get('execution_time', 0):.3f}s")
+
+                # Format result for Telegram
+                response_message = formatter.format_stats_result(result)
+
+                logger.info(f"🔧 RESPONSE FORMATTED: {len(response_message)} characters")
+
+            except ParseError as e:
+                # Handle parsing errors with helpful suggestions
+                columns = metadata.get('columns', [])
+                numeric_columns = metadata.get('numeric_columns', [])
+
+                response_message = (
+                    f"❓ **Request Not Understood**\n\n"
+                    f"I couldn't understand: \"{message_text}\"\n\n"
+                    f"**Try asking:**\n"
+                    f"• \"Calculate statistics for {columns[0] if columns else 'column_name'}\"\n"
+                    f"• \"Show correlation matrix\"\n"
+                    f"• \"Calculate mean and std for all columns\"\n\n"
+                    f"**Available columns:** {', '.join(columns[:10])}"
+                    + ("..." if len(columns) > 10 else "")
+                    + (f"\n**Numeric columns:** {', '.join(numeric_columns[:5])}" if numeric_columns else "")
+                )
+
+                logger.info(f"🔧 PARSE ERROR: {e.message}")
+
+            except (DataError, ValidationError) as e:
+                # Handle data/validation errors
+                response_message = (
+                    f"❌ **Processing Error**\n\n"
+                    f"**Issue:** {e.message}\n\n"
+                    f"**Your data:** {file_name} ({metadata.get('shape', (0, 0))[0]:,} rows)\n"
+                    f"**Available columns:** {', '.join(metadata.get('columns', [])[:5])}\n\n"
+                    f"Please check your request and try again."
+                )
+
+                logger.warning(f"🔧 DATA/VALIDATION ERROR: {e.message}")
+
+            except Exception as e:
+                # Handle unexpected errors with fallback
+                logger.error(f"🔧 UNEXPECTED ERROR in message processing: {e}", exc_info=True)
+
+                response_message = (
+                    f"⚠️ **System Error**\n\n"
+                    f"An unexpected error occurred while processing your request.\n\n"
+                    f"**Your data:** {file_name} ({metadata.get('shape', (0, 0))[0]:,} rows)\n"
+                    f"**Available columns:** {', '.join(metadata.get('columns', [])[:5])}\n\n"
+                    f"**Try asking:**\n"
+                    f"• \"Calculate statistics for {metadata.get('columns', ['column_name'])[0]}\"\n"
+                    f"• \"Show correlation matrix\"\n\n"
+                    f"If the problem persists, please try uploading your data again."
+                )
 
     await update.message.reply_text(response_message, parse_mode="Markdown")
 
