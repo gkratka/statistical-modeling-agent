@@ -189,3 +189,216 @@ class TemplateError(ScriptGenerationError):
         super().__init__(message, "", template_path)
         self.template_path = template_path
         self.line_number = line_number
+
+
+# ============================================================================
+# ML-Specific Exceptions
+# ============================================================================
+
+
+class MLError(AgentError):
+    """Base exception for ML operations."""
+
+    def __init__(self, message: str, operation: str = "") -> None:
+        """
+        Initialize ML error.
+
+        Args:
+            message: Human-readable error message
+            operation: ML operation that failed (train, predict, etc.)
+        """
+        super().__init__(message, "ML_ERROR")
+        self.operation = operation
+
+
+class DataValidationError(MLError):
+    """Input data validation failures for ML operations."""
+
+    def __init__(
+        self,
+        message: str,
+        data_shape: tuple[int, ...] = (),
+        missing_columns: list[str] = None,
+        invalid_columns: list[str] = None
+    ) -> None:
+        """
+        Initialize data validation error.
+
+        Args:
+            message: Human-readable error message
+            data_shape: Shape of the problematic dataset
+            missing_columns: List of missing required columns
+            invalid_columns: List of columns with invalid data
+        """
+        super().__init__(message, "data_validation")
+        self.data_shape = data_shape
+        self.missing_columns = missing_columns or []
+        self.invalid_columns = invalid_columns or []
+
+
+class ModelNotFoundError(MLError):
+    """Model doesn't exist or user doesn't own it."""
+
+    def __init__(self, message: str, model_id: str = "", user_id: int = 0) -> None:
+        """
+        Initialize model not found error.
+
+        Args:
+            message: Human-readable error message
+            model_id: ID of the model that wasn't found
+            user_id: User ID attempting to access the model
+        """
+        super().__init__(message, "model_access")
+        self.model_id = model_id
+        self.user_id = user_id
+
+
+class TrainingError(MLError):
+    """Model training failures."""
+
+    def __init__(
+        self,
+        message: str,
+        model_type: str = "",
+        training_time: float = 0.0,
+        error_details: str = ""
+    ) -> None:
+        """
+        Initialize training error.
+
+        Args:
+            message: Human-readable error message
+            model_type: Type of model being trained
+            training_time: Time elapsed before failure
+            error_details: Detailed error information
+        """
+        super().__init__(message, "train_model")
+        self.model_type = model_type
+        self.training_time = training_time
+        self.error_details = error_details
+
+
+class PredictionError(MLError):
+    """Prediction execution failures."""
+
+    def __init__(
+        self,
+        message: str,
+        model_id: str = "",
+        num_samples: int = 0,
+        error_details: str = ""
+    ) -> None:
+        """
+        Initialize prediction error.
+
+        Args:
+            message: Human-readable error message
+            model_id: ID of the model used for prediction
+            num_samples: Number of samples attempted to predict
+            error_details: Detailed error information
+        """
+        super().__init__(message, "predict")
+        self.model_id = model_id
+        self.num_samples = num_samples
+        self.error_details = error_details
+
+
+class FeatureMismatchError(PredictionError):
+    """Prediction data doesn't match model schema."""
+
+    def __init__(
+        self,
+        message: str,
+        expected_features: list[str] = None,
+        provided_features: list[str] = None,
+        missing_features: list[str] = None,
+        extra_features: list[str] = None
+    ) -> None:
+        """
+        Initialize feature mismatch error.
+
+        Args:
+            message: Human-readable error message
+            expected_features: Features expected by the model
+            provided_features: Features provided in prediction data
+            missing_features: Features required but not provided
+            extra_features: Features provided but not required
+        """
+        super().__init__(message)
+        self.expected_features = expected_features or []
+        self.provided_features = provided_features or []
+        self.missing_features = missing_features or []
+        self.extra_features = extra_features or []
+
+
+class ConvergenceError(TrainingError):
+    """Model failed to converge during training."""
+
+    def __init__(
+        self,
+        message: str,
+        model_type: str = "",
+        iterations: int = 0,
+        tolerance: float = 0.0
+    ) -> None:
+        """
+        Initialize convergence error.
+
+        Args:
+            message: Human-readable error message
+            model_type: Type of model that failed to converge
+            iterations: Number of iterations attempted
+            tolerance: Convergence tolerance threshold
+        """
+        super().__init__(message, model_type)
+        self.iterations = iterations
+        self.tolerance = tolerance
+
+
+class HyperparameterError(MLError):
+    """Invalid hyperparameter values."""
+
+    def __init__(
+        self,
+        message: str,
+        parameter_name: str = "",
+        parameter_value: any = None,
+        allowed_range: tuple = None
+    ) -> None:
+        """
+        Initialize hyperparameter error.
+
+        Args:
+            message: Human-readable error message
+            parameter_name: Name of invalid hyperparameter
+            parameter_value: Invalid value provided
+            allowed_range: Allowed range for the parameter
+        """
+        super().__init__(message, "hyperparameter_validation")
+        self.parameter_name = parameter_name
+        self.parameter_value = parameter_value
+        self.allowed_range = allowed_range
+
+
+class ModelSerializationError(MLError):
+    """Model serialization/deserialization failures."""
+
+    def __init__(
+        self,
+        message: str,
+        model_id: str = "",
+        operation: str = "",
+        file_path: str = ""
+    ) -> None:
+        """
+        Initialize model serialization error.
+
+        Args:
+            message: Human-readable error message
+            model_id: ID of the model
+            operation: Operation that failed (save/load)
+            file_path: Path to the model file
+        """
+        super().__init__(message, operation)
+        self.model_id = model_id
+        self.file_path = file_path

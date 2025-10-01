@@ -17,6 +17,8 @@ import pandas as pd
 
 from src.core.parser import TaskDefinition
 from src.engines.stats_engine import StatsEngine
+from src.engines.ml_engine import MLEngine
+from src.engines.ml_config import MLEngineConfig
 from src.processors.data_loader import DataLoader
 from src.generators.script_generator import ScriptGenerator
 from src.execution.executor import ScriptExecutor, SandboxConfig
@@ -619,15 +621,17 @@ class TaskOrchestrator:
     # Engine routing mapping
     ENGINE_ROUTES = {
         "stats": lambda self, task, data: self._execute_stats_task(task, data),
-        "script": lambda self, task, data: self._execute_script_task(task, data)
+        "script": lambda self, task, data: self._execute_script_task(task, data),
+        "ml_train": lambda self, task, data: self._execute_ml_train_task(task, data),
+        "ml_score": lambda self, task, data: self._execute_ml_score_task(task, data)
     }
 
     # Engine name mapping
     ENGINE_NAMES = {
         "stats": "StatsEngine",
         "script": "ScriptEngine",
-        "ml_train": "MLTrainingEngine",
-        "ml_score": "MLScoringEngine",
+        "ml_train": "MLEngine",
+        "ml_score": "MLEngine",
         "data_info": "DataInfoEngine"
     }
 
@@ -635,11 +639,13 @@ class TaskOrchestrator:
         self,
         enable_logging: bool = True,
         data_loader: Optional[DataLoader] = None,
-        state_ttl_minutes: int = 60
+        state_ttl_minutes: int = 60,
+        ml_config: Optional[MLEngineConfig] = None
     ) -> None:
         """Initialize the enhanced task orchestrator."""
         # Core engines
         self.stats_engine = StatsEngine()
+        self.ml_engine = MLEngine(ml_config or MLEngineConfig.get_default())
         self.enable_logging = enable_logging
         self.logger = logger
 
@@ -653,7 +659,7 @@ class TaskOrchestrator:
         # Background cleanup task
         self._cleanup_task = None
         if enable_logging:
-            logger.info("Enhanced TaskOrchestrator initialized with state management and workflow support")
+            logger.info("Enhanced TaskOrchestrator initialized with state management, workflow support, and ML Engine")
 
     async def execute_task(
         self,
@@ -930,6 +936,123 @@ class TaskOrchestrator:
                 raise
             else:
                 raise AgentError(f"Script execution pipeline failed: {str(e)}")
+
+    async def _execute_ml_train_task(
+        self,
+        task: TaskDefinition,
+        data: pd.DataFrame
+    ) -> Dict[str, Any]:
+        """
+        Execute ML model training task.
+
+        Args:
+            task: TaskDefinition for ML training
+            data: Training data DataFrame
+
+        Returns:
+            Training results with model_id and metrics
+        """
+        try:
+            # Extract parameters
+            params = task.parameters
+            model_type = params.get('model_type', 'linear')
+            target_column = params.get('target_column')
+            feature_columns = params.get('feature_columns', [])
+            task_type = params.get('task_type', 'regression')
+            user_id = params.get('user_id', 0)
+            hyperparameters = params.get('hyperparameters', {})
+            preprocessing_config = params.get('preprocessing', {})
+
+            # Validate required parameters
+            if not target_column:
+                raise ValidationError(
+                    "target_column is required for ML training",
+                    field="target_column"
+                )
+
+            if not feature_columns:
+                # Use all columns except target as features
+                feature_columns = [col for col in data.columns if col != target_column]
+
+            # Train model using ML Engine
+            result = self.ml_engine.train_model(
+                data=data,
+                task_type=task_type,
+                model_type=model_type,
+                target_column=target_column,
+                feature_columns=feature_columns,
+                user_id=user_id,
+                hyperparameters=hyperparameters,
+                preprocessing_config=preprocessing_config
+            )
+
+            return {
+                'success': True,
+                'model_id': result['model_id'],
+                'metrics': result['metrics'],
+                'training_time': result['training_time'],
+                'model_info': result['model_info'],
+                'task_type': 'ml_train'
+            }
+
+        except Exception as e:
+            # Re-raise with context
+            if isinstance(e, (ValidationError, DataError)):
+                raise
+            else:
+                raise AgentError(f"ML training failed: {str(e)}")
+
+    async def _execute_ml_score_task(
+        self,
+        task: TaskDefinition,
+        data: pd.DataFrame
+    ) -> Dict[str, Any]:
+        """
+        Execute ML model prediction/scoring task.
+
+        Args:
+            task: TaskDefinition for ML prediction
+            data: Input data DataFrame for prediction
+
+        Returns:
+            Prediction results with predictions and probabilities
+        """
+        try:
+            # Extract parameters
+            params = task.parameters
+            model_id = params.get('model_id')
+            user_id = params.get('user_id', 0)
+
+            # Validate required parameters
+            if not model_id:
+                raise ValidationError(
+                    "model_id is required for ML prediction",
+                    field="model_id"
+                )
+
+            # Make predictions using ML Engine
+            result = self.ml_engine.predict(
+                user_id=user_id,
+                model_id=model_id,
+                data=data
+            )
+
+            return {
+                'success': True,
+                'predictions': result['predictions'],
+                'probabilities': result.get('probabilities'),
+                'classes': result.get('classes'),
+                'model_id': result['model_id'],
+                'n_predictions': result['n_predictions'],
+                'task_type': 'ml_score'
+            }
+
+        except Exception as e:
+            # Re-raise with context
+            if isinstance(e, (ValidationError, DataError)):
+                raise
+            else:
+                raise AgentError(f"ML prediction failed: {str(e)}")
 
     def _validate_task(self, task: TaskDefinition) -> None:
         """Validate TaskDefinition object."""
