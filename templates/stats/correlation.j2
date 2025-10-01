@@ -1,0 +1,216 @@
+{#
+Template: Correlation Analysis
+Description: Calculate correlation matrices and analyze relationships between variables
+Author: System
+Version: 2.0
+Required_params: columns, method
+#}
+{% extends "utils/base.j2" %}
+
+{% block additional_imports %}
+from scipy import stats
+{% endblock %}
+
+{% block custom_validation %}
+# Check if specified columns exist
+columns = params.get('columns', [])
+if columns and columns != ['all']:
+    missing_columns = [col for col in columns if col not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns: {missing_columns}")
+
+# Validate correlation method
+method = params.get('method', 'pearson')
+valid_methods = ['pearson', 'spearman', 'kendall']
+if method not in valid_methods:
+    raise ValueError(f"Invalid correlation method '{method}'. Must be one of: {valid_methods}")
+{% endblock %}
+
+{% block operation_function %}
+def execute_{{ operation.replace('-', '_') }}(df: pd.DataFrame, params: dict) -> dict:
+    """Calculate correlation matrices and related statistics."""
+
+    # Get columns to analyze
+    columns = params.get('columns', ['all'])
+    if columns == ['all'] or not columns:
+        # Select only numeric columns
+        columns = df.select_dtypes(include=[np.number]).columns.tolist()
+
+    if not columns:
+        raise ValueError("No numeric columns found for correlation analysis")
+
+    if len(columns) < 2:
+        raise ValueError("At least 2 numeric columns required for correlation analysis")
+
+    # Get correlation method
+    method = params.get('method', 'pearson')
+
+    # Get significance level for p-values
+    alpha = params.get('alpha', 0.05)
+
+    result = {
+        'columns_analyzed': columns,
+        'method': method,
+        'significance_level': alpha,
+        'correlation_matrix': {},
+        'correlation_pairs': [],
+        'summary': {}
+    }
+
+    # Filter dataframe to selected columns and remove rows with any NaN
+    df_clean = df[columns].dropna()
+
+    if df_clean.empty:
+        raise ValueError("No rows remain after removing missing values")
+
+    if len(df_clean) < 2:
+        raise ValueError("At least 2 rows required for correlation analysis")
+
+    # Calculate correlation matrix
+    if method == 'pearson':
+        corr_matrix = df_clean.corr(method='pearson')
+    elif method == 'spearman':
+        corr_matrix = df_clean.corr(method='spearman')
+    elif method == 'kendall':
+        corr_matrix = df_clean.corr(method='kendall')
+
+    result['correlation_matrix'] = corr_matrix.to_dict()
+
+    # Calculate pairwise correlations with p-values
+    correlation_pairs = []
+    significant_pairs = []
+
+    for i, col1 in enumerate(columns):
+        for j, col2 in enumerate(columns):
+            if i < j:  # Only calculate upper triangle
+                x = df_clean[col1]
+                y = df_clean[col2]
+
+                # Calculate correlation and p-value
+                if method == 'pearson':
+                    corr_coef, p_value = stats.pearsonr(x, y)
+                elif method == 'spearman':
+                    corr_coef, p_value = stats.spearmanr(x, y)
+                elif method == 'kendall':
+                    corr_coef, p_value = stats.kendalltau(x, y)
+
+                pair_info = {
+                    'variable_1': col1,
+                    'variable_2': col2,
+                    'correlation': float(corr_coef),
+                    'p_value': float(p_value),
+                    'significant': p_value < alpha,
+                    'strength': interpret_correlation_strength(abs(corr_coef))
+                }
+
+                correlation_pairs.append(pair_info)
+
+                if p_value < alpha:
+                    significant_pairs.append(pair_info)
+
+    result['correlation_pairs'] = correlation_pairs
+    result['significant_pairs'] = significant_pairs
+
+    # Generate summary statistics
+    all_correlations = [pair['correlation'] for pair in correlation_pairs]
+    significant_correlations = [pair['correlation'] for pair in significant_pairs]
+
+    result['summary'] = {
+        'total_pairs': len(correlation_pairs),
+        'significant_pairs': len(significant_pairs),
+        'percentage_significant': (len(significant_pairs) / len(correlation_pairs)) * 100 if correlation_pairs else 0,
+        'strongest_correlation': get_strongest_correlation(correlation_pairs),
+        'weakest_correlation': get_weakest_correlation(correlation_pairs),
+        'average_correlation': float(np.mean(np.abs(all_correlations))) if all_correlations else 0,
+        'median_correlation': float(np.median(np.abs(all_correlations))) if all_correlations else 0,
+        'correlation_distribution': get_correlation_distribution(all_correlations),
+        'data_quality': {
+            'original_rows': len(df),
+            'rows_after_cleaning': len(df_clean),
+            'missing_data_percentage': ((len(df) - len(df_clean)) / len(df)) * 100 if len(df) > 0 else 0
+        }
+    }
+
+    return result
+{% endblock %}
+
+{% block helper_functions %}
+def interpret_correlation_strength(abs_corr: float) -> str:
+    """Interpret the strength of correlation coefficient."""
+    if abs_corr >= 0.9:
+        return "very_strong"
+    elif abs_corr >= 0.7:
+        return "strong"
+    elif abs_corr >= 0.5:
+        return "moderate"
+    elif abs_corr >= 0.3:
+        return "weak"
+    else:
+        return "very_weak"
+
+def get_strongest_correlation(pairs: list) -> dict:
+    """Find the pair with strongest correlation."""
+    if not pairs:
+        return {'note': 'No correlation pairs available'}
+
+    strongest = max(pairs, key=lambda x: abs(x['correlation']))
+    return {
+        'variables': [strongest['variable_1'], strongest['variable_2']],
+        'correlation': strongest['correlation'],
+        'strength': strongest['strength'],
+        'p_value': strongest['p_value'],
+        'significant': strongest['significant']
+    }
+
+def get_weakest_correlation(pairs: list) -> dict:
+    """Find the pair with weakest correlation."""
+    if not pairs:
+        return {'note': 'No correlation pairs available'}
+
+    weakest = min(pairs, key=lambda x: abs(x['correlation']))
+    return {
+        'variables': [weakest['variable_1'], weakest['variable_2']],
+        'correlation': weakest['correlation'],
+        'strength': weakest['strength'],
+        'p_value': weakest['p_value'],
+        'significant': weakest['significant']
+    }
+
+def get_correlation_distribution(correlations: list) -> dict:
+    """Analyze the distribution of correlation coefficients."""
+    if not correlations:
+        return {'note': 'No correlations to analyze'}
+
+    abs_correlations = [abs(c) for c in correlations]
+
+    # Count by strength categories
+    very_strong = sum(1 for c in abs_correlations if c >= 0.9)
+    strong = sum(1 for c in abs_correlations if 0.7 <= c < 0.9)
+    moderate = sum(1 for c in abs_correlations if 0.5 <= c < 0.7)
+    weak = sum(1 for c in abs_correlations if 0.3 <= c < 0.5)
+    very_weak = sum(1 for c in abs_correlations if c < 0.3)
+
+    # Count positive vs negative
+    positive = sum(1 for c in correlations if c > 0)
+    negative = sum(1 for c in correlations if c < 0)
+
+    return {
+        'by_strength': {
+            'very_strong': very_strong,
+            'strong': strong,
+            'moderate': moderate,
+            'weak': weak,
+            'very_weak': very_weak
+        },
+        'by_direction': {
+            'positive': positive,
+            'negative': negative
+        },
+        'statistics': {
+            'min': float(min(correlations)),
+            'max': float(max(correlations)),
+            'mean': float(np.mean(correlations)),
+            'std': float(np.std(correlations))
+        }
+    }
+{% endblock %}

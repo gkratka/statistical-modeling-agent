@@ -123,3 +123,69 @@ class ConfigurationError(AgentError):
         """
         super().__init__(message, "CONFIG_ERROR")
         self.config_key = config_key
+
+
+class ScriptGenerationError(AgentError):
+    """Script generation failures."""
+
+    def __init__(self, message: str, operation: str = "", template: str = "") -> None:
+        """
+        Initialize script generation error.
+
+        Args:
+            message: Human-readable error message
+            operation: Operation that failed
+            template: Template that was being used
+        """
+        super().__init__(message, "SCRIPT_GENERATION_ERROR")
+        self.operation = operation
+        self.template = template
+
+
+class SecurityViolationError(ExecutionError):
+    """Security constraint violations."""
+
+    def __init__(self, message: str, violations: list = None) -> None:
+        """
+        Initialize security violation error.
+
+        Args:
+            message: Human-readable error message
+            violations: List of security violations
+        """
+        super().__init__(message, "", "")
+        self.violations = violations or []
+
+
+class ResourceLimitError(ExecutionError):
+    """Resource limit exceeded."""
+
+    def __init__(self, message: str, resource_type: str = "", limit_value: str = "") -> None:
+        """
+        Initialize resource limit error.
+
+        Args:
+            message: Human-readable error message
+            resource_type: Type of resource (memory, cpu, time)
+            limit_value: The limit that was exceeded
+        """
+        super().__init__(message, "", "")
+        self.resource_type = resource_type
+        self.limit_value = limit_value
+
+
+class TemplateError(ScriptGenerationError):
+    """Template-related errors."""
+
+    def __init__(self, message: str, template_path: str = "", line_number: int = 0) -> None:
+        """
+        Initialize template error.
+
+        Args:
+            message: Human-readable error message
+            template_path: Path to template that caused error
+            line_number: Line number in template if available
+        """
+        super().__init__(message, "", template_path)
+        self.template_path = template_path
+        self.line_number = line_number

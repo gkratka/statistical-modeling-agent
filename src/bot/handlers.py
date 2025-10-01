@@ -195,8 +195,14 @@ async def message_handler(
 
                 logger.info(f"🔧 TASK EXECUTED: success={result.get('success')} in {result.get('metadata', {}).get('execution_time', 0):.3f}s")
 
-                # Format result for Telegram
-                response_message = formatter.format_stats_result(result)
+                # Format result for Telegram based on task type
+                if task.task_type == "script":
+                    # Import script handler for result formatting
+                    from src.bot.script_handler import ScriptHandler
+                    script_handler = ScriptHandler(parser, orchestrator)
+                    response_message = script_handler.format_script_results(result)
+                else:
+                    response_message = formatter.format_stats_result(result)
 
                 logger.info(f"🔧 RESPONSE FORMATTED: {len(response_message)} characters")
 
@@ -241,8 +247,8 @@ async def message_handler(
                     f"**Your data:** {file_name} ({metadata.get('shape', (0, 0))[0]:,} rows)\n"
                     f"**Available columns:** {', '.join(metadata.get('columns', [])[:5])}\n\n"
                     f"**Try asking:**\n"
-                    f"• \"Calculate statistics for {metadata.get('columns', ['column_name'])[0]}\"\n"
-                    f"• \"Show correlation matrix\"\n\n"
+                    f"• Calculate statistics for {metadata.get('columns', ['column_name'])[0]}\n"
+                    f"• Show correlation matrix\n\n"
                     f"If the problem persists, please try uploading your data again."
                 )
 

@@ -98,6 +98,10 @@ class StatisticalModelingBot:
         self.application.add_handler(CommandHandler("help", help_handler))
         self.application.add_handler(CommandHandler("diagnostic", diagnostic_handler))
 
+        # Script command handler
+        from src.bot.script_handler import script_command_handler
+        self.application.add_handler(CommandHandler("script", script_command_handler))
+
         # Document handler (for CSV files, etc.)
         self.application.add_handler(
             MessageHandler(filters.Document.ALL, document_handler)
@@ -110,6 +114,16 @@ class StatisticalModelingBot:
 
         # Error handler
         self.application.add_error_handler(error_handler)
+
+        # Initialize script handler in bot_data for convenience functions
+        from src.bot.script_handler import ScriptHandler
+        from src.core.parser import RequestParser
+        from src.core.orchestrator import TaskOrchestrator
+
+        parser = RequestParser()
+        orchestrator = TaskOrchestrator()
+        script_handler = ScriptHandler(parser, orchestrator)
+        self.application.bot_data['script_handler'] = script_handler
 
         self.logger.info("Bot handlers configured successfully")
 
