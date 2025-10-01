@@ -402,3 +402,156 @@ class ModelSerializationError(MLError):
         super().__init__(message, operation)
         self.model_id = model_id
         self.file_path = file_path
+
+
+# ============================================================================
+# State Management Exceptions
+# ============================================================================
+
+
+class StateError(AgentError):
+    """Base exception for state management errors."""
+
+    def __init__(self, message: str, session_key: str = "") -> None:
+        """
+        Initialize state error.
+
+        Args:
+            message: Human-readable error message
+            session_key: Session key associated with error
+        """
+        super().__init__(message, "STATE_ERROR")
+        self.session_key = session_key
+
+
+class SessionNotFoundError(StateError):
+    """Session doesn't exist."""
+
+    def __init__(self, message: str, user_id: int = 0, conversation_id: str = "") -> None:
+        """
+        Initialize session not found error.
+
+        Args:
+            message: Human-readable error message
+            user_id: User ID of missing session
+            conversation_id: Conversation ID of missing session
+        """
+        session_key = f"{user_id}_{conversation_id}" if user_id and conversation_id else ""
+        super().__init__(message, session_key)
+        self.user_id = user_id
+        self.conversation_id = conversation_id
+
+
+class SessionExpiredError(StateError):
+    """Session has expired due to timeout."""
+
+    def __init__(
+        self,
+        message: str,
+        session_key: str = "",
+        expired_at: str = "",
+        timeout_minutes: int = 0
+    ) -> None:
+        """
+        Initialize session expired error.
+
+        Args:
+            message: Human-readable error message
+            session_key: Key of expired session
+            expired_at: Timestamp when session expired
+            timeout_minutes: Timeout duration in minutes
+        """
+        super().__init__(message, session_key)
+        self.expired_at = expired_at
+        self.timeout_minutes = timeout_minutes
+
+
+class InvalidStateTransitionError(StateError):
+    """State transition is not valid for current workflow."""
+
+    def __init__(
+        self,
+        message: str,
+        current_state: str = "",
+        requested_state: str = "",
+        workflow_type: str = ""
+    ) -> None:
+        """
+        Initialize invalid state transition error.
+
+        Args:
+            message: Human-readable error message
+            current_state: Current workflow state
+            requested_state: Requested new state
+            workflow_type: Type of workflow
+        """
+        super().__init__(message)
+        self.current_state = current_state
+        self.requested_state = requested_state
+        self.workflow_type = workflow_type
+
+
+class PrerequisiteNotMetError(StateError):
+    """State transition prerequisite not satisfied."""
+
+    def __init__(
+        self,
+        message: str,
+        state: str = "",
+        missing_prerequisites: list[str] = None
+    ) -> None:
+        """
+        Initialize prerequisite not met error.
+
+        Args:
+            message: Human-readable error message
+            state: State that requires prerequisites
+            missing_prerequisites: List of missing prerequisites
+        """
+        super().__init__(message)
+        self.state = state
+        self.missing_prerequisites = missing_prerequisites or []
+
+
+class DataSizeLimitError(StateError):
+    """Uploaded data exceeds size limit."""
+
+    def __init__(
+        self,
+        message: str,
+        actual_size_mb: float = 0.0,
+        limit_mb: int = 0
+    ) -> None:
+        """
+        Initialize data size limit error.
+
+        Args:
+            message: Human-readable error message
+            actual_size_mb: Actual data size in MB
+            limit_mb: Maximum allowed size in MB
+        """
+        super().__init__(message)
+        self.actual_size_mb = actual_size_mb
+        self.limit_mb = limit_mb
+
+
+class SessionLimitError(StateError):
+    """Maximum number of concurrent sessions reached."""
+
+    def __init__(
+        self,
+        message: str,
+        current_count: int = 0,
+        limit: int = 0
+    ) -> None:
+        """
+        Initialize session limit error.
+
+        Args:
+            message: Human-readable error message
+            current_count: Current number of sessions
+            limit: Maximum allowed sessions
+        """
+        super().__init__(message)
+        self.current_count = current_count
+        self.limit = limit
