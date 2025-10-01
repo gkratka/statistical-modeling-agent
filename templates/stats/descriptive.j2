@@ -1,0 +1,150 @@
+{#
+Template: Descriptive Statistics
+Description: Calculate comprehensive descriptive statistics
+Author: System
+Version: 2.0
+Required_params: columns, statistics
+#}
+{% extends "utils/base.j2" %}
+
+{% block additional_imports %}
+from scipy import stats
+{% endblock %}
+
+{% block custom_validation %}
+# Check if specified columns exist
+columns = params.get('columns', [])
+if columns and columns != ['all']:
+    missing_columns = [col for col in columns if col not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns: {missing_columns}")
+{% endblock %}
+
+{% block operation_function %}
+def execute_{{ operation.replace('-', '_') }}(df: pd.DataFrame, params: dict) -> dict:
+    """Calculate descriptive statistics for specified columns."""
+
+    # Get columns to analyze
+    columns = params.get('columns', ['all'])
+    if columns == ['all'] or not columns:
+        # Select only numeric columns
+        columns = df.select_dtypes(include=[np.number]).columns.tolist()
+
+    if not columns:
+        raise ValueError("No numeric columns found for analysis")
+
+    # Get requested statistics
+    requested_stats = params.get('statistics', ['mean', 'median', 'std', 'min', 'max', 'count'])
+
+    result = {
+        'columns_analyzed': columns,
+        'statistics_calculated': requested_stats,
+        'summary': {}
+    }
+
+    # Calculate statistics for each column
+    for col in columns:
+        if col not in df.columns:
+            continue
+
+        col_data = df[col].dropna()  # Remove NaN values
+
+        if col_data.empty:
+            result['summary'][col] = {'error': 'No valid data points'}
+            continue
+
+        col_stats = {}
+
+        # Basic statistics
+        if 'count' in requested_stats:
+            col_stats['count'] = len(col_data)
+
+        if 'mean' in requested_stats:
+            col_stats['mean'] = float(col_data.mean())
+
+        if 'median' in requested_stats:
+            col_stats['median'] = float(col_data.median())
+
+        if 'std' in requested_stats:
+            col_stats['std'] = float(col_data.std())
+
+        if 'var' in requested_stats or 'variance' in requested_stats:
+            col_stats['variance'] = float(col_data.var())
+
+        if 'min' in requested_stats:
+            col_stats['min'] = float(col_data.min())
+
+        if 'max' in requested_stats:
+            col_stats['max'] = float(col_data.max())
+
+        if 'range' in requested_stats:
+            col_stats['range'] = float(col_data.max() - col_data.min())
+
+        # Quartiles and percentiles
+        if 'q1' in requested_stats or 'quartile' in requested_stats:
+            col_stats['q1'] = float(col_data.quantile(0.25))
+
+        if 'q3' in requested_stats or 'quartile' in requested_stats:
+            col_stats['q3'] = float(col_data.quantile(0.75))
+
+        if 'iqr' in requested_stats or 'quartile' in requested_stats:
+            col_stats['iqr'] = float(col_data.quantile(0.75) - col_data.quantile(0.25))
+
+        # Advanced statistics
+        if 'skewness' in requested_stats or 'skew' in requested_stats:
+            col_stats['skewness'] = float(col_data.skew())
+
+        if 'kurtosis' in requested_stats:
+            col_stats['kurtosis'] = float(col_data.kurtosis())
+
+        # Mode (most frequent value)
+        if 'mode' in requested_stats:
+            mode_result = col_data.mode()
+            col_stats['mode'] = float(mode_result.iloc[0]) if not mode_result.empty else None
+
+        # Additional metrics
+        col_stats['null_count'] = int(df[col].isnull().sum())
+        col_stats['null_percentage'] = float((df[col].isnull().sum() / len(df)) * 100)
+
+        result['summary'][col] = col_stats
+
+    # Overall dataset statistics
+    if len(columns) > 1:
+        result['overall'] = {
+            'total_rows': len(df),
+            'total_columns_analyzed': len(columns),
+            'correlation_summary': calculate_correlation_summary(df[columns])
+        }
+
+    return result
+{% endblock %}
+
+{% block helper_functions %}
+def calculate_correlation_summary(df: pd.DataFrame) -> dict:
+    """Calculate basic correlation summary."""
+    try:
+        corr_matrix = df.corr()
+
+        # Get upper triangle of correlation matrix (excluding diagonal)
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool), k=1)
+        upper_triangle = corr_matrix.where(mask)
+
+        # Find strongest correlations
+        corr_values = upper_triangle.stack().dropna()
+
+        if corr_values.empty:
+            return {'note': 'No correlations calculated'}
+
+        strongest_positive = corr_values.max()
+        strongest_negative = corr_values.min()
+        mean_correlation = corr_values.mean()
+
+        return {
+            'strongest_positive_correlation': float(strongest_positive),
+            'strongest_negative_correlation': float(strongest_negative),
+            'mean_absolute_correlation': float(corr_values.abs().mean()),
+            'total_pairs': len(corr_values)
+        }
+    except Exception:
+        return {'note': 'Correlation summary unavailable'}
+{% endblock %}

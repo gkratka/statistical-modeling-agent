@@ -18,7 +18,9 @@ import pandas as pd
 from src.core.parser import TaskDefinition
 from src.engines.stats_engine import StatsEngine
 from src.processors.data_loader import DataLoader
-from src.utils.exceptions import ValidationError, DataError, AgentError
+from src.generators.script_generator import ScriptGenerator
+from src.execution.executor import ScriptExecutor, SandboxConfig
+from src.utils.exceptions import ValidationError, DataError, AgentError, ScriptGenerationError, ExecutionError
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -616,12 +618,14 @@ class TaskOrchestrator:
 
     # Engine routing mapping
     ENGINE_ROUTES = {
-        "stats": lambda self, task, data: self._execute_stats_task(task, data)
+        "stats": lambda self, task, data: self._execute_stats_task(task, data),
+        "script": lambda self, task, data: self._execute_script_task(task, data)
     }
 
     # Engine name mapping
     ENGINE_NAMES = {
         "stats": "StatsEngine",
+        "script": "ScriptEngine",
         "ml_train": "MLTrainingEngine",
         "ml_score": "MLScoringEngine",
         "data_info": "DataInfoEngine"
@@ -866,6 +870,66 @@ class TaskOrchestrator:
                 raise
             else:
                 raise AgentError(f"Stats engine execution failed: {str(e)}")
+
+    async def _execute_script_task(
+        self,
+        task: TaskDefinition,
+        data: pd.DataFrame
+    ) -> Dict[str, Any]:
+        """
+        Execute script generation and execution pipeline.
+
+        Args:
+            task: TaskDefinition for script operation
+            data: DataFrame for analysis
+
+        Returns:
+            Script execution results with metadata
+        """
+        try:
+            # Generate secure script
+            from pathlib import Path
+            template_dir = Path(__file__).parent.parent.parent / 'templates'
+            generator = ScriptGenerator(template_dir)
+            script = generator.generate(task)
+
+            # Execute in sandbox
+            executor = ScriptExecutor()
+            config = SandboxConfig(
+                timeout=30,
+                memory_limit=2048,
+                allow_network=False
+            )
+
+            # Prepare input data
+            input_data = {
+                'dataframe': data.to_dict(),
+                'parameters': task.parameters
+            }
+
+            # Execute script
+            result = await executor.run_sandboxed(script, input_data, config)
+
+            return {
+                'success': result.success,
+                'output': result.output,
+                'script_hash': result.script_hash,
+                'execution_time': result.execution_time,
+                'memory_usage': result.memory_usage,
+                'metadata': {
+                    'operation': task.operation,
+                    'template_used': f"{task.operation}.j2",
+                    'security_validated': True,
+                    'resource_limits': config.__dict__
+                }
+            }
+
+        except Exception as e:
+            # Re-raise with context
+            if isinstance(e, (ScriptGenerationError, ExecutionError, ValidationError)):
+                raise
+            else:
+                raise AgentError(f"Script execution pipeline failed: {str(e)}")
 
     def _validate_task(self, task: TaskDefinition) -> None:
         """Validate TaskDefinition object."""

@@ -1,0 +1,376 @@
+{#
+Template: Model Prediction
+Description: Make predictions using trained models
+Author: System
+Version: 1.0
+Required_params: model_data, features
+#}
+#!/usr/bin/env python3
+"""
+Generated script for model prediction operation.
+Generated at: {{ timestamp }}
+"""
+
+import json
+import sys
+import pandas as pd
+import numpy as np
+from typing import Any, Dict, List, Optional, Union
+
+def main() -> None:
+    """Main execution function."""
+    try:
+        # Read input data from stdin
+        input_data = json.loads(sys.stdin.read())
+        df = pd.DataFrame(input_data['dataframe'])
+        params = input_data.get('parameters', {})
+
+        # Validate input data
+        validate_input(df, params)
+
+        # Execute prediction
+        result = make_predictions(df, params)
+
+        # Output results as JSON
+        output = {
+            'success': True,
+            'result': result,
+            'metadata': {
+                'operation': 'predict',
+                'timestamp': '{{ timestamp }}',
+                'rows_processed': len(df),
+                'model_type': params.get('model_data', {}).get('model_type', 'unknown')
+            }
+        }
+
+        print(json.dumps(output, default=str))
+
+    except Exception as e:
+        error_output = {
+            'success': False,
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'operation': 'predict',
+            'timestamp': '{{ timestamp }}'
+        }
+        print(json.dumps(error_output))
+        return  # Exit gracefully without sys.exit
+
+def validate_input(df: pd.DataFrame, params: dict) -> None:
+    """Validate input data and parameters."""
+    if df.empty:
+        raise ValueError("Input dataframe is empty")
+
+    # Check model data
+    model_data = params.get('model_data')
+    if not model_data:
+        raise ValueError("model_data parameter is required")
+
+    if not isinstance(model_data, dict):
+        raise ValueError("model_data must be a dictionary")
+
+    # Check features
+    features = params.get('features')
+    if not features:
+        raise ValueError("features parameter is required")
+
+    missing_features = [f for f in features if f not in df.columns]
+    if missing_features:
+        raise ValueError(f"Feature columns not found: {missing_features}")
+
+    # Check model type
+    model_type = model_data.get('model_type')
+    if not model_type:
+        raise ValueError("model_type not found in model_data")
+
+def make_predictions(df: pd.DataFrame, params: dict) -> dict:
+    """Make predictions using the provided model."""
+
+    model_data = params['model_data']
+    features = params['features']
+    model_type = model_data['model_type']
+
+    # Prepare features
+    X = df[features].copy()
+
+    # Handle missing values (same as training)
+    X_clean = handle_missing_values_predict(X)
+
+    if len(X_clean) == 0:
+        raise ValueError("No samples remain after handling missing values")
+
+    # Encode features if needed
+    X_encoded = encode_features_predict(X_clean, model_data)
+
+    # Scale features using stored parameters
+    X_scaled = scale_features_predict(X_encoded, model_data)
+
+    # Make predictions
+    predictions = predict_with_model(X_scaled, model_data, model_type)
+
+    # Decode predictions if needed
+    predictions_decoded = decode_predictions(predictions, model_data)
+
+    # Calculate prediction confidence/probabilities if available
+    prediction_confidence = calculate_prediction_confidence(X_scaled, model_data, model_type)
+
+    # Prepare results
+    result = {
+        'predictions': predictions_decoded.tolist(),
+        'prediction_metadata': {
+            'model_type': model_type,
+            'features_used': features,
+            'samples_predicted': len(predictions),
+            'original_samples': len(df),
+            'samples_after_cleaning': len(X_clean)
+        },
+        'prediction_confidence': prediction_confidence,
+        'feature_statistics': {
+            'feature_means': X_clean.mean().to_dict(),
+            'feature_stds': X_clean.std().to_dict(),
+            'missing_values_per_feature': X.isnull().sum().to_dict()
+        }
+    }
+
+    # Add detailed predictions with confidence scores
+    detailed_predictions = []
+    for i, (pred, conf) in enumerate(zip(predictions_decoded, prediction_confidence.get('scores', [None] * len(predictions_decoded)))):
+        detailed_predictions.append({
+            'index': i,
+            'prediction': pred,
+            'confidence': conf,
+            'input_features': X_clean.iloc[i].to_dict() if i < len(X_clean) else None
+        })
+
+    result['detailed_predictions'] = detailed_predictions
+
+    return result
+
+def handle_missing_values_predict(X: pd.DataFrame) -> pd.DataFrame:
+    """Handle missing values in prediction data."""
+    # For prediction, we'll use simple imputation (mean for numeric, mode for categorical)
+    X_filled = X.copy()
+
+    for col in X.columns:
+        if X[col].isnull().any():
+            if X[col].dtype in ['int64', 'float64']:
+                # Fill numeric columns with mean
+                X_filled[col] = X[col].fillna(X[col].mean())
+            else:
+                # Fill categorical columns with mode
+                mode_value = X[col].mode()
+                if len(mode_value) > 0:
+                    X_filled[col] = X[col].fillna(mode_value[0])
+                else:
+                    # If no mode, fill with 'unknown'
+                    X_filled[col] = X[col].fillna('unknown')
+
+    return X_filled
+
+def encode_features_predict(X: pd.DataFrame, model_data: dict) -> pd.DataFrame:
+    """Encode categorical features using stored encoders."""
+    X_encoded = X.copy()
+    feature_encoders = model_data.get('feature_encoders', {})
+
+    for col in X.columns:
+        if col in feature_encoders:
+            encoding_map = feature_encoders[col]
+            # For unknown categories, assign a default value
+            X_encoded[col] = X[col].map(encoding_map).fillna(-1)  # -1 for unknown categories
+
+    return X_encoded
+
+def scale_features_predict(X: pd.DataFrame, model_data: dict) -> pd.DataFrame:
+    """Scale features using stored scaling parameters."""
+    scaler_params = model_data.get('scaler_params', {})
+
+    if not scaler_params:
+        return X  # No scaling was done during training
+
+    means = pd.Series(scaler_params.get('means', {}))
+    stds = pd.Series(scaler_params.get('stds', {}))
+
+    # Only scale columns that were scaled during training
+    X_scaled = X.copy()
+    for col in X.columns:
+        if col in means.index and col in stds.index:
+            if stds[col] != 0:
+                X_scaled[col] = (X[col] - means[col]) / stds[col]
+
+    return X_scaled
+
+def predict_with_model(X: pd.DataFrame, model_data: dict, model_type: str) -> np.ndarray:
+    """Make predictions using the specified model type."""
+
+    if model_type == 'logistic_regression':
+        return predict_logistic_regression(X, model_data)
+    elif model_type == 'decision_tree':
+        return predict_decision_tree(X, model_data)
+    elif model_type == 'naive_bayes':
+        return predict_naive_bayes(X, model_data)
+    elif model_type == 'random_forest':
+        return predict_random_forest(X, model_data)
+    elif model_type == 'svm':
+        return predict_svm(X, model_data)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
+
+def predict_logistic_regression(X: pd.DataFrame, model_data: dict) -> np.ndarray:
+    """Make predictions with logistic regression."""
+    weights = np.array(model_data['weights'])
+    X_array = X.values
+
+    # Add intercept term
+    X_with_intercept = np.column_stack([np.ones(X_array.shape[0]), X_array])
+
+    # Calculate predictions
+    z = X_with_intercept @ weights
+    probabilities = sigmoid(z)
+
+    return (probabilities > 0.5).astype(int)
+
+def predict_decision_tree(X: pd.DataFrame, model_data: dict) -> np.ndarray:
+    """Make predictions with decision tree."""
+    # Simplified prediction - return majority class
+    majority_class = model_data.get('majority_class', 0)
+    return np.full(len(X), majority_class)
+
+def predict_naive_bayes(X: pd.DataFrame, model_data: dict) -> np.ndarray:
+    """Make predictions with Naive Bayes."""
+    class_stats = model_data['class_stats']
+    classes = list(class_stats.keys())
+
+    predictions = []
+
+    for _, row in X.iterrows():
+        class_probs = {}
+
+        for cls in classes:
+            log_prob = np.log(class_stats[cls]['prior'])
+
+            for feature in X.columns:
+                if feature in class_stats[cls]['means']:
+                    mean = class_stats[cls]['means'][feature]
+                    std = class_stats[cls]['stds'][feature]
+
+                    if std > 0:
+                        # Gaussian probability
+                        log_prob += -0.5 * np.log(2 * np.pi * std**2)
+                        log_prob += -0.5 * ((row[feature] - mean)**2) / (std**2)
+
+            class_probs[cls] = log_prob
+
+        predicted_class = max(class_probs, key=class_probs.get)
+        predictions.append(predicted_class)
+
+    return np.array(predictions)
+
+def predict_random_forest(X: pd.DataFrame, model_data: dict) -> np.ndarray:
+    """Make predictions with random forest (simplified)."""
+    # Simplified - use majority class
+    majority_class = model_data.get('majority_class', 0)
+    return np.full(len(X), majority_class)
+
+def predict_svm(X: pd.DataFrame, model_data: dict) -> np.ndarray:
+    """Make predictions with SVM (simplified)."""
+    # Simplified - use majority class
+    majority_class = model_data.get('majority_class', 0)
+    return np.full(len(X), majority_class)
+
+def sigmoid(z: np.ndarray) -> np.ndarray:
+    """Sigmoid activation function."""
+    return 1 / (1 + np.exp(-np.clip(z, -250, 250)))
+
+def decode_predictions(predictions: np.ndarray, model_data: dict) -> np.ndarray:
+    """Decode predictions if label encoding was used."""
+    label_encoder = model_data.get('label_encoder')
+
+    if label_encoder is None:
+        return predictions
+
+    # Reverse the encoding
+    reverse_encoding = {v: k for k, v in label_encoder.items()}
+    decoded = np.array([reverse_encoding.get(pred, pred) for pred in predictions])
+
+    return decoded
+
+def calculate_prediction_confidence(X: pd.DataFrame, model_data: dict, model_type: str) -> dict:
+    """Calculate prediction confidence scores."""
+
+    if model_type == 'logistic_regression':
+        return calculate_logistic_confidence(X, model_data)
+    elif model_type == 'naive_bayes':
+        return calculate_naive_bayes_confidence(X, model_data)
+    else:
+        # For other models, return uniform confidence
+        return {
+            'method': 'uniform',
+            'scores': [0.5] * len(X),
+            'note': f'Confidence scores not implemented for {model_type}'
+        }
+
+def calculate_logistic_confidence(X: pd.DataFrame, model_data: dict) -> dict:
+    """Calculate confidence scores for logistic regression."""
+    weights = np.array(model_data['weights'])
+    X_array = X.values
+
+    # Add intercept term
+    X_with_intercept = np.column_stack([np.ones(X_array.shape[0]), X_array])
+
+    # Calculate probabilities
+    z = X_with_intercept @ weights
+    probabilities = sigmoid(z)
+
+    # Confidence is the maximum probability (distance from 0.5)
+    confidence_scores = np.maximum(probabilities, 1 - probabilities)
+
+    return {
+        'method': 'logistic_probability',
+        'scores': confidence_scores.tolist(),
+        'probabilities': probabilities.tolist()
+    }
+
+def calculate_naive_bayes_confidence(X: pd.DataFrame, model_data: dict) -> dict:
+    """Calculate confidence scores for Naive Bayes."""
+    class_stats = model_data['class_stats']
+    classes = list(class_stats.keys())
+
+    all_confidences = []
+    all_class_probs = []
+
+    for _, row in X.iterrows():
+        class_probs = {}
+
+        for cls in classes:
+            log_prob = np.log(class_stats[cls]['prior'])
+
+            for feature in X.columns:
+                if feature in class_stats[cls]['means']:
+                    mean = class_stats[cls]['means'][feature]
+                    std = class_stats[cls]['stds'][feature]
+
+                    if std > 0:
+                        log_prob += -0.5 * np.log(2 * np.pi * std**2)
+                        log_prob += -0.5 * ((row[feature] - mean)**2) / (std**2)
+
+            class_probs[cls] = log_prob
+
+        # Convert log probabilities to normalized probabilities
+        max_log_prob = max(class_probs.values())
+        exp_probs = {cls: np.exp(prob - max_log_prob) for cls, prob in class_probs.items()}
+        total_prob = sum(exp_probs.values())
+        normalized_probs = {cls: prob / total_prob for cls, prob in exp_probs.items()}
+
+        # Confidence is the maximum probability
+        max_prob = max(normalized_probs.values())
+        all_confidences.append(max_prob)
+        all_class_probs.append(normalized_probs)
+
+    return {
+        'method': 'naive_bayes_probability',
+        'scores': all_confidences,
+        'class_probabilities': all_class_probs
+    }
+
+if __name__ == "__main__":
+    main()

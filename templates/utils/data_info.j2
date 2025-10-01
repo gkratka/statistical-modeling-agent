@@ -1,0 +1,89 @@
+{#
+Template: Data Information
+Description: Provide basic information about the dataset
+Author: System
+Version: 1.0
+Required_params: None
+#}
+#!/usr/bin/env python3
+"""
+Generated script for data information operation.
+Generated at: {{ timestamp }}
+"""
+
+import json
+import sys
+import pandas as pd
+import numpy as np
+
+def main() -> None:
+    """Main execution function."""
+    try:
+        # Read input data from stdin
+        input_data = json.loads(sys.stdin.read())
+        df = pd.DataFrame(input_data['dataframe'])
+
+        # Get data information
+        result = get_data_info(df)
+
+        # Output results as JSON
+        output = {
+            'success': True,
+            'result': result,
+            'metadata': {
+                'operation': 'data_info',
+                'timestamp': '{{ timestamp }}',
+                'rows_processed': len(df)
+            }
+        }
+
+        print(json.dumps(output, default=str))
+
+    except Exception as e:
+        error_output = {
+            'success': False,
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'operation': 'data_info',
+            'timestamp': '{{ timestamp }}'
+        }
+        print(json.dumps(error_output))
+        return  # Exit gracefully without sys.exit
+
+def get_data_info(df: pd.DataFrame) -> dict:
+    """Get comprehensive information about the dataset."""
+
+    # Basic information
+    info = {
+        'shape': df.shape,
+        'columns': list(df.columns),
+        'dtypes': {col: str(dtype) for col, dtype in df.dtypes.items()},
+        'memory_usage': df.memory_usage(deep=True).sum(),
+        'null_counts': df.isnull().sum().to_dict(),
+        'duplicate_rows': df.duplicated().sum()
+    }
+
+    # Sample data
+    info['head'] = df.head().to_dict('records')
+    info['tail'] = df.tail().to_dict('records')
+
+    # Numeric columns statistics
+    numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
+    if numeric_columns:
+        info['numeric_summary'] = df[numeric_columns].describe().to_dict()
+
+    # Categorical columns information
+    categorical_columns = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    if categorical_columns:
+        info['categorical_summary'] = {}
+        for col in categorical_columns:
+            info['categorical_summary'][col] = {
+                'unique_count': df[col].nunique(),
+                'unique_values': df[col].unique()[:10].tolist(),  # First 10 unique values
+                'value_counts': df[col].value_counts().head().to_dict()
+            }
+
+    return info
+
+if __name__ == "__main__":
+    main()

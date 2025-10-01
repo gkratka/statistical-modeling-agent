@@ -1,0 +1,68 @@
+{#
+Template: Base Template
+Description: Base template with common imports and structure for inheritance
+Author: System
+Version: 2.0
+Required_params: operation, timestamp
+#}
+#!/usr/bin/env python3
+"""
+Generated script for {{ operation }} operation.
+Generated at: {{ timestamp }}
+"""
+
+import json
+import sys
+import pandas as pd
+import numpy as np
+{% block additional_imports %}{% endblock %}
+
+def main() -> None:
+    """Main execution function."""
+    try:
+        input_data = json.loads(sys.stdin.read())
+        df = pd.DataFrame(input_data['dataframe'])
+        params = input_data.get('parameters', {})
+
+        validate_input(df, params)
+        result = execute_{{ operation.replace('-', '_') }}(df, params)
+
+        output = {
+            'success': True,
+            'result': result,
+            'metadata': {
+                'operation': '{{ operation }}',
+                'timestamp': '{{ timestamp }}',
+                'rows_processed': len(df){% block metadata_extra %},
+                'columns_analyzed': result.get('columns_analyzed', []){% endblock %}
+            }
+        }
+        print(json.dumps(output, default=str))
+
+    except Exception as e:
+        error_output = {
+            'success': False,
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'operation': '{{ operation }}',
+            'timestamp': '{{ timestamp }}'
+        }
+        print(json.dumps(error_output))
+        return
+
+def validate_input(df: pd.DataFrame, params: dict) -> None:
+    """Validate input data and parameters."""
+    if df.empty:
+        raise ValueError("Input dataframe is empty")
+    {% block custom_validation %}{% endblock %}
+
+{% block operation_function %}
+def execute_{{ operation.replace('-', '_') }}(df: pd.DataFrame, params: dict) -> dict:
+    """Execute the {{ operation }} operation."""
+    raise NotImplementedError("Operation function must be implemented")
+{% endblock %}
+
+{% block helper_functions %}{% endblock %}
+
+if __name__ == "__main__":
+    main()
