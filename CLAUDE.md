@@ -5,6 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 This is a Telegram bot that performs statistical analysis and machine learning tasks through natural language conversations. Users can upload data, request analyses, train models, and get predictions.
 
+**Key Features**:
+- Statistical analysis (descriptive stats, correlation, hypothesis testing)
+- Machine learning training (13 models: regression, classification, neural networks)
+- Model persistence and lifecycle management
+- Predictions with trained models
+- Script generation and sandboxed execution
+
 ## Core Principle
 Safety first: All user-provided code is sandboxed, all inputs are validated, all outputs are sanitized.
 
@@ -52,6 +59,12 @@ pytest --cov=src --cov-report=html
 
 # Run specific test function
 pytest tests/unit/test_parser.py::TestParser::test_parse_basic_stats_request
+
+# Run ML Engine tests only
+pytest tests/unit/test_ml_*.py -v
+
+# Run all tests excluding broken imports (current recommended)
+pytest tests/ --ignore=tests/unit/test_data_loader.py --ignore=tests/integration/test_data_loader_telegram.py -v
 ```
 
 ### Code Quality
@@ -268,40 +281,125 @@ async def handle_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_formatted_result(update, result)
 ```
 
-### ML Training Multi-Step Conversation
+### ML Training Workflow (NEW)
 ```python
-# State machine for ML workflow
-class MLTrainingState:
-    AWAITING_DATA = "awaiting_data"
-    SELECTING_TARGET = "selecting_target"
-    SELECTING_FEATURES = "selecting_features"
-    CONFIRMING_MODEL = "confirming_model"
-    TRAINING = "training"
-    COMPLETE = "complete"
+# Direct ML Engine usage through orchestrator
+from src.core.orchestrator import TaskOrchestrator
+from src.core.parser import TaskDefinition
 
-# Handler manages state transitions
-async def handle_ml_workflow(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    state = context.user_data.get("ml_state", MLTrainingState.AWAITING_DATA)
+# Initialize orchestrator
+orchestrator = TaskOrchestrator()
 
-    match state:
-        case MLTrainingState.AWAITING_DATA:
-            # Process uploaded file
-            data = await process_upload(update.message.document)
-            context.user_data["training_data"] = data
-            context.user_data["ml_state"] = MLTrainingState.SELECTING_TARGET
+# Training task
+task = TaskDefinition(
+    task_type="ml_train",
+    operation="train_model",
+    parameters={
+        "task_type": "regression",  # or "classification", "neural_network"
+        "model_type": "random_forest",  # see supported models below
+        "target_column": "price",
+        "feature_columns": ["sqft", "bedrooms", "bathrooms"],
+        "hyperparameters": {"n_estimators": 100},  # optional
+        "test_size": 0.2,  # optional, default 0.2
+        "preprocessing": {  # optional
+            "missing_strategy": "mean",  # mean, median, drop, zero
+            "scaling": "standard"  # standard, minmax, robust, none
+        }
+    },
+    user_id=12345,
+    conversation_id="conv_123"
+)
 
-            # Show column list for target selection
-            columns = data.columns.tolist()
-            await update.message.reply_text(
-                f"Select target variable:\n" + "\n".join(f"{i+1}. {col}" for i, col in enumerate(columns))
-            )
+# Execute training
+result = await orchestrator.execute_task(task, training_data)
+# Returns: {
+#     'success': True,
+#     'model_id': 'model_12345_random_forest',
+#     'metrics': {'mse': 0.15, 'r2': 0.85, 'mae': 0.32},
+#     'training_time': 1.23,
+#     'model_info': {...}
+# }
 
-        case MLTrainingState.SELECTING_TARGET:
-            # Process target selection
-            target = parse_column_selection(update.message.text)
-            context.user_data["target"] = target
-            context.user_data["ml_state"] = MLTrainingState.SELECTING_FEATURES
-            # Continue flow...
+# Prediction task
+predict_task = TaskDefinition(
+    task_type="ml_score",
+    operation="predict",
+    parameters={
+        "model_id": "model_12345_random_forest"
+    },
+    user_id=12345,
+    conversation_id="conv_123"
+)
+
+# Execute prediction
+predictions = await orchestrator.execute_task(predict_task, new_data)
+# Returns: {
+#     'success': True,
+#     'predictions': [120.5, 230.1, 180.7, ...],
+#     'model_id': 'model_12345_random_forest',
+#     'n_predictions': 100
+# }
+```
+
+### Supported ML Models
+
+**Regression Models (5)**:
+- `linear` - Linear Regression
+- `ridge` - Ridge Regression (L2 regularization)
+- `lasso` - Lasso Regression (L1 regularization)
+- `elasticnet` - ElasticNet (L1 + L2)
+- `polynomial` - Polynomial Regression
+
+**Classification Models (6)**:
+- `logistic` - Logistic Regression
+- `decision_tree` - Decision Tree Classifier
+- `random_forest` - Random Forest Classifier
+- `gradient_boosting` - Gradient Boosting Classifier
+- `svm` - Support Vector Machine
+- `naive_bayes` - Naive Bayes Classifier
+
+**Neural Networks (2)**:
+- `mlp_regression` - Multi-layer Perceptron for regression
+- `mlp_classification` - Multi-layer Perceptron for classification
+
+### ML Engine Direct Usage
+```python
+from src.engines.ml_engine import MLEngine
+from src.engines.ml_config import MLEngineConfig
+
+# Initialize with default config
+ml_engine = MLEngine(MLEngineConfig.get_default())
+
+# Train a model
+result = ml_engine.train_model(
+    data=df,
+    task_type="regression",
+    model_type="random_forest",
+    target_column="price",
+    feature_columns=["sqft", "bedrooms", "bathrooms"],
+    user_id=12345,
+    hyperparameters={"n_estimators": 100},
+    test_size=0.2
+)
+
+# Make predictions
+predictions = ml_engine.predict(
+    user_id=12345,
+    model_id="model_12345_random_forest",
+    data=new_data
+)
+
+# List user's models
+models = ml_engine.list_models(
+    user_id=12345,
+    task_type="regression"  # optional filter
+)
+
+# Get model info
+info = ml_engine.get_model_info(user_id=12345, model_id="model_12345_random_forest")
+
+# Delete model
+ml_engine.delete_model(user_id=12345, model_id="model_12345_random_forest")
 ```
 
 ### Script Generation Templates
