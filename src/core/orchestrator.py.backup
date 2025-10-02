@@ -24,16 +24,106 @@ from src.generators.script_generator import ScriptGenerator
 from src.execution.executor import ScriptExecutor, SandboxConfig
 from src.utils.exceptions import ValidationError, DataError, AgentError, ScriptGenerationError, ExecutionError
 from src.utils.logger import get_logger
-from src.core.state_manager import (
-    StateManager,
-    StateManagerConfig,
-    UserSession,
-    WorkflowType,
-    MLTrainingState,
-    MLPredictionState
-)
 
 logger = get_logger(__name__)
+
+
+class WorkflowState(Enum):
+    """Enumeration of workflow states for multi-step processes."""
+    IDLE = "idle"
+    AWAITING_DATA = "awaiting_data"
+    DATA_LOADED = "data_loaded"
+    SELECTING_TARGET = "selecting_target"
+    SELECTING_FEATURES = "selecting_features"
+    CONFIGURING_MODEL = "configuring_model"
+    TRAINING = "training"
+    TRAINED = "trained"
+    PREDICTING = "predicting"
+    COMPLETED = "completed"
+    ERROR = "error"
+
+
+@dataclass
+class ConversationState:
+    """State tracking for user conversations and workflows."""
+    user_id: int
+    conversation_id: str
+    workflow_state: WorkflowState
+    current_step: Optional[str]
+    context: Dict[str, Any]
+    partial_results: Dict[str, Any]
+    data_sources: List[str]
+    created_at: datetime
+    last_activity: datetime
+
+    def get_key(self) -> str:
+        """Generate unique key for state storage."""
+        return f"{self.user_id}:{self.conversation_id}"
+
+
+class StateManager:
+    """Manages conversation states with TTL-based cleanup."""
+
+    def __init__(self, ttl_minutes: int = 60) -> None:
+        """Initialize state manager with TTL configuration."""
+        self.states: Dict[str, ConversationState] = {}
+        self.ttl = ttl_minutes
+        self.logger = logger
+
+    async def get_state(self, user_id: int, conversation_id: str) -> ConversationState:
+        """Get or create conversation state."""
+        key = f"{user_id}:{conversation_id}"
+
+        if key in self.states:
+            state = self.states[key]
+            # Update last activity
+            state.last_activity = datetime.now()
+            return state
+
+        # Create new state
+        new_state = ConversationState(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            workflow_state=WorkflowState.IDLE,
+            current_step=None,
+            context={},
+            partial_results={},
+            data_sources=[],
+            created_at=datetime.now(),
+            last_activity=datetime.now()
+        )
+
+        self.states[key] = new_state
+        self.logger.info(f"Created new conversation state for user {user_id}")
+        return new_state
+
+    async def save_state(self, state: ConversationState) -> None:
+        """Save conversation state."""
+        key = state.get_key()
+        state.last_activity = datetime.now()
+        self.states[key] = state
+        self.logger.debug(f"Saved state for user {state.user_id}, workflow: {state.workflow_state.value}")
+
+    async def clear_state(self, user_id: int, conversation_id: str) -> None:
+        """Clear specific conversation state."""
+        key = f"{user_id}:{conversation_id}"
+        if key in self.states:
+            del self.states[key]
+            self.logger.info(f"Cleared state for user {user_id}")
+
+    async def cleanup_expired(self) -> None:
+        """Remove expired conversation states."""
+        cutoff_time = datetime.now() - timedelta(minutes=self.ttl)
+        expired_keys = [
+            key for key, state in self.states.items()
+            if state.last_activity < cutoff_time
+        ]
+
+        for key in expired_keys:
+            del self.states[key]
+
+        if expired_keys:
+            self.logger.info(f"Cleaned up {len(expired_keys)} expired conversation states")
 
 
 class DataManager:
@@ -129,54 +219,179 @@ class DataManager:
 
 
 class WorkflowEngine:
-    """
-    Simplified workflow engine that delegates to StateManager.
-
-    Provides compatibility layer for existing orchestrator code while
-    using the new StateManager for actual state management.
-    """
+    """Manages multi-step workflows and state transitions."""
 
     def __init__(self, state_manager: StateManager) -> None:
-        """Initialize workflow engine with new StateManager."""
+        """Initialize workflow engine."""
         self.state_manager = state_manager
+        self.workflow_templates = self._init_templates()
         self.logger = logger
 
-    async def start_ml_training(self, session: UserSession) -> str:
-        """Start ML training workflow."""
-        await self.state_manager.start_workflow(
-            session,
-            WorkflowType.ML_TRAINING
-        )
-        return "ML training workflow started. Please upload your training data."
+    def _init_templates(self) -> Dict[str, Dict[str, Any]]:
+        """Initialize workflow templates."""
+        return {
+            "ml_training": {
+                "steps": [
+                    {"state": WorkflowState.AWAITING_DATA, "prompt": "Please upload your training data"},
+                    {"state": WorkflowState.SELECTING_TARGET, "prompt": "Select target variable from: {columns}"},
+                    {"state": WorkflowState.SELECTING_FEATURES, "prompt": "Select feature columns from: {features}"},
+                    {"state": WorkflowState.CONFIGURING_MODEL, "prompt": "Choose model type: neural_network, random_forest, linear_regression"},
+                    {"state": WorkflowState.TRAINING, "prompt": "Training model... Please wait"},
+                    {"state": WorkflowState.COMPLETED, "prompt": "Training complete! Results: {results}"}
+                ],
+                "transitions": {
+                    WorkflowState.IDLE: [WorkflowState.AWAITING_DATA],
+                    WorkflowState.AWAITING_DATA: [WorkflowState.DATA_LOADED],
+                    WorkflowState.DATA_LOADED: [WorkflowState.SELECTING_TARGET],
+                    WorkflowState.SELECTING_TARGET: [WorkflowState.SELECTING_FEATURES],
+                    WorkflowState.SELECTING_FEATURES: [WorkflowState.CONFIGURING_MODEL],
+                    WorkflowState.CONFIGURING_MODEL: [WorkflowState.TRAINING],
+                    WorkflowState.TRAINING: [WorkflowState.TRAINED],
+                    WorkflowState.TRAINED: [WorkflowState.PREDICTING, WorkflowState.COMPLETED],
+                    WorkflowState.PREDICTING: [WorkflowState.COMPLETED]
+                }
+            },
+            "stats_analysis": {
+                "steps": [
+                    {"state": WorkflowState.AWAITING_DATA, "prompt": "Please upload your data for analysis"},
+                    {"state": WorkflowState.DATA_LOADED, "prompt": "Data loaded. What analysis would you like?"},
+                    {"state": WorkflowState.COMPLETED, "prompt": "Analysis complete: {results}"}
+                ],
+                "transitions": {
+                    WorkflowState.IDLE: [WorkflowState.AWAITING_DATA],
+                    WorkflowState.AWAITING_DATA: [WorkflowState.DATA_LOADED],
+                    WorkflowState.DATA_LOADED: [WorkflowState.COMPLETED]
+                }
+            }
+        }
 
-    async def start_ml_prediction(self, session: UserSession) -> str:
-        """Start ML prediction workflow."""
-        await self.state_manager.start_workflow(
-            session,
-            WorkflowType.ML_PREDICTION
-        )
-        return "ML prediction workflow started. Please select a trained model."
-
-    async def start_stats_analysis(self, session: UserSession) -> str:
-        """Start stats analysis workflow."""
-        await self.state_manager.start_workflow(
-            session,
-            WorkflowType.STATS_ANALYSIS
-        )
-        return "Stats analysis workflow started. Please upload your data."
-
-    async def advance_training_workflow(
+    async def start_workflow(
         self,
-        session: UserSession,
-        new_state: str
-    ) -> Tuple[bool, Optional[str], List[str]]:
-        """Advance ML training workflow to next state."""
-        return await self.state_manager.transition_state(session, new_state)
+        workflow_type: str,
+        state: ConversationState
+    ) -> Dict[str, Any]:
+        """Start a new workflow."""
+        if workflow_type not in self.workflow_templates:
+            raise ValidationError(f"Unknown workflow type: {workflow_type}")
 
-    async def cancel_workflow(self, session: UserSession) -> None:
-        """Cancel active workflow."""
-        await self.state_manager.cancel_workflow(session)
-        self.logger.info(f"Cancelled workflow for user {session.user_id}")
+        template = self.workflow_templates[workflow_type]
+        first_step = template["steps"][0]
+
+        state.workflow_state = first_step["state"]
+        state.current_step = workflow_type
+        state.context["workflow_type"] = workflow_type
+        state.context["step_index"] = 0
+
+        await self.state_manager.save_state(state)
+
+        return {
+            "message": first_step["prompt"],
+            "workflow_state": state.workflow_state.value,
+            "next_steps": ["Upload data file"]
+        }
+
+    async def advance_workflow(
+        self,
+        state: ConversationState,
+        user_input: str
+    ) -> Dict[str, Any]:
+        """Advance workflow to next step."""
+        workflow_type = state.context.get("workflow_type")
+        if not workflow_type or workflow_type not in self.workflow_templates:
+            raise ValidationError("Invalid workflow state")
+
+        template = self.workflow_templates[workflow_type]
+        current_index = state.context.get("step_index", 0)
+
+        # Validate transition
+        if not await self.validate_transition(state.workflow_state, user_input):
+            return {
+                "error": "Invalid input for current step",
+                "current_state": state.workflow_state.value,
+                "expected_input": self._get_expected_input(state)
+            }
+
+        # Move to next step
+        next_index = current_index + 1
+        if next_index < len(template["steps"]):
+            next_step = template["steps"][next_index]
+            state.workflow_state = next_step["state"]
+            state.context["step_index"] = next_index
+
+            await self.state_manager.save_state(state)
+
+            return {
+                "message": next_step["prompt"],
+                "workflow_state": state.workflow_state.value,
+                "progress": f"{next_index + 1}/{len(template['steps'])}"
+            }
+        else:
+            # Workflow complete
+            state.workflow_state = WorkflowState.COMPLETED
+            await self.state_manager.save_state(state)
+
+            return {
+                "message": "Workflow completed successfully",
+                "workflow_state": state.workflow_state.value,
+                "results": state.partial_results
+            }
+
+    async def validate_transition(
+        self,
+        from_state: WorkflowState,
+        user_input: str
+    ) -> bool:
+        """Validate if transition is allowed."""
+        # Basic validation - can be enhanced with specific rules
+        if from_state == WorkflowState.AWAITING_DATA:
+            return "upload" in user_input.lower() or "file" in user_input.lower()
+        elif from_state == WorkflowState.SELECTING_TARGET:
+            return len(user_input.strip()) > 0  # Non-empty input
+        elif from_state == WorkflowState.SELECTING_FEATURES:
+            return len(user_input.strip()) > 0  # Non-empty input
+        elif from_state == WorkflowState.CONFIGURING_MODEL:
+            valid_models = ["neural_network", "random_forest", "linear_regression"]
+            return any(model in user_input.lower() for model in valid_models)
+
+        return True  # Allow other transitions
+
+    async def get_next_prompt(self, state: ConversationState) -> str:
+        """Get next prompt for current workflow state."""
+        workflow_type = state.context.get("workflow_type")
+        if not workflow_type:
+            return "What would you like to do?"
+
+        template = self.workflow_templates.get(workflow_type, {})
+        steps = template.get("steps", [])
+        step_index = state.context.get("step_index", 0)
+
+        if step_index < len(steps):
+            return steps[step_index]["prompt"]
+
+        return "Workflow completed"
+
+    def _get_expected_input(self, state: ConversationState) -> str:
+        """Get expected input description for current state."""
+        if state.workflow_state == WorkflowState.AWAITING_DATA:
+            return "Please upload a data file"
+        elif state.workflow_state == WorkflowState.SELECTING_TARGET:
+            return "Specify target column name"
+        elif state.workflow_state == WorkflowState.SELECTING_FEATURES:
+            return "List feature column names (comma-separated)"
+        elif state.workflow_state == WorkflowState.CONFIGURING_MODEL:
+            return "Choose: neural_network, random_forest, or linear_regression"
+
+        return "Continue with workflow"
+
+    async def cancel_workflow(self, state: ConversationState) -> None:
+        """Cancel current workflow and reset to idle."""
+        state.workflow_state = WorkflowState.IDLE
+        state.current_step = None
+        state.context.clear()
+        state.partial_results.clear()
+
+        await self.state_manager.save_state(state)
+        self.logger.info(f"Cancelled workflow for user {state.user_id}")
 
 
 class ErrorRecoverySystem:
@@ -424,7 +639,7 @@ class TaskOrchestrator:
         self,
         enable_logging: bool = True,
         data_loader: Optional[DataLoader] = None,
-        state_config: Optional[StateManagerConfig] = None,
+        state_ttl_minutes: int = 60,
         ml_config: Optional[MLEngineConfig] = None
     ) -> None:
         """Initialize the enhanced task orchestrator."""
@@ -434,8 +649,8 @@ class TaskOrchestrator:
         self.enable_logging = enable_logging
         self.logger = logger
 
-        # Enhanced components - use new StateManager
-        self.state_manager = StateManager(config=state_config or StateManagerConfig())
+        # Enhanced components
+        self.state_manager = StateManager(ttl_minutes=state_ttl_minutes)
         self.data_manager = DataManager(data_loader or DataLoader())
         self.workflow_engine = WorkflowEngine(self.state_manager)
         self.error_recovery = ErrorRecoverySystem()
@@ -468,32 +683,55 @@ class TaskOrchestrator:
         start_time = time.time()
 
         try:
-            # Get or create session (new StateManager API)
-            session = await self.state_manager.get_or_create_session(
-                task.user_id,
-                task.conversation_id
-            )
+            # Get or create conversation state
+            state = await self.state_manager.get_state(task.user_id, task.conversation_id)
 
             if progress_callback:
                 progress_callback("Initializing task execution")
 
-            # Check if this is part of a multi-step workflow (new API)
-            if session.workflow_type is not None:
+            # Check if this is part of a multi-step workflow
+            if state.workflow_state != WorkflowState.IDLE:
                 if self.enable_logging:
-                    self.logger.info(f"Continuing workflow {session.workflow_type.value} for user {task.user_id}")
+                    self.logger.info(f"Continuing workflow {state.workflow_state} for user {task.user_id}")
 
-                # For now, just log - actual workflow handling will be in WorkflowHandler
-                # This maintains compatibility while transitioning to new architecture
+                # Advance workflow
+                workflow_result = await self.workflow_engine.advance_workflow(state, task.raw_input if hasattr(task, 'raw_input') else "")
 
-            # Handle data loading if needed (use session's uploaded_data)
-            if data is None and session.uploaded_data is not None:
+                if workflow_result.get("completed", False):
+                    # Workflow completed, proceed with normal execution
+                    pass
+                else:
+                    # Return workflow continuation prompt
+                    return {
+                        "success": True,
+                        "workflow_state": state.workflow_state.value,
+                        "next_step": workflow_result.get("next_prompt", "Please continue..."),
+                        "workflow_active": True,
+                        "metadata": {
+                            "execution_time": time.time() - start_time,
+                            "user_id": task.user_id,
+                            "conversation_id": task.conversation_id
+                        }
+                    }
+
+            # Handle data loading if needed
+            if data is None and state.data_sources:
                 if progress_callback:
                     progress_callback("Loading cached data")
 
-                # Use data from session
-                data = session.uploaded_data
-                if self.enable_logging:
-                    self.logger.info(f"Using session data: {data.shape}")
+                try:
+                    data, metadata = await self.data_manager.get_data(state.data_sources[-1])
+                    if self.enable_logging:
+                        self.logger.info(f"Loaded cached data: {data.shape}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to load cached data: {e}")
+                    return {
+                        "success": False,
+                        "error": "No data available. Please upload data first.",
+                        "error_code": "NO_DATA",
+                        "task_type": task.task_type,
+                        "metadata": {"execution_time": time.time() - start_time, "user_id": task.user_id}
+                    }
 
             # Validate inputs
             if progress_callback:
