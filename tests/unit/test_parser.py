@@ -257,7 +257,7 @@ class TestMLParser:
             "train a model to predict income", self.user_id, self.conversation_id
         )
         assert task.task_type == "ml_train"
-        assert task.parameters["target"] == "income"
+        assert task.parameters["target_column"] == "income"
         assert task.confidence_score > 0.7
 
     def test_parse_train_with_features(self):
@@ -267,7 +267,7 @@ class TestMLParser:
         )
         assert task.task_type == "ml_train"
         expected_features = ["age", "education"]
-        assert any(feature in task.parameters.get("features", []) for feature in expected_features)
+        assert any(feature in task.parameters.get("feature_columns", []) for feature in expected_features)
 
     def test_parse_prediction_request(self):
         """Test parsing prediction request."""
@@ -463,8 +463,8 @@ class TestIntegration:
             self.conversation_id
         )
         assert task.task_type == "ml_train"
-        assert task.parameters.get("target") == "customer_satisfaction"
-        assert len(task.parameters.get("features", [])) >= 2
+        assert task.parameters.get("target_column") == "customer_satisfaction"
+        assert len(task.parameters.get("feature_columns", [])) >= 2
         assert task.confidence_score > 0.7
 
     def test_serialization_compatibility(self):

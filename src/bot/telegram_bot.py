@@ -33,6 +33,8 @@ from src.bot.handlers import (
     message_handler,
     document_handler,
     diagnostic_handler,
+    version_handler,
+    cancel_handler,
     error_handler
 )
 from src.utils.exceptions import ConfigurationError
@@ -96,7 +98,9 @@ class StatisticalModelingBot:
         # Command handlers
         self.application.add_handler(CommandHandler("start", start_handler))
         self.application.add_handler(CommandHandler("help", help_handler))
+        self.application.add_handler(CommandHandler("version", version_handler))
         self.application.add_handler(CommandHandler("diagnostic", diagnostic_handler))
+        self.application.add_handler(CommandHandler("cancel", cancel_handler))
 
         # Script command handler
         from src.bot.script_handler import script_command_handler
@@ -119,11 +123,15 @@ class StatisticalModelingBot:
         from src.bot.script_handler import ScriptHandler
         from src.core.parser import RequestParser
         from src.core.orchestrator import TaskOrchestrator
+        from src.core.state_manager import StateManager
 
         parser = RequestParser()
         orchestrator = TaskOrchestrator()
         script_handler = ScriptHandler(parser, orchestrator)
+        state_manager = StateManager()
+
         self.application.bot_data['script_handler'] = script_handler
+        self.application.bot_data['state_manager'] = state_manager
 
         self.logger.info("Bot handlers configured successfully")
 

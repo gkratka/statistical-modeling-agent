@@ -146,8 +146,8 @@ WORKFLOW_TRANSITIONS: Dict[WorkflowType, Dict[Optional[str], Set[str]]] = {
 
 ML_TRAINING_PREREQUISITES: Dict[str, PrerequisiteChecker] = {
     MLTrainingState.SELECTING_TARGET.value: lambda s: s.uploaded_data is not None,
-    MLTrainingState.SELECTING_FEATURES.value: lambda s: 'target' in s.selections,
-    MLTrainingState.CONFIRMING_MODEL.value: lambda s: 'features' in s.selections,
+    MLTrainingState.SELECTING_FEATURES.value: lambda s: 'target_column' in s.selections or 'target' in s.selections,
+    MLTrainingState.CONFIRMING_MODEL.value: lambda s: 'feature_columns' in s.selections or 'features' in s.selections,
     MLTrainingState.TRAINING.value: lambda s: 'model_type' in s.selections,
 }
 

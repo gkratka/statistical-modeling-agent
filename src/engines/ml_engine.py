@@ -207,6 +207,13 @@ class MLEngine:
             y_test
         )
 
+        # Get model summary (includes coefficients, intercept, etc.)
+        model_summary = trainer.get_model_summary(
+            trained_model,
+            model_type,
+            feature_columns
+        )
+
         # This would normally generate a script and execute it,
         # but for now we return the results directly
         return {
@@ -217,7 +224,8 @@ class MLEngine:
                 "model_type": model_type,
                 "task_type": task_type,
                 "features": feature_columns,
-                "target": target_column
+                "target": target_column,
+                **model_summary  # Include coefficients, intercept, etc.
             }
         }
 

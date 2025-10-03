@@ -135,6 +135,22 @@ async def message_handler(
     logger.info("🔧 MESSAGE HANDLER DIAGNOSTIC: Processing user message")
     logger.info(f"🔧 MESSAGE TEXT: {message_text[:100]}...")
 
+    # NEW: Check for active workflow BEFORE parsing
+    from src.bot.workflow_handlers import WorkflowRouter
+
+    # Use shared StateManager instance from bot_data
+    state_manager = context.bot_data['state_manager']
+    session = await state_manager.get_or_create_session(
+        user_id,
+        f"chat_{update.effective_chat.id}"
+    )
+
+    # If user has active workflow, route to workflow handler
+    if session.current_state is not None:
+        workflow_router = WorkflowRouter(state_manager)
+        logger.info(f"🔧 ROUTING TO WORKFLOW: state={session.current_state}, user={user_id}")
+        return await workflow_router.handle(update, context, session)
+
     # Check if user has uploaded data
     user_data = safe_get_user_data(context, user_id)
 
@@ -189,6 +205,40 @@ async def message_handler(
                 )
 
                 logger.info(f"🔧 TASK PARSED: {task.task_type}/{task.operation} for user {user_id}")
+                logger.info(f"🔧 CODE VERSION: v2.1.0-ml-workflow-fix")
+                logger.info(f"🔧 PARAMETERS: {task.parameters}")
+                logger.info(f"🔧 TARGET COLUMN: {task.parameters.get('target_column')}")
+                logger.info(f"🔧 DATAFRAME COLUMNS: {dataframe.columns.tolist()}")
+
+                # Check if this is an ML training request that needs workflow
+                target_col = task.parameters.get('target_column')
+                workflow_should_start = task.task_type == "ml_train" and (not target_col or target_col not in dataframe.columns)
+                logger.info(f"🔧 ML WORKFLOW CHECK: task_type={task.task_type}, target={target_col}, in_columns={target_col in dataframe.columns if target_col else False}")
+                logger.info(f"🔧 WORKFLOW SHOULD START: {workflow_should_start}")
+
+                if workflow_should_start:
+                    logger.info(f"🔧 STARTING ML TRAINING WORKFLOW...")
+                    # Start ML training workflow instead of executing directly
+                    # This handles both missing target AND invalid target (like "house" when column is "price")
+                    from src.core.state_manager import WorkflowType, MLTrainingState
+                    from src.bot.response_builder import ResponseBuilder
+
+                    # Use shared StateManager instance from bot_data
+                    state_manager = context.bot_data['state_manager']
+                    response_builder = ResponseBuilder()
+
+                    session = await state_manager.get_or_create_session(user_id, f"chat_{update.effective_chat.id}")
+                    await state_manager.store_data(session, dataframe)
+                    await state_manager.start_workflow(session, WorkflowType.ML_TRAINING)
+                    await state_manager.transition_state(session, MLTrainingState.SELECTING_TARGET.value)
+
+                    # Build target selection prompt
+                    columns = dataframe.columns.tolist()
+                    response_message = response_builder.format_column_selection(columns, "target")
+
+                    await update.message.reply_text(response_message, parse_mode="Markdown")
+                    logger.info(f"🔧 ML WORKFLOW INITIATED - RETURNED TO USER")
+                    return
 
                 # Execute task through orchestrator
                 result = await orchestrator.execute_task(task, dataframe)
@@ -253,6 +303,29 @@ async def message_handler(
                 )
 
     await update.message.reply_text(response_message, parse_mode="Markdown")
+
+
+@telegram_handler
+@log_user_action("Version check")
+async def version_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle /version command - show code version.
+
+    This helps verify which code version the bot is running,
+    useful for debugging and confirming bot restarts.
+    """
+    version_info = (
+        "🤖 **Bot Version Information**\n\n"
+        "**Code Version**: v2.1.0-ml-workflow-fix\n"
+        "**ML Workflow**: ✅ Enabled\n"
+        "**Error Handling**: ✅ Enhanced\n"
+        "**Parameter Keys**: target_column, feature_columns\n\n"
+        "If you see an old version, the bot needs to be restarted."
+    )
+    await update.message.reply_text(version_info, parse_mode="Markdown")
 
 
 @telegram_handler
@@ -465,6 +538,40 @@ async def document_handler(
 
         logger.error(f"Unexpected error processing file for user {user_id}: {e}")
         raise
+
+
+@telegram_handler
+@log_user_action("Cancel workflow")
+async def cancel_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle /cancel command - cancel active workflow.
+
+    Args:
+        update: Telegram update object
+        context: Bot context
+    """
+    user_id = update.effective_user.id
+
+    # Use shared StateManager instance from bot_data
+    state_manager = context.bot_data['state_manager']
+    session = await state_manager.get_or_create_session(
+        user_id,
+        f"chat_{update.effective_chat.id}"
+    )
+
+    if session.workflow_type is None:
+        await update.message.reply_text(
+            "No active workflow to cancel.",
+            parse_mode="Markdown"
+        )
+        return
+
+    from src.bot.workflow_handlers import WorkflowRouter
+    workflow_router = WorkflowRouter(state_manager)
+    await workflow_router.cancel_workflow(update, session)
 
 
 async def error_handler(

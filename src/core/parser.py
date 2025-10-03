@@ -245,11 +245,17 @@ class RequestParser:
         target = self._extract_target_variable(text)
         features = self._extract_features(text)
 
-        # Determine operation
-        if 'predict' in ml_operations:
+        # Determine operation (prioritize 'train' over 'predict')
+        # If model type is mentioned, default to training unless explicitly prediction-only
+        if 'train' in ml_operations:
+            task_type = "ml_train"
+            operation = "train_model"
+        elif 'predict' in ml_operations and not model_types:
+            # Only classify as prediction if no model type mentioned
             task_type = "ml_score"
             operation = "predict"
         else:
+            # Default to training
             task_type = "ml_train"
             operation = "train_model"
 
@@ -264,8 +270,8 @@ class RequestParser:
 
         parameters = {
             "model_type": model_type,
-            "target": target,
-            "features": features
+            "target_column": target,
+            "feature_columns": features
         }
 
         # Adjust confidence based on completeness

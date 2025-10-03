@@ -142,8 +142,20 @@ class LanguageGenerator:
 
     def generate_ml_training_summary(self, training_result: Dict[str, Any]) -> str:
         """Generate plain language summary of ML training results."""
-        if not training_result or 'metrics' not in training_result:
-            raise ValueError("Invalid training result")
+
+        # Handle empty result
+        if not training_result:
+            raise ValueError("Training result cannot be empty")
+
+        # Handle training failure
+        if not training_result.get('success', True):
+            # Training failed - show actual error
+            error_msg = training_result.get('error', 'Unknown training error')
+            return f"{self._emoji('❌')}Training Failed: {error_msg}"
+
+        # Validate success case has metrics
+        if 'metrics' not in training_result:
+            raise ValueError("Invalid training result: missing 'metrics' key")
 
         metrics = training_result['metrics']
         if not metrics:
@@ -203,6 +215,24 @@ class LanguageGenerator:
                     parts.append(f"\n• Training took {time_sec:.1f} seconds")
                 else:
                     parts.append(f"\n• Training took {time_sec/60:.1f} minutes")
+
+            # Add regression equation for simple linear models
+            model_info = training_result.get('model_info', {})
+            coefficients = model_info.get('coefficients', {})
+            intercept = model_info.get('intercept')
+            target = model_info.get('target')
+            features = model_info.get('features', [])
+
+            if coefficients and intercept is not None and len(coefficients) == 1:
+                # Simple linear regression: y = a*x + b
+                feature_name = list(coefficients.keys())[0]
+                coef_value = list(coefficients.values())[0]
+
+                parts.append(f"\n**Regression Equation:**")
+                target_display = target if target else "y"
+                parts.append(
+                    f"• {target_display} = {coef_value:.2f} * {feature_name} + {intercept:.2f}"
+                )
 
         return "\n".join(parts)
 
