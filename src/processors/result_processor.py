@@ -182,7 +182,7 @@ class ResultProcessor:
         model_id = result.get("model_id", "unknown")
         metrics = result.get("metrics", {})
 
-        # Build text output
+        # Build text output with model ID and metrics
         emoji = "🤖 " if self.config.use_emojis else ""
         text = f"{emoji}**ML Training Complete**\n\n"
         text += f"Model ID: `{model_id}`\n\n"
@@ -191,6 +191,21 @@ class ResultProcessor:
         for metric_name, value in metrics.items():
             if isinstance(value, (int, float)):
                 text += f"• {metric_name}: {value:.4f}\n"
+
+        # Add regression equation if available (for simple linear models)
+        model_info = result.get('model_info', {})
+        coefficients = model_info.get('coefficients', {})
+        intercept = model_info.get('intercept')
+        target = model_info.get('target')
+
+        if coefficients and intercept is not None and len(coefficients) == 1:
+            # Simple linear regression: y = a*x + b
+            feature_name = list(coefficients.keys())[0]
+            coef_value = list(coefficients.values())[0]
+
+            text += f"\n**Regression Equation:**\n"
+            target_display = target if target else "y"
+            text += f"• {target_display} = {coef_value:.2f} * {feature_name} + {intercept:.2f}\n"
 
         # Generate plain language summary
         summary = self.lang_generator.generate_ml_training_summary(result)

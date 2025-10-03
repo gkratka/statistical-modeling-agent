@@ -255,3 +255,45 @@ class ResponseBuilder:
             f"Size: {rows} rows × {columns} columns\n\n"
             f"Ready for analysis!"
         )
+
+    def format_feature_selection(
+        self,
+        available_features: List[str],
+        selected_target: str
+    ) -> str:
+        """Format feature selection prompt."""
+        numbered_features = '\n'.join(
+            f"{i+1}. {feature}"
+            for i, feature in enumerate(available_features)
+        )
+
+        return (
+            f"**Step 2/4: Select Feature Columns**\n\n"
+            f"Target: `{selected_target}`\n\n"
+            f"Available features:\n{numbered_features}\n\n"
+            f"**How to select:**\n"
+            f"• Single: `1` or `age`\n"
+            f"• Multiple: `1,2,3` or `age,income,sqft`\n"
+            f"• Range: `1-5`\n"
+            f"• All: `all`\n\n"
+            f"Type `/cancel` to cancel workflow."
+        )
+
+    def format_model_type_selection(
+        self,
+        target_column: str,
+        feature_count: int
+    ) -> str:
+        """Format model type selection prompt."""
+        return (
+            f"**Step 3/4: Select Model Type**\n\n"
+            f"Target: `{target_column}`\n"
+            f"Features: {feature_count} columns\n\n"
+            f"**Available models:**\n"
+            f"1. **Linear Regression** - Fast, interpretable\n"
+            f"2. **Random Forest** - Robust, handles non-linearity\n"
+            f"3. **Neural Network** - Complex patterns, requires more data\n"
+            f"4. **Auto** - Best model selected automatically\n\n"
+            f"Select by number (1-4) or name.\n\n"
+            f"Type `/cancel` to cancel workflow."
+        )

@@ -244,6 +244,9 @@ class ErrorRecoverySystem:
             user_message = await self.escalate_to_user(error, suggestions)
 
             return {
+                "success": False,
+                "error": str(error),
+                "error_code": error_type.upper(),
                 "action": "escalate",
                 "message": user_message,
                 "suggestions": suggestions,
@@ -509,15 +512,7 @@ class TaskOrchestrator:
             # Execute with enhanced error recovery
             result = await self._execute_with_recovery(task, data, timeout, progress_callback)
 
-            # Update state with results
-            state.partial_results[task.operation] = result
-            state.last_activity = datetime.now()
-            await self.state_manager.save_state(state)
-
-            # Add workflow context to result
-            result["workflow_state"] = state.workflow_state.value
-            result["workflow_active"] = state.workflow_state != WorkflowState.IDLE
-
+            # Return result directly (state management moved to workflow handlers)
             return result
 
         except Exception as e:
@@ -721,7 +716,7 @@ class TaskOrchestrator:
             target_column = params.get('target_column')
             feature_columns = params.get('feature_columns', [])
             task_type = params.get('task_type', 'regression')
-            user_id = params.get('user_id', 0)
+            user_id = params.get('user_id') or task.user_id  # Use task.user_id as fallback
             hyperparameters = params.get('hyperparameters', {})
             preprocessing_config = params.get('preprocessing', {})
 

@@ -222,6 +222,21 @@ class RegressionTrainer(ModelTrainer):
             # ElasticNet
             summary["l1_ratio"] = float(model.l1_ratio)
 
+        # Add coefficients and intercept for linear models
+        if hasattr(model, 'coef_'):
+            # Extract coefficients (slope values)
+            coef = model.coef_
+            if hasattr(coef, 'tolist'):
+                summary["coefficients"] = {
+                    feature_names[i]: float(coef[i])
+                    for i in range(len(feature_names))
+                }
+            else:
+                summary["coefficients"] = {feature_names[0]: float(coef)}
+
+        if hasattr(model, 'intercept_'):
+            summary["intercept"] = float(model.intercept_)
+
         # Add feature importance if available
         feature_importance = self.get_feature_importance(model, feature_names)
         if feature_importance:

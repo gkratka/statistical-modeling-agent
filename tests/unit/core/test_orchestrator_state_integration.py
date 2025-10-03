@@ -75,3 +75,24 @@ class TestOrchestratorStateIntegration:
         assert not hasattr(orch_module, 'ConversationState')
         if hasattr(orch_module, 'StateManager'):
             assert getattr(orch_module, 'StateManager').__module__ == 'src.core.state_manager'
+
+    async def test_ml_training_validation_error_message(self, orchestrator):
+        """Test ML training task returns proper error message for missing target_column."""
+        task = TaskDefinition(
+            task_type="ml_train",
+            operation="train_model",
+            parameters={},  # Missing required target_column
+            data_source=None,
+            user_id=123,
+            conversation_id="conv_1"
+        )
+        df = pd.DataFrame({"age": [25, 30, 35], "income": [50000, 60000, 70000], "price": [200000, 250000, 300000]})
+
+        result = await orchestrator.execute_task(task, df)
+
+        # Should return properly formatted error result with specific validation message
+        assert result.get("success") is False
+        assert "error" in result
+        assert "target_column is required" in result["error"]
+        assert result.get("error_code") == "VALIDATION"
+        assert "suggestions" in result
