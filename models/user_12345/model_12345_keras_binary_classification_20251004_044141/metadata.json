@@ -1,0 +1,126 @@
+{
+  "model_type": "keras_binary_classification",
+  "task_type": "classification",
+  "target_column": "target",
+  "feature_columns": [
+    "feature_0",
+    "feature_1",
+    "feature_2",
+    "feature_3",
+    "feature_4",
+    "feature_5",
+    "feature_6",
+    "feature_7",
+    "feature_8",
+    "feature_9",
+    "feature_10",
+    "feature_11",
+    "feature_12",
+    "feature_13"
+  ],
+  "metrics": {
+    "loss": 0.793712317943573,
+    "accuracy": 0.550000011920929,
+    "precision": 1.0,
+    "recall": 0.05263157894736842,
+    "f1": 0.1,
+    "confusion_matrix": [
+      [
+        21,
+        0
+      ],
+      [
+        18,
+        1
+      ]
+    ]
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {
+    "architecture": {
+      "layers": [
+        {
+          "type": "Dense",
+          "units": 14,
+          "activation": "relu"
+        },
+        {
+          "type": "Dense",
+          "units": 1,
+          "activation": "sigmoid"
+        }
+      ],
+      "compile": {
+        "loss": "binary_crossentropy",
+        "optimizer": "adam",
+        "metrics": [
+          "accuracy"
+        ]
+      }
+    },
+    "epochs": 5,
+    "batch_size": 32,
+    "verbose": 0,
+    "n_features": 14
+  },
+  "test_size": 0.2,
+  "n_features": 14,
+  "feature_names": [
+    "feature_0",
+    "feature_1",
+    "feature_2",
+    "feature_3",
+    "feature_4",
+    "feature_5",
+    "feature_6",
+    "feature_7",
+    "feature_8",
+    "feature_9",
+    "feature_10",
+    "feature_11",
+    "feature_12",
+    "feature_13"
+  ],
+  "framework": "keras",
+  "n_layers": 2,
+  "layer_info": [
+    {
+      "name": "dense_12",
+      "type": "Dense",
+      "units": 14,
+      "activation": "relu"
+    },
+    {
+      "name": "dense_13",
+      "type": "Dense",
+      "units": 1,
+      "activation": "sigmoid"
+    }
+  ],
+  "n_parameters": 225,
+  "optimizer": "Adam",
+  "training_history": {
+    "loss": [
+      0.9522002339363098,
+      0.9308300018310547,
+      0.9144248962402344,
+      0.8970364332199097,
+      0.882568359375
+    ],
+    "epochs": 5,
+    "accuracy": [
+      0.53125,
+      0.5249999761581421,
+      0.53125,
+      0.5249999761581421,
+      0.53125
+    ]
+  },
+  "model_format": "keras",
+  "model_id": "model_12345_keras_binary_classification_20251004_044141",
+  "user_id": 12345,
+  "created_at": "2025-10-04T04:41:41.126127Z"
+}

@@ -1,0 +1,35 @@
+{
+  "model_type": "linear",
+  "task_type": "regression",
+  "target_column": "y",
+  "feature_columns": [
+    "x"
+  ],
+  "metrics": {
+    "mse": 9.860761315262648e-30,
+    "rmse": 3.1401849173675502e-15,
+    "mae": 3.1086244689504383e-15,
+    "r2": 1.0,
+    "explained_variance": 1.0
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {},
+  "test_size": 0.2,
+  "n_features": 1,
+  "feature_names": [
+    "x"
+  ],
+  "coefficients": {
+    "x": 5.385164807134502
+  },
+  "intercept": 9.0,
+  "feature_importance": {
+    "x": 5.385164807134502
+  },
+  "model_id": "model_88888_linear_20251004_005139",
+  "user_id": 88888,
+  "created_at": "2025-10-04T00:51:39.738843Z"
+}

@@ -1,0 +1,7 @@
+{
+  "feature_names": [
+    "age",
+    "experience"
+  ],
+  "n_features": 2
+}

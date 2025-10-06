@@ -73,12 +73,103 @@ class ModelManager:
         """
         model_dir = self.get_user_models_dir(user_id) / model_id
         if not model_dir.exists():
-            raise ModelNotFoundError(
-                f"Model '{model_id}' not found for user {user_id}",
-                model_id=model_id,
-                user_id=user_id
-            )
+            raise ModelNotFoundError(f"Model '{model_id}' not found for user {user_id}", model_id=model_id, user_id=user_id)
         return model_dir
+
+    def _save_auxiliary_files(self, model_dir: Path, scaler: Optional[Any], feature_info: Optional[Dict[str, Any]]) -> None:
+        """Save scaler and feature_info if provided."""
+        if scaler is not None:
+            joblib.dump(scaler, model_dir / "scaler.pkl")
+        if feature_info is not None:
+            with open(model_dir / "feature_names.json", 'w') as f:
+                json.dump(feature_info, f, indent=2)
+
+    def _load_auxiliary_files(self, model_dir: Path) -> tuple:
+        """Load scaler and feature_info if they exist."""
+        scaler = None
+        scaler_path = model_dir / "scaler.pkl"
+        if scaler_path.exists():
+            scaler = joblib.load(scaler_path)
+
+        feature_info = {}
+        feature_info_path = model_dir / "feature_names.json"
+        if feature_info_path.exists():
+            with open(feature_info_path, 'r') as f:
+                feature_info = json.load(f)
+
+        return scaler, feature_info
+
+    def save_model(
+        self,
+        user_id: int,
+        model_id: str,
+        model: Any,
+        metadata: Dict[str, Any],
+        scaler: Optional[Any] = None,
+        feature_info: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Save a trained model with all artifacts.
+
+        Args:
+            user_id: User identifier
+            model_id: Model identifier
+            model: Trained model object to save
+            metadata: Model metadata (metrics, config, etc.)
+            scaler: Preprocessing scaler (optional)
+            feature_info: Feature names and configuration (optional)
+
+        Raises:
+            ModelSerializationError: If saving fails
+        """
+        try:
+            # Create model directory
+            model_dir = self.get_user_models_dir(user_id) / model_id
+            model_dir.mkdir(parents=True, exist_ok=True)
+
+            # Detect if Keras model
+            is_keras = hasattr(model, 'to_json') and hasattr(model, 'save_weights')
+
+            if is_keras:
+                # Save Keras model
+                # 1. Save architecture as JSON
+                model_json = model.to_json()
+                with open(model_dir / "model.json", "w") as json_file:
+                    json_file.write(model_json)
+
+                # 2. Save weights as H5 (Keras 3.x requires .weights.h5 extension)
+                model.save_weights(str(model_dir / "model.weights.h5"))
+
+                # 3. Mark as Keras in metadata
+                metadata["model_format"] = "keras"
+            else:
+                # Save sklearn model
+                model_path = model_dir / "model.pkl"
+                joblib.dump(model, model_path)
+                metadata["model_format"] = "sklearn"
+
+            # Add timestamp to metadata
+            metadata["model_id"] = model_id
+            metadata["user_id"] = user_id
+            metadata["created_at"] = datetime.utcnow().isoformat() + "Z"
+
+            # Save metadata
+            metadata_path = model_dir / "metadata.json"
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            # Save auxiliary files
+            self._save_auxiliary_files(model_dir, scaler, feature_info)
+
+        except Exception as e:
+            # Clean up on failure
+            if model_dir.exists():
+                shutil.rmtree(model_dir)
+            raise ModelSerializationError(
+                f"Failed to save model '{model_id}': {e}",
+                model_id=model_id,
+                operation="save"
+            )
 
     def load_model(self, user_id: int, model_id: str) -> Dict[str, Any]:
         """
@@ -102,41 +193,46 @@ class ModelManager:
         try:
             model_dir = self.get_model_dir(user_id, model_id)
 
-            # Load model
-            model_path = model_dir / "model.pkl"
-            if not model_path.exists():
-                raise ModelNotFoundError(
-                    f"Model file not found for model '{model_id}'",
-                    model_id=model_id,
-                    user_id=user_id
-                )
-
-            model = joblib.load(model_path)
-
-            # Load metadata
+            # Load metadata first to check format
             metadata_path = model_dir / "metadata.json"
             if not metadata_path.exists():
-                raise ModelNotFoundError(
-                    f"Metadata not found for model '{model_id}'",
-                    model_id=model_id,
-                    user_id=user_id
-                )
+                raise ModelNotFoundError(f"Metadata not found for model '{model_id}'", model_id=model_id, user_id=user_id)
 
             with open(metadata_path, 'r') as f:
                 metadata = json.load(f)
 
-            # Load scaler if exists
-            scaler = None
-            scaler_path = model_dir / "scaler.pkl"
-            if scaler_path.exists():
-                scaler = joblib.load(scaler_path)
+            # Check model format
+            model_format = metadata.get("model_format", "sklearn")
 
-            # Load feature info
-            feature_info_path = model_dir / "feature_names.json"
-            feature_info = {}
-            if feature_info_path.exists():
-                with open(feature_info_path, 'r') as f:
-                    feature_info = json.load(f)
+            if model_format == "keras":
+                # Load Keras model
+                model_json_path = model_dir / "model.json"
+                model_weights_path = model_dir / "model.weights.h5"
+
+                if not model_json_path.exists() or not model_weights_path.exists():
+                    raise ModelNotFoundError(f"Keras model files not found for model '{model_id}'", model_id=model_id, user_id=user_id)
+
+                # Import Keras
+                from tensorflow.keras.models import model_from_json
+
+                # Load architecture
+                with open(model_json_path, 'r') as json_file:
+                    model_json = json_file.read()
+                model = model_from_json(model_json)
+
+                # Load weights
+                model.load_weights(str(model_weights_path))
+
+            else:
+                # Load sklearn model
+                model_path = model_dir / "model.pkl"
+                if not model_path.exists():
+                    raise ModelNotFoundError(f"Model file not found for model '{model_id}'", model_id=model_id, user_id=user_id)
+
+                model = joblib.load(model_path)
+
+            # Load auxiliary files
+            scaler, feature_info = self._load_auxiliary_files(model_dir)
 
             return {
                 "model": model,
@@ -172,11 +268,7 @@ class ModelManager:
         metadata_path = model_dir / "metadata.json"
 
         if not metadata_path.exists():
-            raise ModelNotFoundError(
-                f"Metadata not found for model '{model_id}'",
-                model_id=model_id,
-                user_id=user_id
-            )
+            raise ModelNotFoundError(f"Metadata not found for model '{model_id}'", model_id=model_id, user_id=user_id)
 
         with open(metadata_path, 'r') as f:
             return json.load(f)

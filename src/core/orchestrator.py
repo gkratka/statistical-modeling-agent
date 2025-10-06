@@ -576,6 +576,8 @@ class TaskOrchestrator:
                     continue
                 else:
                     # Non-recoverable error or max retries reached
+                    if self.enable_logging:
+                        self.logger.error(f"Task execution failed after {retry_attempt} retries: {str(e)}", exc_info=True)
                     raise e
 
         # This should never be reached due to the loop structure

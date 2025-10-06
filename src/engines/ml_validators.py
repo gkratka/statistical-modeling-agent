@@ -288,7 +288,7 @@ class MLValidators:
         Raises:
             ValidationError: If test_size is invalid
         """
-        if not (0.0 < test_size < 1.0):
+        if not (0.0 <= test_size < 1.0):
             raise ValidationError(
                 f"test_size must be between 0 and 1, got {test_size}",
                 field="test_size",
