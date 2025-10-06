@@ -49,12 +49,13 @@ class MLEngine:
             "neural_network": NeuralNetworkTrainer(config)
         }
 
-    def get_trainer(self, task_type: str) -> Any:
+    def get_trainer(self, task_type: str, model_type: Optional[str] = None) -> Any:
         """
-        Get appropriate trainer for task type.
+        Get appropriate trainer for task type and model type.
 
         Args:
             task_type: Task type (regression, classification, neural_network)
+            model_type: Model type (optional, used for Keras routing)
 
         Returns:
             Trainer instance
@@ -62,6 +63,12 @@ class MLEngine:
         Raises:
             ValidationError: If task_type is unknown
         """
+        # Check if Keras model (prefix-based detection)
+        if model_type and model_type.startswith("keras_"):
+            from src.engines.trainers.keras_trainer import KerasNeuralNetworkTrainer
+            return KerasNeuralNetworkTrainer(self.config)
+
+        # Otherwise use existing trainers
         if task_type not in self.trainers:
             raise ValidationError(
                 f"Unknown task type: '{task_type}'. "
@@ -137,8 +144,8 @@ class MLEngine:
         # Validate test size
         MLValidators.validate_test_size(test_size)
 
-        # Get appropriate trainer
-        trainer = self.get_trainer(task_type)
+        # Get appropriate trainer (pass model_type for Keras routing)
+        trainer = self.get_trainer(task_type, model_type)
 
         # Verify model type is supported
         if model_type not in trainer.SUPPORTED_MODELS:
@@ -161,26 +168,43 @@ class MLEngine:
                 # Hyperparameter validation is advisory, continue
                 pass
 
-        # Prepare data
+        # Handle missing values BEFORE train/test split
+        # This is critical for 'drop' strategy to maintain consistent indices
+        missing_strategy = preprocessing_config.get(
+            "missing_strategy",
+            self.config.default_missing_strategy
+        )
+
+        if missing_strategy == "drop":
+            # Drop rows with missing values in features or target
+            data_clean = data.dropna(subset=feature_columns + [target_column])
+        else:
+            # For other strategies, we'll handle after split
+            data_clean = data.copy()
+
+        # Prepare data (train/test split)
         X_train, X_test, y_train, y_test = trainer.prepare_data(
-            data,
+            data_clean,
             target_column=target_column,
             feature_columns=feature_columns,
             test_size=test_size
         )
 
-        # Handle missing values
-        missing_strategy = preprocessing_config.get(
-            "missing_strategy",
-            self.config.default_missing_strategy
-        )
-        X_train = MLPreprocessors.handle_missing_values(
+        # Handle missing values for imputation strategies (mean, median, etc.)
+        if missing_strategy != "drop":
+            X_train = MLPreprocessors.handle_missing_values(
+                X_train,
+                strategy=missing_strategy
+            )
+            X_test = MLPreprocessors.handle_missing_values(
+                X_test,
+                strategy=missing_strategy
+            )
+
+        # Encode categorical variables (must be done before scaling)
+        X_train, X_test, encoders = MLPreprocessors.encode_categorical(
             X_train,
-            strategy=missing_strategy
-        )
-        X_test = MLPreprocessors.handle_missing_values(
-            X_test,
-            strategy=missing_strategy
+            X_test
         )
 
         # Scale features
@@ -194,18 +218,64 @@ class MLEngine:
             method=scaling_method
         )
 
-        # Create model
-        model = trainer.get_model_instance(model_type, hyperparameters)
+        # Check if Keras model
+        is_keras = model_type.startswith("keras_")
 
-        # Train model
-        trained_model = trainer.train(model, X_train_scaled, y_train)
+        if is_keras:
+            # Keras-specific training path
+            # Add n_features to hyperparameters for architecture building
+            hyperparameters["n_features"] = len(feature_columns)
 
-        # Validate model
-        validation_results = trainer.validate_model(
-            trained_model,
-            X_test_scaled,
-            y_test
-        )
+            # Create model
+            model = trainer.get_model_instance(model_type, hyperparameters)
+
+            # Extract Keras training parameters
+            epochs = hyperparameters.get("epochs", 100)
+            batch_size = hyperparameters.get("batch_size", 32)
+            verbose = hyperparameters.get("verbose", 1)
+            validation_split = hyperparameters.get("validation_split", 0.0)
+
+            # Train model with Keras parameters
+            trained_model = trainer.train(
+                model,
+                X_train_scaled,
+                y_train,
+                epochs=epochs,
+                batch_size=batch_size,
+                verbose=verbose,
+                validation_split=validation_split
+            )
+
+            # Validate model (use test set if available)
+            if len(X_test_scaled) > 0:
+                validation_results = trainer.validate_model(
+                    trained_model,
+                    X_test_scaled,
+                    y_test
+                )
+            else:
+                # No test set, evaluate on training data
+                validation_results = trainer.calculate_metrics(
+                    y_train,
+                    trained_model.predict(X_train_scaled),
+                    trained_model,
+                    X_train_scaled,
+                    y_train
+                )
+        else:
+            # sklearn training path
+            # Create model
+            model = trainer.get_model_instance(model_type, hyperparameters)
+
+            # Train model
+            trained_model = trainer.train(model, X_train_scaled, y_train)
+
+            # Validate model
+            validation_results = trainer.validate_model(
+                trained_model,
+                X_test_scaled,
+                y_test
+            )
 
         # Get model summary (includes coefficients, intercept, etc.)
         model_summary = trainer.get_model_summary(
@@ -214,10 +284,46 @@ class MLEngine:
             feature_columns
         )
 
-        # This would normally generate a script and execute it,
-        # but for now we return the results directly
+        # Generate unique model ID
+        from datetime import datetime
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        model_id = f"model_{user_id}_{model_type}_{timestamp}"
+
+        # Prepare metadata for saving
+        metadata = {
+            "model_type": model_type,
+            "task_type": task_type,
+            "target_column": target_column,
+            "feature_columns": feature_columns,
+            "metrics": validation_results,
+            "preprocessing": {
+                "missing_value_strategy": preprocessing_config.get("missing_strategy"),
+                "scaling_method": preprocessing_config.get("scaling")
+            },
+            "hyperparameters": hyperparameters,
+            "test_size": test_size,
+            **model_summary
+        }
+
+        # Prepare feature info
+        feature_info = {
+            "feature_names": feature_columns,
+            "n_features": len(feature_columns)
+        }
+
+        # Save model with all artifacts
+        self.model_manager.save_model(
+            user_id=user_id,
+            model_id=model_id,
+            model=trained_model,
+            metadata=metadata,
+            scaler=scaler,
+            feature_info=feature_info
+        )
+
+        # Return training results
         return {
-            "model_id": f"model_{user_id}_{model_type}",
+            "model_id": model_id,
             "metrics": validation_results,
             "training_time": 0.0,  # Would be calculated by executor
             "model_info": {
@@ -263,16 +369,11 @@ class MLEngine:
             scaler = model_artifacts["scaler"]
             feature_info = model_artifacts["feature_info"]
 
-            # Get expected features
+            # Validate prediction data (validator extracts features from metadata)
+            MLValidators.validate_prediction_data(data, metadata)
+
+            # Get expected features and extract them
             expected_features = metadata.get("feature_columns", [])
-
-            # Validate prediction data
-            MLValidators.validate_prediction_data(
-                data,
-                expected_features
-            )
-
-            # Extract features
             X = data[expected_features].copy()
 
             # Handle missing values (same strategy as training)

@@ -113,10 +113,34 @@ class ModelTrainer(ABC):
         X = data[feature_columns].copy()
         y = data[target_column].copy()
 
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y,
-            test_size=test_size,
+        # Normalize binary classification targets to [0,1] range
+        # Check for common binary patterns: {1,2} or {'1','2'}
+        unique_vals = set(y.unique())
+        if unique_vals == {1, 2}:
+            # Map {1,2} to {0,1} for binary classification
+            y = y.map({1: 0, 2: 1})
+        elif unique_vals == {'1', '2'}:
+            # Map {'1','2'} to {0,1} for binary classification
+            y = y.map({'1': 0, '2': 1}).astype(int)
+        elif y.dtype == 'object' or pd.api.types.is_categorical_dtype(y):
+            # For other categorical data, use LabelEncoder
+            from sklearn.preprocessing import LabelEncoder
+            le = LabelEncoder()
+            y = pd.Series(le.fit_transform(y), index=y.index, name=y.name)
+
+        # Handle test_size=0 (no train/test split)
+        if test_size == 0.0 or test_size is None or test_size < 0.01:
+            # No split - use all data for training
+            X_train = X.copy()
+            y_train = y.copy()
+            # Return empty test sets with same structure
+            X_test = X.iloc[:0].copy()  # Empty with same columns
+            y_test = y.iloc[:0].copy()  # Empty with same structure
+        else:
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y,
+                test_size=test_size,
             random_state=random_state
         )
 

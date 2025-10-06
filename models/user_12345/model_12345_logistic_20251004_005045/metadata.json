@@ -1,0 +1,50 @@
+{
+  "model_type": "logistic",
+  "task_type": "classification",
+  "target_column": "y",
+  "feature_columns": [
+    "x1",
+    "x2"
+  ],
+  "metrics": {
+    "accuracy": 0.7,
+    "precision": 1.0,
+    "recall": 0.5714285714285714,
+    "f1": 0.7272727272727273,
+    "roc_auc": 1.0,
+    "confusion_matrix": [
+      [
+        3,
+        0
+      ],
+      [
+        3,
+        4
+      ]
+    ]
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {},
+  "test_size": 0.2,
+  "n_features": 2,
+  "feature_names": [
+    "x1",
+    "x2"
+  ],
+  "C": 1.0,
+  "n_classes": 2,
+  "classes": [
+    0,
+    1
+  ],
+  "feature_importance": {
+    "x1": 1.82309124585048,
+    "x2": 1.446900549699607
+  },
+  "model_id": "model_12345_logistic_20251004_005045",
+  "user_id": 12345,
+  "created_at": "2025-10-04T00:50:45.654920Z"
+}

@@ -1,0 +1,138 @@
+{
+  "model_type": "keras_binary_classification",
+  "task_type": "classification",
+  "target_column": "target",
+  "feature_columns": [
+    "feature_0",
+    "feature_1",
+    "feature_2",
+    "feature_3",
+    "feature_4",
+    "feature_5",
+    "feature_6",
+    "feature_7",
+    "feature_8",
+    "feature_9",
+    "feature_10",
+    "feature_11",
+    "feature_12",
+    "feature_13"
+  ],
+  "metrics": {
+    "loss": 0.6983800530433655,
+    "accuracy": 0.5566666722297668,
+    "precision": 0.5563380281690141,
+    "recall": 0.5302013422818792,
+    "f1": 0.5429553264604812,
+    "confusion_matrix": [
+      [
+        88,
+        63
+      ],
+      [
+        70,
+        79
+      ]
+    ]
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {
+    "architecture": {
+      "layers": [
+        {
+          "type": "Dense",
+          "units": 14,
+          "activation": "relu",
+          "kernel_initializer": "glorot_uniform"
+        },
+        {
+          "type": "Dense",
+          "units": 1,
+          "activation": "sigmoid",
+          "kernel_initializer": "glorot_uniform"
+        }
+      ],
+      "compile": {
+        "loss": "binary_crossentropy",
+        "optimizer": "adam",
+        "metrics": [
+          "accuracy"
+        ]
+      }
+    },
+    "epochs": 10,
+    "batch_size": 32,
+    "verbose": 0,
+    "n_features": 14
+  },
+  "test_size": 0.0,
+  "n_features": 14,
+  "feature_names": [
+    "feature_0",
+    "feature_1",
+    "feature_2",
+    "feature_3",
+    "feature_4",
+    "feature_5",
+    "feature_6",
+    "feature_7",
+    "feature_8",
+    "feature_9",
+    "feature_10",
+    "feature_11",
+    "feature_12",
+    "feature_13"
+  ],
+  "framework": "keras",
+  "n_layers": 2,
+  "layer_info": [
+    {
+      "name": "dense_2",
+      "type": "Dense",
+      "units": 14,
+      "activation": "relu"
+    },
+    {
+      "name": "dense_3",
+      "type": "Dense",
+      "units": 1,
+      "activation": "sigmoid"
+    }
+  ],
+  "n_parameters": 225,
+  "optimizer": "Adam",
+  "training_history": {
+    "loss": [
+      0.772311270236969,
+      0.7595688104629517,
+      0.7502973675727844,
+      0.7409974932670593,
+      0.7328481078147888,
+      0.7253564596176147,
+      0.7184776067733765,
+      0.7124627828598022,
+      0.7078813910484314,
+      0.7019578814506531
+    ],
+    "epochs": 10,
+    "accuracy": [
+      0.5,
+      0.5066666603088379,
+      0.5066666603088379,
+      0.5166666507720947,
+      0.5199999809265137,
+      0.5366666913032532,
+      0.5366666913032532,
+      0.54666668176651,
+      0.550000011920929,
+      0.5566666722297668
+    ]
+  },
+  "model_format": "keras",
+  "model_id": "model_12345_keras_binary_classification_20251004_044138",
+  "user_id": 12345,
+  "created_at": "2025-10-04T04:41:38.784983Z"
+}

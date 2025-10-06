@@ -1,0 +1,37 @@
+{
+  "model_type": "lasso",
+  "task_type": "regression",
+  "target_column": "y",
+  "feature_columns": [
+    "x"
+  ],
+  "metrics": {
+    "mse": 4.465479913503485,
+    "rmse": 2.1131682170389285,
+    "mae": 1.754110203022208,
+    "r2": 0.9822216971369785,
+    "explained_variance": 0.9876435853187058
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {},
+  "test_size": 0.2,
+  "n_features": 1,
+  "feature_names": [
+    "x"
+  ],
+  "alpha": 1.0,
+  "l1_ratio": 1.0,
+  "coefficients": {
+    "x": 9.207521294813708
+  },
+  "intercept": 20.074160287869297,
+  "feature_importance": {
+    "x": 9.207521294813708
+  },
+  "model_id": "model_77777_lasso_20251004_005211",
+  "user_id": 77777,
+  "created_at": "2025-10-04T00:52:11.516688Z"
+}

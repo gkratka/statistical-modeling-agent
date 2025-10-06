@@ -1,0 +1,41 @@
+{
+  "model_type": "lasso",
+  "task_type": "regression",
+  "target_column": "salary",
+  "feature_columns": [
+    "age",
+    "experience"
+  ],
+  "metrics": {
+    "mse": 1891013.5460698942,
+    "rmse": 1375.1412822215375,
+    "mae": 1370.603416851187,
+    "r2": 0.981089864539301,
+    "explained_variance": 0.9812144627371585
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {},
+  "test_size": 0.2,
+  "n_features": 2,
+  "feature_names": [
+    "age",
+    "experience"
+  ],
+  "alpha": 1.0,
+  "l1_ratio": 1.0,
+  "coefficients": {
+    "age": -107.53353498355757,
+    "experience": 22317.043989648926
+  },
+  "intercept": 72750.0,
+  "feature_importance": {
+    "age": -107.53353498355757,
+    "experience": 22317.043989648926
+  },
+  "model_id": "model_12345_lasso_20251004_005211",
+  "user_id": 12345,
+  "created_at": "2025-10-04T00:52:11.304435Z"
+}

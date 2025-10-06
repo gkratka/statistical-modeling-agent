@@ -1,0 +1,41 @@
+{
+  "model_type": "elasticnet",
+  "task_type": "regression",
+  "target_column": "salary",
+  "feature_columns": [
+    "age",
+    "experience"
+  ],
+  "metrics": {
+    "mse": 4826640.610457485,
+    "rmse": 2196.961677057086,
+    "mae": 2003.6463672811915,
+    "r2": 0.9517335938954251,
+    "explained_variance": 0.9918795815466163
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {},
+  "test_size": 0.2,
+  "n_features": 2,
+  "feature_names": [
+    "age",
+    "experience"
+  ],
+  "alpha": 1.0,
+  "l1_ratio": 0.5,
+  "coefficients": {
+    "age": 8662.456924890834,
+    "experience": 9087.76426406784
+  },
+  "intercept": 72750.0,
+  "feature_importance": {
+    "age": 8662.456924890834,
+    "experience": 9087.76426406784
+  },
+  "model_id": "model_12345_elasticnet_20251004_005211",
+  "user_id": 12345,
+  "created_at": "2025-10-04T00:52:11.309081Z"
+}

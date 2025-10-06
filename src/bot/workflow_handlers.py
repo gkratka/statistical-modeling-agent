@@ -14,6 +14,25 @@ from src.core.parser import TaskDefinition
 from src.utils.logger import get_logger
 
 
+def is_keras_model(model_type: str) -> bool:
+    """
+    Check if model type is a Keras model.
+
+    Args:
+        model_type: Model type string
+
+    Returns:
+        True if Keras model, False otherwise
+    """
+    keras_models = [
+        'keras_binary_classification',
+        'keras_multiclass_classification',
+        'keras_regression',
+        'neural_network'  # Treat generic neural_network as Keras (will be auto-detected to specific variant)
+    ]
+    return model_type in keras_models
+
+
 def parse_column_selection(user_input: str, columns: List[str]) -> str:
     """
     Parse column selection from user input.
@@ -165,12 +184,22 @@ class WorkflowRouter:
         session: UserSession
     ) -> None:
         """Route message to appropriate workflow state handler."""
+        user_msg = update.message.text[:50] if update.message.text else ""
+        self.logger.info(
+            f"📨 WorkflowRouter.handle() - user_id={session.user_id}, "
+            f"current_state={session.current_state}, "
+            f"workflow={session.workflow_type.value if session.workflow_type else None}, "
+            f"message='{user_msg}...'"
+        )
+
         # Check for cancel command
         if update.message.text.lower() in ['/cancel', 'cancel']:
+            self.logger.info(f"🚫 User {session.user_id} requested cancel")
             return await self.cancel_workflow(update, session)
 
         # Route based on workflow state
         current_state = session.current_state
+        self.logger.debug(f"🔀 Routing to handler for state: {current_state}")
 
         if current_state == MLTrainingState.SELECTING_TARGET.value:
             return await self.handle_target_selection(update, context, session)
@@ -178,8 +207,15 @@ class WorkflowRouter:
             return await self.handle_feature_selection(update, context, session)
         elif current_state == MLTrainingState.CONFIRMING_MODEL.value:
             return await self.handle_model_confirmation(update, context, session)
+        elif current_state == MLTrainingState.SPECIFYING_ARCHITECTURE.value:
+            return await self.handle_architecture_specification(update, context, session)
+        elif current_state == MLTrainingState.COLLECTING_HYPERPARAMETERS.value:
+            return await self.handle_hyperparameter_collection(update, context, session)
         elif current_state == MLTrainingState.TRAINING.value:
             # Training state is typically non-interactive
+            self.logger.warning(
+                f"⚠️ User {session.user_id} sent message during TRAINING state (non-interactive)"
+            )
             await update.message.reply_text(
                 "⏳ Training in progress... Please wait.",
                 parse_mode="Markdown"
@@ -187,6 +223,9 @@ class WorkflowRouter:
             return
         else:
             # Unknown state - clear and restart
+            self.logger.error(
+                f"❌ UNKNOWN STATE: user_id={session.user_id}, state='{current_state}' - clearing workflow"
+            )
             await self.state_manager.cancel_workflow(session)
             await update.message.reply_text(
                 "⚠️ Workflow state error. Please start again.",
@@ -201,16 +240,22 @@ class WorkflowRouter:
     ) -> None:
         """Handle target column selection."""
         user_input = update.message.text.strip()
+        self.logger.info(
+            f"🎯 handle_target_selection() - user_id={session.user_id}, input='{user_input}'"
+        )
 
         # Get dataframe from session
         dataframe = await self.state_manager.get_data(session)
         columns = dataframe.columns.tolist()
+        self.logger.debug(f"📊 Available columns: {columns}")
 
         # Parse column selection (number or name)
         try:
             selected_column = parse_column_selection(user_input, columns)
+            self.logger.info(f"✅ Parsed target column: '{selected_column}'")
         except ValueError as e:
             # Invalid selection - show error and re-prompt
+            self.logger.warning(f"⚠️ Invalid target selection: {str(e)}")
             error_message = (
                 f"❌ Invalid selection: {str(e)}\n\n"
                 f"Please select a column by number (1-{len(columns)}) or name.\n"
@@ -221,6 +266,7 @@ class WorkflowRouter:
 
         # Validate column exists (should always pass after parse, but double-check)
         if selected_column not in columns:
+            self.logger.error(f"❌ Column validation failed: '{selected_column}' not in {columns}")
             await update.message.reply_text(
                 f"❌ Column '{selected_column}' not found in dataset.",
                 parse_mode="Markdown"
@@ -229,12 +275,26 @@ class WorkflowRouter:
 
         # Store target column in session
         session.selections["target_column"] = selected_column
+        self.logger.info(f"💾 Stored target_column in session: '{selected_column}'")
 
         # Transition to feature selection
-        await self.state_manager.transition_state(
+        self.logger.info(f"🔄 Attempting transition: SELECTING_TARGET → SELECTING_FEATURES")
+        success, error_msg, missing = await self.state_manager.transition_state(
             session,
             MLTrainingState.SELECTING_FEATURES.value
         )
+
+        if not success:
+            self.logger.error(
+                f"❌ Transition FAILED: {error_msg}, missing prerequisites: {missing}"
+            )
+            await update.message.reply_text(
+                f"⚠️ **Workflow Error**\n\n{error_msg}\n\nPlease use /cancel and start again.",
+                parse_mode="Markdown"
+            )
+            return
+
+        self.logger.info(f"✅ Transition successful: now in SELECTING_FEATURES state")
 
         # Prepare feature selection prompt (exclude target column)
         available_features = [col for col in columns if col != selected_column]
@@ -262,16 +322,21 @@ class WorkflowRouter:
     ) -> None:
         """Handle feature column selection."""
         user_input = update.message.text.strip()
+        self.logger.info(
+            f"📋 handle_feature_selection() - user_id={session.user_id}, input='{user_input}'"
+        )
 
         # Get dataframe and target column
         dataframe = await self.state_manager.get_data(session)
         target_column = session.selections.get("target_column")
+        self.logger.debug(f"🎯 Target column: '{target_column}'")
 
         # Available features (exclude target)
         available_features = [
             col for col in dataframe.columns.tolist()
             if col != target_column
         ]
+        self.logger.debug(f"📊 Available features ({len(available_features)}): {available_features}")
 
         # Parse feature selection (supports multiple formats)
         try:
@@ -280,7 +345,9 @@ class WorkflowRouter:
                 available_features,
                 target_column
             )
+            self.logger.info(f"✅ Parsed features ({len(selected_features)}): {selected_features}")
         except ValueError as e:
+            self.logger.warning(f"⚠️ Invalid feature selection: {str(e)}")
             error_message = (
                 f"❌ Invalid selection: {str(e)}\n\n"
                 f"Examples:\n"
@@ -294,6 +361,7 @@ class WorkflowRouter:
 
         # Validate at least one feature selected
         if not selected_features:
+            self.logger.error("❌ No features selected")
             await update.message.reply_text(
                 "❌ Please select at least one feature column.",
                 parse_mode="Markdown"
@@ -302,12 +370,26 @@ class WorkflowRouter:
 
         # Store features in session
         session.selections["feature_columns"] = selected_features
+        self.logger.info(f"💾 Stored feature_columns in session: {selected_features}")
 
         # Transition to model confirmation
-        await self.state_manager.transition_state(
+        self.logger.info(f"🔄 Attempting transition: SELECTING_FEATURES → CONFIRMING_MODEL")
+        success, error_msg, missing = await self.state_manager.transition_state(
             session,
             MLTrainingState.CONFIRMING_MODEL.value
         )
+
+        if not success:
+            self.logger.error(
+                f"❌ Transition FAILED: {error_msg}, missing prerequisites: {missing}"
+            )
+            await update.message.reply_text(
+                f"⚠️ **Workflow Error**\n\n{error_msg}\n\nPlease use /cancel and start again.",
+                parse_mode="Markdown"
+            )
+            return
+
+        self.logger.info(f"✅ Transition successful: now in CONFIRMING_MODEL state")
 
         # Show model type selection prompt
         from src.bot.response_builder import ResponseBuilder
@@ -333,6 +415,9 @@ class WorkflowRouter:
     ) -> None:
         """Handle model type confirmation."""
         user_input = update.message.text.strip().lower()
+        self.logger.info(
+            f"🤖 handle_model_confirmation() - user_id={session.user_id}, input='{user_input}'"
+        )
 
         # Map user input to model types (must match trainer SUPPORTED_MODELS)
         model_type_map = {
@@ -349,40 +434,130 @@ class WorkflowRouter:
             '3': 'neural_network',
             'auto': 'auto',
             'automatic': 'auto',
-            '4': 'auto'
+            '4': 'auto',
+            # Keras models
+            'keras_binary': 'keras_binary_classification',
+            'keras binary': 'keras_binary_classification',
+            '5': 'keras_binary_classification',
+            'keras_multi': 'keras_multiclass_classification',
+            'keras multi': 'keras_multiclass_classification',
+            '6': 'keras_multiclass_classification',
+            'keras_reg': 'keras_regression',
+            'keras regression': 'keras_regression',
+            '7': 'keras_regression'
         }
 
         model_type = model_type_map.get(user_input)
 
         if not model_type:
+            self.logger.warning(f"⚠️ Invalid model type input: '{user_input}'")
             error_message = (
                 f"❌ Invalid model type: '{user_input}'\n\n"
                 f"Please select:\n"
                 f"1. Linear Regression\n"
                 f"2. Random Forest\n"
-                f"3. Neural Network\n"
-                f"4. Auto (best model automatically selected)"
+                f"3. Neural Network (sklearn MLP)\n"
+                f"4. Auto (best model automatically selected)\n"
+                f"5. Keras Binary Classification (NN)\n"
+                f"6. Keras Multiclass Classification (NN)\n"
+                f"7. Keras Regression (NN)"
             )
             await update.message.reply_text(error_message, parse_mode="Markdown")
             return
 
         # Store model type in session
         session.selections["model_type"] = model_type
+        self.logger.info(f"💾 Initial model_type stored: '{model_type}'")
 
-        # Transition to training state
-        await self.state_manager.transition_state(
-            session,
-            MLTrainingState.TRAINING.value
-        )
+        # Auto-detect Keras variant for generic "neural_network"
+        if model_type == "neural_network":
+            # Get dataframe from session
+            dataframe = await self.state_manager.get_data(session)
 
-        # Show training started message
-        await update.message.reply_text(
-            "🚀 **Training Started**\n\nPlease wait while the model is being trained...",
-            parse_mode="Markdown"
-        )
+            target_col = session.selections.get("target_column")
+            target_data = dataframe[target_col]
+            n_classes = target_data.nunique()
 
-        # Execute training
-        await self.execute_training(update, context, session)
+            self.logger.info(
+                f"🔍 Auto-detecting Keras variant: target='{target_col}', "
+                f"n_classes={n_classes}, dtype={target_data.dtype}"
+            )
+
+            # Auto-detect based on number of classes
+            if n_classes == 2:
+                model_type = "keras_binary_classification"
+            elif n_classes > 10:
+                model_type = "keras_regression"
+            else:
+                model_type = "keras_multiclass_classification"
+
+            # Update session with detected Keras model type
+            session.selections["model_type"] = model_type
+            self.logger.info(f"✅ Auto-detected Keras model: {model_type} (n_classes={n_classes})")
+
+        # Branch based on model type
+        if is_keras_model(model_type):
+            # Keras models: go to architecture specification
+            self.logger.info(
+                f"🔄 Keras model detected - transitioning: CONFIRMING_MODEL → SPECIFYING_ARCHITECTURE"
+            )
+            success, error_msg, missing = await self.state_manager.transition_state(
+                session,
+                MLTrainingState.SPECIFYING_ARCHITECTURE.value
+            )
+
+            if not success:
+                self.logger.error(
+                    f"❌ Transition FAILED: {error_msg}, missing prerequisites: {missing}"
+                )
+                await update.message.reply_text(
+                    f"⚠️ **Workflow Error**\n\n{error_msg}\n\nPlease use /cancel and start again.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            self.logger.info(f"✅ Transition successful: now in SPECIFYING_ARCHITECTURE state")
+
+            await update.message.reply_text(
+                f"✅ **Keras Model Selected**: {model_type}\n\n"
+                f"**Architecture Configuration**\n"
+                f"Choose architecture:\n"
+                f"1. Default template (recommended for beginners)\n"
+                f"2. Custom JSON (advanced)\n\n"
+                f"Enter choice:",
+                parse_mode="Markdown"
+            )
+        else:
+            # sklearn models: go directly to training
+            self.logger.info(
+                f"🔄 sklearn model detected - transitioning: CONFIRMING_MODEL → TRAINING"
+            )
+            success, error_msg, missing = await self.state_manager.transition_state(
+                session,
+                MLTrainingState.TRAINING.value
+            )
+
+            if not success:
+                self.logger.error(
+                    f"❌ Transition FAILED: {error_msg}, missing prerequisites: {missing}"
+                )
+                await update.message.reply_text(
+                    f"⚠️ **Workflow Error**\n\n{error_msg}\n\nPlease use /cancel and start again.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            self.logger.info(f"✅ Transition successful: now in TRAINING state")
+
+            # Show training started message
+            await update.message.reply_text(
+                f"🚀 **Training Started**: `{model_type}`\n\nPlease wait while the model is being trained...",
+                parse_mode="Markdown"
+            )
+
+            # Execute training
+            self.logger.info(f"🚀 Executing sklearn training for model_type='{model_type}'")
+            await self.execute_training(update, context, session)
 
     async def execute_training(
         self,
@@ -409,17 +584,32 @@ class WorkflowRouter:
             f"(dtype={target_data.dtype}, unique_values={target_data.nunique()})"
         )
 
+        # Build parameters dict
+        parameters = {
+            "target_column": target_column,
+            "feature_columns": feature_columns,
+            "model_type": model_type,
+            "task_type": task_type,  # Auto-detected regression/classification
+            "user_id": session.user_id  # Pass user_id in parameters
+        }
+
+        # Add Keras-specific parameters if present
+        if is_keras_model(model_type):
+            architecture = session.selections.get("architecture")
+            hyperparameters = session.selections.get("hyperparameters", {})
+
+            if architecture:
+                # Combine architecture and hyperparameters for Keras
+                parameters["hyperparameters"] = {
+                    "architecture": architecture,
+                    **hyperparameters
+                }
+
         # Create TaskDefinition with complete parameters
         task = TaskDefinition(
             task_type="ml_train",
             operation="train_model",
-            parameters={
-                "target_column": target_column,
-                "feature_columns": feature_columns,
-                "model_type": model_type,
-                "task_type": task_type,  # Auto-detected regression/classification
-                "user_id": session.user_id  # Pass user_id in parameters
-            },
+            parameters=parameters,
             data_source=None,  # Data already in session
             user_id=session.user_id,
             conversation_id=session.conversation_id
@@ -499,3 +689,260 @@ class WorkflowRouter:
         self.logger.info(
             f"User {session.user_id} cancelled workflow at state {current_state}"
         )
+
+    async def handle_architecture_specification(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        session: UserSession
+    ) -> None:
+        """
+        Handle architecture specification for Keras models.
+
+        States:
+        - Input: User choice (1=template, 2=custom JSON)
+        - Output: Store architecture in session.selections
+        - Next: COLLECTING_HYPERPARAMETERS
+        """
+        user_input = update.message.text.strip()
+        self.logger.info(
+            f"🏗️ handle_architecture_specification() - user_id={session.user_id}, input='{user_input}'"
+        )
+
+        try:
+            choice = int(user_input)
+            self.logger.info(f"📝 Architecture choice: {choice}")
+
+            if choice == 1:
+                # Default template
+                model_type = session.selections['model_type']
+                n_features = len(session.selections['feature_columns'])
+
+                # Auto-detect n_classes for multiclass
+                n_classes = 2
+                if model_type == 'keras_multiclass_classification':
+                    # Get unique values in target column from session data
+                    target_col = session.selections['target_column']
+                    data = session.uploaded_data
+                    if data is not None:
+                        n_classes = data[target_col].nunique()
+
+                # Import template function
+                from src.engines.trainers.keras_templates import get_template
+
+                architecture = get_template(
+                    model_type=model_type,
+                    n_features=n_features,
+                    n_classes=n_classes
+                )
+
+                session.selections['architecture'] = architecture
+                self.logger.info(
+                    f"✅ Default architecture template generated: "
+                    f"n_features={n_features}, n_classes={n_classes}, layers={len(architecture['layers'])}"
+                )
+
+                # Show architecture summary
+                await update.message.reply_text(
+                    f"✅ <b>Default Architecture Selected</b>\n\n"
+                    f"• Input: {n_features} features\n"
+                    f"• Hidden: Dense({n_features}, relu)\n"
+                    f"• Output: Dense({architecture['layers'][-1]['units']}, "
+                    f"{architecture['layers'][-1]['activation']})\n"
+                    f"• Loss: {architecture['compile']['loss']}\n"
+                    f"• Optimizer: {architecture['compile']['optimizer']}\n\n"
+                    f"<b>Training Parameters</b>\n"
+                    f"How many epochs? (Recommended: 100-500 for this dataset size)",
+                    parse_mode="HTML"
+                )
+
+                # Transition to hyperparameter collection
+                self.logger.info(
+                    f"🔄 Transitioning: SPECIFYING_ARCHITECTURE → COLLECTING_HYPERPARAMETERS"
+                )
+                session.current_state = MLTrainingState.COLLECTING_HYPERPARAMETERS.value
+                session.selections['hyperparam_step'] = 'epochs'
+                await self.state_manager.update_session(session)
+                self.logger.info(f"✅ Session updated: now in COLLECTING_HYPERPARAMETERS state")
+
+            elif choice == 2:
+                # Custom JSON architecture
+                await update.message.reply_text(
+                    "<b>Custom Architecture Mode</b>\n\n"
+                    "Please send your architecture as JSON.\n\n"
+                    "Example format:\n"
+                    "<pre>"
+                    "{\n"
+                    '  "layers": [\n'
+                    '    {"type": "Dense", "units": 14, "activation": "relu"},\n'
+                    '    {"type": "Dense", "units": 1, "activation": "sigmoid"}\n'
+                    '  ],\n'
+                    '  "compile": {\n'
+                    '    "loss": "binary_crossentropy",\n'
+                    '    "optimizer": "adam",\n'
+                    '    "metrics": ["accuracy"]\n'
+                    '  }\n'
+                    "}"
+                    "</pre>",
+                    parse_mode="HTML"
+                )
+                session.selections['expecting_json'] = True
+
+            else:
+                await update.message.reply_text(
+                    "❌ Invalid choice. Please enter <b>1</b> for default template or <b>2</b> for custom JSON.",
+                    parse_mode="HTML"
+                )
+
+        except ValueError:
+            # Check if this is JSON input (for custom architecture)
+            if session.selections.get('expecting_json', False):
+                try:
+                    import json
+                    architecture = json.loads(user_input)
+
+                    # Validate architecture structure
+                    if 'layers' not in architecture or 'compile' not in architecture:
+                        raise ValueError("Architecture must contain 'layers' and 'compile' keys")
+
+                    session.selections['architecture'] = architecture
+                    session.selections['expecting_json'] = False
+
+                    await update.message.reply_text(
+                        f"✅ <b>Custom Architecture Accepted</b>\n\n"
+                        f"• Layers: {len(architecture['layers'])}\n"
+                        f"• Loss: {architecture['compile'].get('loss', 'N/A')}\n\n"
+                        f"<b>Training Parameters</b>\n"
+                        f"How many epochs? (Recommended: 100-500)",
+                        parse_mode="HTML"
+                    )
+
+                    session.current_state = MLTrainingState.COLLECTING_HYPERPARAMETERS.value
+                    session.selections['hyperparam_step'] = 'epochs'
+                    await self.state_manager.update_session(session)
+
+                except json.JSONDecodeError as e:
+                    await update.message.reply_text(
+                        f"❌ <b>Invalid JSON Format</b>\n\n"
+                        f"Error: {e}\n\n"
+                        f"Please send valid JSON or type <b>1</b> to use default template.",
+                        parse_mode="HTML"
+                    )
+            else:
+                await update.message.reply_text(
+                    "Please enter a number (<b>1</b> or <b>2</b>).",
+                    parse_mode="HTML"
+                )
+
+    async def handle_hyperparameter_collection(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        session: UserSession
+    ) -> None:
+        """
+        Handle hyperparameter collection for Keras models.
+
+        Multi-turn conversation:
+        1. epochs (required)
+        2. batch_size (optional, default 32)
+
+        States:
+        - Input: User-provided hyperparameter values
+        - Output: Store in session.selections['hyperparameters']
+        - Next: TRAINING
+        """
+        user_input = update.message.text.strip()
+        current_step = session.selections.get('hyperparam_step', 'epochs')
+        self.logger.info(
+            f"⚙️ handle_hyperparameter_collection() - user_id={session.user_id}, "
+            f"step='{current_step}', input='{user_input}'"
+        )
+
+        if 'hyperparameters' not in session.selections:
+            session.selections['hyperparameters'] = {
+                'verbose': 1,  # Always 1 for Telegram
+                'validation_split': 0.0  # Default: no validation split
+            }
+            self.logger.debug("📝 Initialized hyperparameters dict in session")
+
+        try:
+            if current_step == 'epochs':
+                epochs = int(user_input)
+
+                # Validate epochs
+                if epochs < 1 or epochs > 10000:
+                    await update.message.reply_text(
+                        "⚠️ **Invalid Epochs**\n\n"
+                        "Epochs must be between **1** and **10000**.\n"
+                        "Recommended: 100-500 for most datasets.\n\n"
+                        "Please enter epochs:",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                session.selections['hyperparameters']['epochs'] = epochs
+                self.logger.info(f"✅ Epochs stored: {epochs}")
+
+                # Move to batch_size
+                await update.message.reply_text(
+                    f"✅ Epochs: **{epochs}**\n\n"
+                    f"Batch size? (Recommended: 32-128, default: **32**)",
+                    parse_mode="Markdown"
+                )
+                session.selections['hyperparam_step'] = 'batch_size'
+                self.logger.debug("📝 Advanced to batch_size step")
+
+            elif current_step == 'batch_size':
+                batch_size = int(user_input)
+
+                # Validate batch_size
+                if batch_size < 1:
+                    self.logger.warning(f"⚠️ Invalid batch_size: {batch_size}")
+                    await update.message.reply_text(
+                        "⚠️ **Invalid Batch Size**\n\n"
+                        "Batch size must be at least **1**.\n"
+                        "Recommended: 32-128.\n\n"
+                        "Please enter batch size:",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                session.selections['hyperparameters']['batch_size'] = batch_size
+                self.logger.info(f"✅ Batch size stored: {batch_size}")
+
+                # Show summary and start training
+                architecture = session.selections['architecture']
+                hyperparams = session.selections['hyperparameters']
+
+                self.logger.info(
+                    f"📊 Training config ready: model={session.selections['model_type']}, "
+                    f"epochs={hyperparams['epochs']}, batch_size={hyperparams['batch_size']}, "
+                    f"layers={len(architecture['layers'])}"
+                )
+
+                await update.message.reply_text(
+                    f"✅ **Training Configuration**\n\n"
+                    f"• Model: {session.selections['model_type']}\n"
+                    f"• Epochs: **{hyperparams['epochs']}**\n"
+                    f"• Batch size: **{hyperparams['batch_size']}**\n"
+                    f"• Layers: {len(architecture['layers'])}\n\n"
+                    f"🚀 Starting training...",
+                    parse_mode="Markdown"
+                )
+
+                # Transition to training
+                self.logger.info(f"🔄 Transitioning: COLLECTING_HYPERPARAMETERS → TRAINING")
+                session.current_state = MLTrainingState.TRAINING.value
+                await self.state_manager.update_session(session)
+                self.logger.info(f"✅ Session updated: now in TRAINING state")
+
+                # Trigger actual training
+                self.logger.info(f"🚀 Triggering Keras training execution")
+                await self.execute_training(update, context, session)
+
+        except ValueError:
+            await update.message.reply_text(
+                f"❌ Please enter a valid number for **{current_step}**.",
+                parse_mode="Markdown"
+            )

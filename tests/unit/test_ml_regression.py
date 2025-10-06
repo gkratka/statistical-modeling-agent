@@ -133,9 +133,7 @@ class TestMLValidators:
         """Test test_size validation."""
         MLValidators.validate_test_size(0.2)  # Should pass
         MLValidators.validate_test_size(0.3)  # Should pass
-
-        with pytest.raises(ValidationError):
-            MLValidators.validate_test_size(0.0)  # Invalid
+        MLValidators.validate_test_size(0.0)  # Now valid (for training on 100% of data)
 
         with pytest.raises(ValidationError):
             MLValidators.validate_test_size(1.0)  # Invalid
@@ -194,8 +192,9 @@ class TestMLPreprocessors:
         )
 
         # Check that mean is approximately 0 and std is approximately 1
+        # Note: pandas .std() uses ddof=1 by default, so value will be ~1.118, not 1.0
         assert train_scaled['feature1'].mean() == pytest.approx(0.0, abs=1e-10)
-        assert train_scaled['feature1'].std() == pytest.approx(1.0, abs=0.1)
+        assert train_scaled['feature1'].std(ddof=0) == pytest.approx(1.0, abs=0.1)
         assert scaler is not None
 
     def test_scale_features_none(self):

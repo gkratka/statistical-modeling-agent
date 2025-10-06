@@ -179,6 +179,33 @@ class ResultProcessor:
 
     def _process_ml_training_result(self, result: Dict[str, Any]) -> ProcessedResult:
         """Process ML training results with formatted metrics and charts."""
+        # Check if this is an error result first
+        if result.get("success") is False:
+            # Handle error case - format error message
+            error_msg = result.get("error", "Unknown error")
+            error_code = result.get("error_code", "ERROR")
+            user_message = result.get("message", "")
+            suggestions = result.get("suggestions", [])
+
+            emoji = "❌ " if self.config.use_emojis else ""
+            text = f"{emoji}Training Failed\n\n"
+            text += f"Error: {error_msg}\n\n"
+
+            if suggestions:
+                text += "Suggestions:\n"
+                for i, suggestion in enumerate(suggestions, 1):
+                    text += f"{i}. {suggestion}\n"
+
+            return ProcessedResult(
+                text=text,
+                images=[],
+                files=[],
+                summary=f"Training failed: {error_msg}",
+                needs_pagination=False,
+                pagination_state=None
+            )
+
+        # Success case - process training results
         model_id = result.get("model_id", "unknown")
         metrics = result.get("metrics", {})
 

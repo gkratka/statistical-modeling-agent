@@ -35,6 +35,7 @@ from src.bot.handlers import (
     diagnostic_handler,
     version_handler,
     cancel_handler,
+    train_handler,
     error_handler
 )
 from src.utils.exceptions import ConfigurationError
@@ -101,6 +102,7 @@ class StatisticalModelingBot:
         self.application.add_handler(CommandHandler("version", version_handler))
         self.application.add_handler(CommandHandler("diagnostic", diagnostic_handler))
         self.application.add_handler(CommandHandler("cancel", cancel_handler))
+        self.application.add_handler(CommandHandler("train", train_handler))
 
         # Script command handler
         from src.bot.script_handler import script_command_handler

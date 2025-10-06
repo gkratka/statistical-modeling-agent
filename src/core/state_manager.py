@@ -30,6 +30,8 @@ class MLTrainingState(Enum):
     SELECTING_TARGET = "selecting_target"
     SELECTING_FEATURES = "selecting_features"
     CONFIRMING_MODEL = "confirming_model"
+    SPECIFYING_ARCHITECTURE = "specifying_architecture"  # Keras only
+    COLLECTING_HYPERPARAMETERS = "collecting_hyperparameters"  # Keras only
     TRAINING = "training"
     COMPLETE = "complete"
 
@@ -126,7 +128,9 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     MLTrainingState.AWAITING_DATA.value: {MLTrainingState.SELECTING_TARGET.value},
     MLTrainingState.SELECTING_TARGET.value: {MLTrainingState.SELECTING_FEATURES.value},
     MLTrainingState.SELECTING_FEATURES.value: {MLTrainingState.CONFIRMING_MODEL.value},
-    MLTrainingState.CONFIRMING_MODEL.value: {MLTrainingState.TRAINING.value},
+    MLTrainingState.CONFIRMING_MODEL.value: {MLTrainingState.SPECIFYING_ARCHITECTURE.value, MLTrainingState.TRAINING.value},
+    MLTrainingState.SPECIFYING_ARCHITECTURE.value: {MLTrainingState.COLLECTING_HYPERPARAMETERS.value},
+    MLTrainingState.COLLECTING_HYPERPARAMETERS.value: {MLTrainingState.TRAINING.value},
     MLTrainingState.TRAINING.value: {MLTrainingState.COMPLETE.value},
     MLTrainingState.COMPLETE.value: set()
 }
@@ -148,6 +152,8 @@ ML_TRAINING_PREREQUISITES: Dict[str, PrerequisiteChecker] = {
     MLTrainingState.SELECTING_TARGET.value: lambda s: s.uploaded_data is not None,
     MLTrainingState.SELECTING_FEATURES.value: lambda s: 'target_column' in s.selections or 'target' in s.selections,
     MLTrainingState.CONFIRMING_MODEL.value: lambda s: 'feature_columns' in s.selections or 'features' in s.selections,
+    MLTrainingState.SPECIFYING_ARCHITECTURE.value: lambda s: 'model_type' in s.selections,
+    MLTrainingState.COLLECTING_HYPERPARAMETERS.value: lambda s: 'architecture' in s.selections,
     MLTrainingState.TRAINING.value: lambda s: 'model_type' in s.selections,
 }
 

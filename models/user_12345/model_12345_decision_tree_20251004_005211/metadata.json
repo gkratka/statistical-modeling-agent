@@ -1,0 +1,49 @@
+{
+  "model_type": "decision_tree",
+  "task_type": "classification",
+  "target_column": "target",
+  "feature_columns": [
+    "feature1",
+    "feature2"
+  ],
+  "metrics": {
+    "accuracy": 0.85,
+    "precision": 0.7777777777777778,
+    "recall": 0.875,
+    "f1": 0.823529411764706,
+    "roc_auc": 0.8541666666666666,
+    "confusion_matrix": [
+      [
+        10,
+        2
+      ],
+      [
+        1,
+        7
+      ]
+    ]
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {},
+  "test_size": 0.2,
+  "n_features": 2,
+  "feature_names": [
+    "feature1",
+    "feature2"
+  ],
+  "n_classes": 2,
+  "classes": [
+    0,
+    1
+  ],
+  "feature_importance": {
+    "feature1": 0.6877425223289885,
+    "feature2": 0.3122574776710115
+  },
+  "model_id": "model_12345_decision_tree_20251004_005211",
+  "user_id": 12345,
+  "created_at": "2025-10-04T00:52:11.365837Z"
+}

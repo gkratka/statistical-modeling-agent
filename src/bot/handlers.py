@@ -458,6 +458,46 @@ async def document_handler(
     logger.info("🔧 DATALOADER IMPORT: Success")
 
     try:
+        # Check if user has active workflow - prevent data upload during workflow
+        state_manager = context.bot_data.get('state_manager')
+        if state_manager:
+            session = await state_manager.get_or_create_session(
+                user_id,
+                f"chat_{update.effective_chat.id}"
+            )
+
+            if session.current_state is not None:
+                await update.message.reply_text(
+                    f"⚠️ **Workflow Active**\n\n"
+                    f"Cannot upload data while workflow is in progress.\n\n"
+                    f"Current workflow: {session.workflow_type.value if session.workflow_type else 'unknown'}\n"
+                    f"Current step: {session.current_state}\n\n"
+                    f"Please use /cancel to cancel the current workflow first.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Idempotency check: Has this exact file already been processed?
+            processed_file_id = session.selections.get('last_processed_file_id')
+            current_file_id = document.file_id
+
+            if processed_file_id == current_file_id:
+                logger.info(
+                    f"📄 Idempotency: file_id {current_file_id} already processed for user {user_id}"
+                )
+                await update.message.reply_text(
+                    f"ℹ️ **File Already Processed**\n\n"
+                    f"This file (`{file_name}`) has already been uploaded and processed.\n\n"
+                    f"Your data is ready. Send `/train` to start ML workflow!",
+                    parse_mode="Markdown"
+                )
+                return
+
+            logger.info(
+                f"📄 New file detected: file_id={current_file_id}, "
+                f"previous_file_id={processed_file_id or 'none'}"
+            )
+
         # DIAGNOSTIC: Log message being sent
         logger.info("🔧 SENDING MESSAGE: DataLoader v2.0 processing message")
 
@@ -486,13 +526,31 @@ async def document_handler(
             'file_name': file_name
         }
 
+        # ALSO store in StateManager for ML workflow integration
+        state_manager = context.bot_data['state_manager']
+        session = await state_manager.get_or_create_session(
+            user_id,
+            f"chat_{update.effective_chat.id}"
+        )
+        session.uploaded_data = df
+
+        # Store file_id for idempotency (prevent duplicate processing)
+        session.selections['last_processed_file_id'] = document.file_id
+        session.selections['last_processed_file_name'] = file_name
+
+        await state_manager.update_session(session)
+        logger.info(
+            f"💾 Stored file_id={document.file_id} in session for idempotency tracking"
+        )
+
         # Generate success message with data summary
         success_message = loader.get_data_summary(df, metadata)
+        success_message += "\n\n🎯 **Ready to train?** Send `/train` to start ML workflow!"
 
         # Edit the processing message with results
         await processing_msg.edit_text(success_message, parse_mode="Markdown")
 
-        logger.info(f"Successfully processed file for user {user_id}: {metadata['shape']}")
+        logger.info(f"✅ Successfully processed file for user {user_id}: {metadata['shape']}")
 
     except ValidationError as e:
         # Handle validation errors (file too large, wrong type, etc.)
@@ -572,6 +630,75 @@ async def cancel_handler(
     from src.bot.workflow_handlers import WorkflowRouter
     workflow_router = WorkflowRouter(state_manager)
     await workflow_router.cancel_workflow(update, session)
+
+
+@telegram_handler
+@log_user_action("Start ML training")
+async def train_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle /train command - start ML training workflow.
+
+    Args:
+        update: Telegram update object
+        context: Bot context
+    """
+    user_id = update.effective_user.id
+
+    # Use shared StateManager instance from bot_data
+    state_manager = context.bot_data['state_manager']
+    session = await state_manager.get_or_create_session(
+        user_id,
+        f"chat_{update.effective_chat.id}"
+    )
+
+    # Check if workflow already active
+    if session.workflow_type is not None:
+        await update.message.reply_text(
+            f"⚠️ Workflow already active: {session.workflow_type.value}\n\n"
+            f"Use /cancel to cancel current workflow first.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Check if user has uploaded data
+    if session.uploaded_data is None:
+        await update.message.reply_text(
+            "📂 **No data uploaded**\n\n"
+            "Please upload a CSV file first, then use /train to start training.\n\n"
+            "Example:\n"
+            "1. Upload: `german_credit_data_train.csv`\n"
+            "2. Command: `/train`\n"
+            "3. Follow the prompts to configure your model",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Start ML training workflow
+    from src.core.state_manager import WorkflowType, MLTrainingState
+    await state_manager.start_workflow(session, WorkflowType.ML_TRAINING)
+
+    # Transition to target selection state (workflow starts in awaiting_data but we already have data)
+    session.current_state = MLTrainingState.SELECTING_TARGET.value
+    await state_manager.update_session(session)
+
+    # Get column information
+    columns = session.uploaded_data.columns.tolist()
+
+    await update.message.reply_text(
+        f"🎯 **ML Training Workflow Started**\n\n"
+        f"**Step 1/4: Select Target Column**\n\n"
+        f"Your data has {len(columns)} columns:\n"
+        + "\n".join(f"{i+1}. {col}" for i, col in enumerate(columns[:20]))
+        + (f"\n... and {len(columns) - 20} more" if len(columns) > 20 else "")
+        + f"\n\n**Reply with:**\n"
+        f"• Column number (e.g., `21` for column 21)\n"
+        f"• Column name (e.g., `class`)\n\n"
+        f"_Use /cancel to stop at any time_",
+        parse_mode="Markdown"
+    )
 
 
 async def error_handler(
