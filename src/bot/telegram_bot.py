@@ -11,8 +11,9 @@ import asyncio
 import os
 import signal
 import sys
+import yaml
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, Dict, Any
 
 from dotenv import load_dotenv
 from telegram.ext import (
@@ -27,19 +28,62 @@ from telegram.ext import (
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.bot.handlers import (
-    start_handler,
-    help_handler,
-    message_handler,
-    document_handler,
-    diagnostic_handler,
-    version_handler,
-    cancel_handler,
-    train_handler,
-    error_handler
-)
+from src.bot import handlers
+from src.bot.ml_handlers.ml_training_local_path import register_local_path_handlers
+
+# Import handler functions from handlers.py file
+start_handler = handlers.start_handler
+help_handler = handlers.help_handler
+message_handler = handlers.message_handler
+document_handler = handlers.document_handler
+diagnostic_handler = handlers.diagnostic_handler
+version_handler = handlers.version_handler
+cancel_handler = handlers.cancel_handler
+train_handler = handlers.train_handler
+error_handler = handlers.error_handler
+from src.processors.data_loader import DataLoader
 from src.utils.exceptions import ConfigurationError
 from src.utils.logger import setup_logger, get_logger
+
+# PID file management
+PID_FILE = Path(".bot.pid")
+
+
+def cleanup_pid_file() -> None:
+    """Remove PID file on shutdown."""
+    if PID_FILE.exists():
+        PID_FILE.unlink()
+        logger = get_logger(__name__)
+        logger.info("PID file removed")
+
+
+def check_running_instance() -> bool:
+    """Check if another instance is running."""
+    if not PID_FILE.exists():
+        return False
+
+    logger = get_logger(__name__)
+    try:
+        existing_pid = int(PID_FILE.read_text().strip())
+    except (ValueError, FileNotFoundError):
+        return False
+
+    # Check if process is actually running
+    try:
+        os.kill(existing_pid, 0)  # Signal 0 checks existence
+        return True  # Process exists
+    except OSError:
+        # Process doesn't exist (stale PID)
+        logger.warning(f"Stale PID file detected (PID {existing_pid} dead)")
+        PID_FILE.unlink()
+        return False
+
+
+def create_pid_file() -> None:
+    """Create PID file with current process ID."""
+    PID_FILE.write_text(str(os.getpid()))
+    logger = get_logger(__name__)
+    logger.info(f"PID file created: {os.getpid()}")
 
 
 class StatisticalModelingBot:
@@ -91,10 +135,63 @@ class StatisticalModelingBot:
 
         return config
 
+    def _load_yaml_config(self) -> Dict[str, Any]:
+        """
+        Load configuration from config.yaml.
+
+        Returns:
+            Dictionary containing YAML configuration
+
+        Raises:
+            ConfigurationError: If config file not found or invalid
+        """
+        config_path = Path(__file__).parent.parent.parent / "config" / "config.yaml"
+
+        try:
+            if not config_path.exists():
+                self.logger.warning(f"Config file not found: {config_path}")
+                return {}
+
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+                return config or {}
+
+        except yaml.YAMLError as e:
+            raise ConfigurationError(
+                f"Invalid YAML in config file: {str(e)}",
+                config_key="config.yaml"
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to load config.yaml: {e}")
+            return {}
+
     def _setup_handlers(self) -> None:
         """Set up message handlers for the bot."""
         if not self.application:
             raise ConfigurationError("Application not initialized")
+
+        # Load YAML configuration for local path feature
+        yaml_config = self._load_yaml_config()
+
+        # Initialize core components
+        from src.bot.script_handler import ScriptHandler
+        from src.core.parser import RequestParser
+        from src.core.orchestrator import TaskOrchestrator
+        from src.core.state_manager import StateManager
+
+        parser = RequestParser()
+        orchestrator = TaskOrchestrator()
+        script_handler = ScriptHandler(parser, orchestrator)
+        state_manager = StateManager()
+
+        # Create DataLoader with YAML config for local path support
+        data_loader = DataLoader(config=yaml_config)
+
+        # Store in bot_data for access by handlers
+        self.application.bot_data['script_handler'] = script_handler
+        self.application.bot_data['state_manager'] = state_manager
+        self.application.bot_data['data_loader'] = data_loader
+        self.application.bot_data['config'] = yaml_config
 
         # Command handlers
         self.application.add_handler(CommandHandler("start", start_handler))
@@ -102,7 +199,10 @@ class StatisticalModelingBot:
         self.application.add_handler(CommandHandler("version", version_handler))
         self.application.add_handler(CommandHandler("diagnostic", diagnostic_handler))
         self.application.add_handler(CommandHandler("cancel", cancel_handler))
-        self.application.add_handler(CommandHandler("train", train_handler))
+
+        # Register local path training handlers (NEW)
+        # This replaces the old train_handler with the enhanced version
+        register_local_path_handlers(self.application, state_manager, data_loader)
 
         # Script command handler
         from src.bot.script_handler import script_command_handler
@@ -121,21 +221,11 @@ class StatisticalModelingBot:
         # Error handler
         self.application.add_error_handler(error_handler)
 
-        # Initialize script handler in bot_data for convenience functions
-        from src.bot.script_handler import ScriptHandler
-        from src.core.parser import RequestParser
-        from src.core.orchestrator import TaskOrchestrator
-        from src.core.state_manager import StateManager
-
-        parser = RequestParser()
-        orchestrator = TaskOrchestrator()
-        script_handler = ScriptHandler(parser, orchestrator)
-        state_manager = StateManager()
-
-        self.application.bot_data['script_handler'] = script_handler
-        self.application.bot_data['state_manager'] = state_manager
-
         self.logger.info("Bot handlers configured successfully")
+        if data_loader.local_enabled:
+            self.logger.info(f"Local file path training: ENABLED ({len(data_loader.allowed_directories)} allowed directories)")
+        else:
+            self.logger.info("Local file path training: DISABLED")
 
     def _setup_signal_handlers(self) -> None:
         """Set up graceful shutdown on SIGINT and SIGTERM."""
@@ -243,9 +333,33 @@ class StatisticalModelingBot:
 
 
 async def main() -> None:
-    """Main entry point for the bot application."""
-    bot = StatisticalModelingBot()
-    await bot.start()
+    """Main entry point for the bot application with instance management."""
+    logger = get_logger(__name__)
+
+    # INSTANCE CHECK
+    if check_running_instance():
+        logger.error("❌ Bot instance already running!")
+        logger.error("   Use ./scripts/start_bot_clean.sh to restart")
+        sys.exit(1)
+
+    # CREATE PID FILE
+    create_pid_file()
+
+    # REGISTER CLEANUP
+    def cleanup_handler(signum: int, frame) -> None:
+        cleanup_pid_file()
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt()
+
+    signal.signal(signal.SIGTERM, cleanup_handler)
+    signal.signal(signal.SIGINT, cleanup_handler)
+
+    try:
+        bot = StatisticalModelingBot()
+        await bot.start()
+    finally:
+        # ALWAYS CLEANUP
+        cleanup_pid_file()
 
 
 if __name__ == "__main__":
@@ -253,7 +367,9 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nBot stopped by user")
+        cleanup_pid_file()
         sys.exit(0)
     except Exception as e:
         print(f"Fatal error: {e}")
+        cleanup_pid_file()
         sys.exit(1)

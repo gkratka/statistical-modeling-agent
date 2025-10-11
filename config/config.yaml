@@ -1,0 +1,98 @@
+# Statistical Modeling Agent Configuration
+# This file contains configuration for the Telegram bot and ML engine
+
+# Telegram Bot Configuration
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}  # Set in .env file
+  webhook_url: ${WEBHOOK_URL}       # Optional: for webhook mode
+  polling_timeout: 10               # Seconds
+  connection_pool_size: 8
+
+# LLM Integration (for natural language parsing)
+llm:
+  provider: anthropic               # or openai
+  api_key: ${ANTHROPIC_API_KEY}    # Set in .env file
+  model: claude-3-5-sonnet-20241022
+  max_tokens: 4096
+  temperature: 0.3
+
+# Script Execution Configuration
+execution:
+  timeout: 300                      # Maximum script execution time (seconds)
+  max_memory: 2048                  # Maximum memory usage (MB)
+  sandbox: subprocess               # subprocess or docker
+
+# Data Management
+data:
+  max_file_size: 104857600          # 100MB in bytes (Telegram upload limit)
+  supported_formats:
+    - csv
+    - xlsx
+    - xls
+    - json
+    - parquet
+  temp_dir: ./data/temp
+  cache_dir: ./data/cache
+
+# ML Engine Configuration
+ml_engine:
+  models_dir: ./models              # Directory for saved models
+  max_models_per_user: 50           # Maximum models per user
+  max_model_size_mb: 100            # Maximum individual model size
+  max_training_time_seconds: 300    # 5 minutes
+  max_memory_mb: 2048
+  min_training_samples: 10
+
+  # Preprocessing Defaults
+  default_test_size: 0.2
+  default_cv_folds: 5
+  default_missing_strategy: mean
+  default_scaling: standard
+
+  # Default Hyperparameters
+  default_hyperparameters:
+    ridge:
+      alpha: 1.0
+    random_forest:
+      n_estimators: 100
+      max_depth: 10
+    gradient_boosting:
+      n_estimators: 100
+      learning_rate: 0.1
+
+# Local File Path Training (NEW - Phase 1: Security Foundation)
+local_data:
+  enabled: true                     # Feature flag: enable/disable local path training
+  allowed_directories:              # Whitelist of allowed directories
+    - /Users/gkratka/Documents/datasets
+    - /Users/gkratka/Documents/statistical-modeling-agent/data
+    - ./data                        # Relative paths will be resolved
+    - ./tests/fixtures/test_datasets
+    - /tmp                          # For testing
+  max_file_size_mb: 1000            # 1GB maximum file size for local paths
+  allowed_extensions:               # Allowed file extensions
+    - .csv
+    - .xlsx
+    - .xls
+    - .parquet
+  require_explicit_approval: false  # Future: Ask user before accessing file
+
+# Logging Configuration
+logging:
+  level: INFO                       # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: ./data/logs/agent.log
+  max_size: 10485760                # 10MB
+  backup_count: 5
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Statistics Engine Configuration
+stats_engine:
+  max_correlations: 1000            # Maximum correlation pairs to calculate
+  precision: 4                      # Decimal places for results
+  significance_level: 0.05          # For hypothesis testing
+
+# Session Management
+session:
+  timeout_minutes: 30               # Session inactivity timeout
+  max_concurrent_sessions: 100      # Maximum concurrent user sessions
+  cleanup_interval_minutes: 10      # How often to clean up expired sessions
