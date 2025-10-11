@@ -1,9 +1,11 @@
 """State Manager for multi-step conversation workflows."""
 
 import asyncio
-from dataclasses import dataclass, field
+import json
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import pandas as pd
 
@@ -26,7 +28,17 @@ class WorkflowType(Enum):
 
 class MLTrainingState(Enum):
     """States for ML training workflow."""
-    AWAITING_DATA = "awaiting_data"
+    # NEW (Phase 4): Local file path training states
+    CHOOSING_DATA_SOURCE = "choosing_data_source"  # Choose: Telegram upload or local path
+    AWAITING_FILE_PATH = "awaiting_file_path"      # User provides local file path
+    CONFIRMING_SCHEMA = "confirming_schema"        # User confirms auto-detected schema
+
+    # NEW (Phase 5): Deferred loading workflow states
+    CHOOSING_LOAD_OPTION = "choosing_load_option"  # Choose: immediate load or defer
+    AWAITING_SCHEMA_INPUT = "awaiting_schema_input"  # User provides manual schema
+
+    # Existing states
+    AWAITING_DATA = "awaiting_data"                # Telegram upload or post-schema confirmation
     SELECTING_TARGET = "selecting_target"
     SELECTING_FEATURES = "selecting_features"
     CONFIRMING_MODEL = "confirming_model"
@@ -57,6 +69,15 @@ class UserSession:
     history: List[Dict[str, Any]] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     last_activity: datetime = field(default_factory=datetime.now)
+
+    # NEW (Phase 4): Local path workflow data
+    data_source: Optional[str] = None  # "telegram" or "local_path"
+    file_path: Optional[str] = None    # Original file path if local
+    detected_schema: Optional[Dict[str, Any]] = None  # Auto-detected schema info
+
+    # NEW (Phase 5): Deferred loading workflow data
+    load_deferred: bool = False  # True if data loading is deferred until training
+    manual_schema: Optional[Dict[str, Any]] = None  # User-provided schema for deferred loading
 
     def __post_init__(self) -> None:
         if self.user_id <= 0:
@@ -105,6 +126,8 @@ class StateManagerConfig:
     max_history_messages: int = 50
     cleanup_interval_seconds: int = 300
     max_concurrent_sessions: int = 1000
+    sessions_dir: str = ".sessions"  # NEW: Directory for persistent sessions
+    auto_save: bool = False  # NEW: Auto-save on state change
 
     def __post_init__(self) -> None:
         self._validate_positive("session_timeout_minutes", self.session_timeout_minutes)
@@ -124,11 +147,45 @@ class StateManagerConfig:
 PrerequisiteChecker = Callable[[UserSession], bool]
 
 ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
-    None: {MLTrainingState.AWAITING_DATA.value},
+    # Start: Choose data source (NEW) or legacy AWAITING_DATA
+    None: {
+        MLTrainingState.CHOOSING_DATA_SOURCE.value,  # NEW: Choose upload method
+        MLTrainingState.AWAITING_DATA.value           # Legacy: Direct to upload
+    },
+
+    # NEW: Local path workflow
+    MLTrainingState.CHOOSING_DATA_SOURCE.value: {
+        MLTrainingState.AWAITING_FILE_PATH.value,    # User chose local path
+        MLTrainingState.AWAITING_DATA.value          # User chose Telegram upload
+    },
+    MLTrainingState.AWAITING_FILE_PATH.value: {
+        MLTrainingState.CHOOSING_LOAD_OPTION.value   # Path valid, choose load strategy
+    },
+
+    # NEW: Deferred loading workflow
+    MLTrainingState.CHOOSING_LOAD_OPTION.value: {
+        MLTrainingState.CONFIRMING_SCHEMA.value,     # Immediate: load now, show schema
+        MLTrainingState.AWAITING_SCHEMA_INPUT.value  # Defer: user provides schema
+    },
+    MLTrainingState.AWAITING_SCHEMA_INPUT.value: {
+        MLTrainingState.SELECTING_TARGET.value,      # Schema provided, continue workflow (legacy)
+        MLTrainingState.CONFIRMING_MODEL.value       # Schema complete (target+features), skip selection
+    },
+
+    MLTrainingState.CONFIRMING_SCHEMA.value: {
+        MLTrainingState.SELECTING_TARGET.value,      # Schema accepted, use suggestions (legacy)
+        MLTrainingState.CONFIRMING_MODEL.value,      # Schema accepted, skip to model selection (new fix)
+        MLTrainingState.AWAITING_FILE_PATH.value     # Schema rejected, try different file
+    },
+
+    # Existing workflow (unchanged)
     MLTrainingState.AWAITING_DATA.value: {MLTrainingState.SELECTING_TARGET.value},
     MLTrainingState.SELECTING_TARGET.value: {MLTrainingState.SELECTING_FEATURES.value},
     MLTrainingState.SELECTING_FEATURES.value: {MLTrainingState.CONFIRMING_MODEL.value},
-    MLTrainingState.CONFIRMING_MODEL.value: {MLTrainingState.SPECIFYING_ARCHITECTURE.value, MLTrainingState.TRAINING.value},
+    MLTrainingState.CONFIRMING_MODEL.value: {
+        MLTrainingState.SPECIFYING_ARCHITECTURE.value,
+        MLTrainingState.TRAINING.value
+    },
     MLTrainingState.SPECIFYING_ARCHITECTURE.value: {MLTrainingState.COLLECTING_HYPERPARAMETERS.value},
     MLTrainingState.COLLECTING_HYPERPARAMETERS.value: {MLTrainingState.TRAINING.value},
     MLTrainingState.TRAINING.value: {MLTrainingState.COMPLETE.value},
@@ -239,10 +296,26 @@ class StateMachine:
 class StateManager:
     """Manage user sessions and workflow state."""
 
-    def __init__(self, config: Optional[StateManagerConfig] = None):
+    def __init__(
+        self,
+        config: Optional[StateManagerConfig] = None,
+        sessions_dir: Optional[str] = None,
+        auto_save: Optional[bool] = None
+    ):
         self.config = config or StateManagerConfig()
+
+        # Override config with constructor params if provided
+        if sessions_dir is not None:
+            self.config.sessions_dir = sessions_dir
+        if auto_save is not None:
+            self.config.auto_save = auto_save
+
         self._sessions: Dict[str, UserSession] = {}
         self._global_lock = asyncio.Lock()
+
+        # Create sessions directory if it doesn't exist
+        self._sessions_path = Path(self.config.sessions_dir)
+        self._sessions_path.mkdir(parents=True, exist_ok=True)
 
     def _get_session_key(self, user_id: int, conversation_id: str) -> str:
         """Generate session key."""
@@ -288,24 +361,53 @@ class StateManager:
             self._sessions[session_key] = session
             return session
 
-    async def get_session(self, user_id: int, conversation_id: str) -> Optional[UserSession]:
-        """Get existing session without creating."""
+    async def get_session(
+        self,
+        user_id: int,
+        conversation_id: str,
+        auto_load: bool = False
+    ) -> Optional[UserSession]:
+        """Get existing session without creating. If auto_load=True, tries to load from disk."""
         session_key = self._get_session_key(user_id, conversation_id)
 
         async with self._global_lock:
             if session_key not in self._sessions:
-                return None
+                # If not in memory and auto_load enabled, try loading from disk
+                if auto_load:
+                    # Release lock temporarily to call load_session_from_disk
+                    pass  # Will load after lock is released
+                else:
+                    return None
 
-            session = self._sessions[session_key]
-            if await self._check_and_cleanup_expired(session_key, session):
-                return None
+            else:
+                # Session in memory - check expiry
+                session = self._sessions[session_key]
+                if await self._check_and_cleanup_expired(session_key, session):
+                    return None
 
-            session.update_activity()
-            return session
+                session.update_activity()
+                return session
+
+        # If auto_load and not in memory, try loading from disk (outside lock)
+        if auto_load:
+            loaded_session = await self.load_session_from_disk(user_id)
+            if loaded_session:
+                loaded_session.update_activity()
+            return loaded_session
+
+        return None
 
     async def update_session(self, session: UserSession) -> None:
-        """Update existing session."""
+        """Update existing session. If auto_save enabled, also saves to disk."""
         await self._update_and_save(session)
+
+        # Auto-save to disk if enabled
+        if self.config.auto_save:
+            try:
+                await self.save_session_to_disk(session.user_id)
+            except Exception:
+                # Don't fail the update if disk save fails
+                pass
 
     async def delete_session(self, user_id: int, conversation_id: str) -> None:
         """Delete session."""
@@ -404,3 +506,123 @@ class StateManager:
         if 0 < time_left < threshold:
             return f"⚠️ Your session will expire in {int(time_left)} minutes due to inactivity"
         return None
+
+    # =========================================================================
+    # Session Persistence Methods (Phase 3: Workflow Fix Plan)
+    # =========================================================================
+
+    def _get_session_file_path(self, user_id: int) -> Path:
+        """Get path to session file for user."""
+        return self._sessions_path / f"user_{user_id}.json"
+
+    def _session_to_dict(self, session: UserSession) -> Dict[str, Any]:
+        """Convert session to JSON-serializable dict."""
+        data = {
+            "user_id": session.user_id,
+            "conversation_id": session.conversation_id,
+            "workflow_type": session.workflow_type.value if session.workflow_type else None,
+            "current_state": session.current_state,
+            "selections": session.selections,
+            "model_ids": session.model_ids,
+            "history": session.history,
+            "created_at": session.created_at.isoformat(),
+            "last_activity": session.last_activity.isoformat(),
+            "data_source": session.data_source,
+            "file_path": session.file_path,
+            "detected_schema": session.detected_schema,
+            "load_deferred": session.load_deferred,
+            "manual_schema": session.manual_schema,
+        }
+        # Note: uploaded_data (DataFrame) is NOT persisted due to size
+        return data
+
+    def _dict_to_session(self, data: Dict[str, Any]) -> UserSession:
+        """Reconstruct session from dict."""
+        session = UserSession(
+            user_id=data["user_id"],
+            conversation_id=data["conversation_id"]
+        )
+        session.workflow_type = WorkflowType(data["workflow_type"]) if data["workflow_type"] else None
+        session.current_state = data["current_state"]
+        session.selections = data["selections"]
+        session.model_ids = data["model_ids"]
+        session.history = data["history"]
+        session.created_at = datetime.fromisoformat(data["created_at"])
+        session.last_activity = datetime.fromisoformat(data["last_activity"])
+        session.data_source = data.get("data_source")
+        session.file_path = data.get("file_path")
+        session.detected_schema = data.get("detected_schema")
+        session.load_deferred = data.get("load_deferred", False)
+        session.manual_schema = data.get("manual_schema")
+        # uploaded_data remains None - must be reloaded if needed
+        return session
+
+    async def save_session_to_disk(self, user_id: int) -> None:
+        """Save session to disk for persistence across restarts."""
+        session_key = self._get_session_key(user_id, "*")  # Get any conversation for this user
+
+        # Find session for this user
+        async with self._global_lock:
+            user_session = None
+            for key, session in self._sessions.items():
+                if session.user_id == user_id:
+                    user_session = session
+                    break
+
+            if user_session is None:
+                raise SessionNotFoundError(f"No session found for user {user_id}")
+
+            # Convert to dict and save
+            session_data = self._session_to_dict(user_session)
+
+        # Write atomically using temporary file
+        session_file = self._get_session_file_path(user_id)
+        temp_file = session_file.with_suffix('.tmp')
+
+        try:
+            temp_file.write_text(json.dumps(session_data, indent=2))
+            temp_file.replace(session_file)  # Atomic rename
+        except Exception as e:
+            if temp_file.exists():
+                temp_file.unlink()
+            raise
+
+    async def load_session_from_disk(self, user_id: int) -> Optional[UserSession]:
+        """Load session from disk. Returns None if no saved session exists."""
+        session_file = self._get_session_file_path(user_id)
+
+        if not session_file.exists():
+            return None
+
+        try:
+            session_data = json.loads(session_file.read_text())
+            session = self._dict_to_session(session_data)
+
+            # Add to memory cache
+            async with self._global_lock:
+                self._sessions[session.session_key] = session
+
+            return session
+
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            # Corrupted session file - delete it
+            session_file.unlink()
+            return None
+
+    async def complete_workflow(self, user_id: int) -> None:
+        """Complete workflow and clean up session."""
+        # Find and remove session from memory
+        async with self._global_lock:
+            user_session_key = None
+            for key, session in self._sessions.items():
+                if session.user_id == user_id:
+                    user_session_key = key
+                    break
+
+            if user_session_key:
+                del self._sessions[user_session_key]
+
+        # Remove session file from disk
+        session_file = self._get_session_file_path(user_id)
+        if session_file.exists():
+            session_file.unlink()

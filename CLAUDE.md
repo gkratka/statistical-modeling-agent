@@ -8,9 +8,59 @@ This is a Telegram bot that performs statistical analysis and machine learning t
 **Key Features**:
 - Statistical analysis (descriptive stats, correlation, hypothesis testing)
 - Machine learning training (13 models: regression, classification, neural networks)
+- **Local file path training** (NEW): Train models using local filesystem paths without uploading
 - Model persistence and lifecycle management
 - Predictions with trained models
 - Script generation and sandboxed execution
+
+## Local File Path Training Workflow (NEW Feature)
+
+**Overview**: Users can now train ML models by providing local filesystem paths instead of uploading files through Telegram. This enables:
+- No file size limits (Telegram has 10MB limit)
+- Faster workflow for large datasets
+- Direct access to existing data files
+- Auto-schema detection with ML suggestions
+
+**User Workflow**:
+1. User starts ML training with `/train`
+2. Bot prompts: Choose data source (Telegram Upload vs Local Path)
+3. If Local Path selected:
+   - User provides absolute file path (e.g., `/home/user/data/housing.csv`)
+   - Bot validates path security (whitelist enforcement)
+   - Bot loads data and auto-detects schema
+   - Bot displays: dataset stats + suggested target/features + task type
+4. User accepts or rejects detected schema
+5. If accepted, continues with existing ML training workflow
+
+**Security**: Multi-layer validation (8 checks):
+- Path traversal detection (`../`, encoded patterns)
+- Directory whitelist enforcement
+- File size limits
+- Extension validation (`.csv`, `.xlsx`, `.parquet`)
+- Symlink resolution
+- Empty file rejection
+
+**Configuration** (`config/config.yaml`):
+```yaml
+local_data:
+  enabled: true
+  allowed_directories:
+    - /Users/username/datasets
+    - /home/user/data
+    - ./data
+  max_file_size_mb: 1000
+  allowed_extensions: [.csv, .xlsx, .xls, .parquet]
+```
+
+**Implementation Files**:
+- `src/utils/path_validator.py` - Security validation (350 lines, 39 tests)
+- `src/utils/schema_detector.py` - Auto-schema detection (550 lines, 45 tests)
+- `src/processors/data_loader.py` - Enhanced with `load_from_local_path()` method
+- `src/core/state_manager.py` - 3 new states (CHOOSING_DATA_SOURCE, AWAITING_FILE_PATH, CONFIRMING_SCHEMA)
+- `src/bot/handlers/ml_training_local_path.py` - Telegram workflow handlers (370 lines)
+- `src/bot/messages/local_path_messages.py` - User-facing prompts and error messages
+
+**Test Coverage**: 127 tests passing (1 skipped)
 
 ## Core Principle
 Safety first: All user-provided code is sandboxed, all inputs are validated, all outputs are sanitized.

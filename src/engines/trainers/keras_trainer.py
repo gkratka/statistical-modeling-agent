@@ -64,9 +64,17 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
                 self._Dropout = Dropout
                 self._keras_imported = True
             except ImportError as e:
+                import sys
+                python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+
                 raise TrainingError(
-                    "TensorFlow/Keras not installed. Install with: pip install tensorflow>=2.12.0",
-                    error_details=str(e)
+                    "TensorFlow/Keras import failed. This may indicate a version conflict or missing dependencies.",
+                    error_details=(
+                        f"Import error: {str(e)}\n"
+                        f"Python version: {python_version}\n"
+                        f"Required: tensorflow>=2.12.0,<2.16.0\n"
+                        f"Troubleshooting: Try 'pip install --upgrade tensorflow' or check if TensorFlow is compatible with your Python version"
+                    )
                 )
 
     def _add_dense_layer(self, model: Any, layer_spec: Dict[str, Any], input_dim: int = None):

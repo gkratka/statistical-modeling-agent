@@ -555,3 +555,30 @@ class SessionLimitError(StateError):
         super().__init__(message)
         self.current_count = current_count
         self.limit = limit
+
+
+# ============================================================================
+# Local File Path Exceptions (Phase 1: Security Foundation)
+# ============================================================================
+
+
+class PathValidationError(ValidationError):
+    """Local file path validation failures."""
+
+    def __init__(
+        self,
+        message: str,
+        path: str = "",
+        reason: str = ""
+    ) -> None:
+        """
+        Initialize path validation error.
+
+        Args:
+            message: Human-readable error message
+            path: File path that failed validation
+            reason: Specific reason for validation failure
+        """
+        super().__init__(message, "file_path", path)
+        self.path = path
+        self.reason = reason

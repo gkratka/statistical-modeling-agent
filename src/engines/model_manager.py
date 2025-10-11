@@ -76,16 +76,24 @@ class ModelManager:
             raise ModelNotFoundError(f"Model '{model_id}' not found for user {user_id}", model_id=model_id, user_id=user_id)
         return model_dir
 
-    def _save_auxiliary_files(self, model_dir: Path, scaler: Optional[Any], feature_info: Optional[Dict[str, Any]]) -> None:
-        """Save scaler and feature_info if provided."""
+    def _save_auxiliary_files(
+        self,
+        model_dir: Path,
+        scaler: Optional[Any],
+        feature_info: Optional[Dict[str, Any]],
+        encoders: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Save scaler, feature_info, and encoders if provided."""
         if scaler is not None:
             joblib.dump(scaler, model_dir / "scaler.pkl")
         if feature_info is not None:
             with open(model_dir / "feature_names.json", 'w') as f:
                 json.dump(feature_info, f, indent=2)
+        if encoders is not None and len(encoders) > 0:
+            joblib.dump(encoders, model_dir / "encoders.pkl")
 
     def _load_auxiliary_files(self, model_dir: Path) -> tuple:
-        """Load scaler and feature_info if they exist."""
+        """Load scaler, feature_info, and encoders if they exist."""
         scaler = None
         scaler_path = model_dir / "scaler.pkl"
         if scaler_path.exists():
@@ -97,7 +105,12 @@ class ModelManager:
             with open(feature_info_path, 'r') as f:
                 feature_info = json.load(f)
 
-        return scaler, feature_info
+        encoders = {}
+        encoders_path = model_dir / "encoders.pkl"
+        if encoders_path.exists():
+            encoders = joblib.load(encoders_path)
+
+        return scaler, feature_info, encoders
 
     def save_model(
         self,
@@ -106,7 +119,8 @@ class ModelManager:
         model: Any,
         metadata: Dict[str, Any],
         scaler: Optional[Any] = None,
-        feature_info: Optional[Dict[str, Any]] = None
+        feature_info: Optional[Dict[str, Any]] = None,
+        encoders: Optional[Dict[str, Any]] = None
     ) -> None:
         """
         Save a trained model with all artifacts.
@@ -118,6 +132,7 @@ class ModelManager:
             metadata: Model metadata (metrics, config, etc.)
             scaler: Preprocessing scaler (optional)
             feature_info: Feature names and configuration (optional)
+            encoders: Categorical feature encoders (optional)
 
         Raises:
             ModelSerializationError: If saving fails
@@ -159,7 +174,7 @@ class ModelManager:
                 json.dump(metadata, f, indent=2)
 
             # Save auxiliary files
-            self._save_auxiliary_files(model_dir, scaler, feature_info)
+            self._save_auxiliary_files(model_dir, scaler, feature_info, encoders)
 
         except Exception as e:
             # Clean up on failure
@@ -232,13 +247,14 @@ class ModelManager:
                 model = joblib.load(model_path)
 
             # Load auxiliary files
-            scaler, feature_info = self._load_auxiliary_files(model_dir)
+            scaler, feature_info, encoders = self._load_auxiliary_files(model_dir)
 
             return {
                 "model": model,
                 "metadata": metadata,
                 "scaler": scaler,
-                "feature_info": feature_info
+                "feature_info": feature_info,
+                "encoders": encoders
             }
 
         except (ModelNotFoundError, ValidationError):

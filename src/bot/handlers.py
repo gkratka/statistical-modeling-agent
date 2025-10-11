@@ -137,6 +137,7 @@ async def message_handler(
 
     # NEW: Check for active workflow BEFORE parsing
     from src.bot.workflow_handlers import WorkflowRouter
+    from src.core.state_manager import MLTrainingState
 
     # Use shared StateManager instance from bot_data
     state_manager = context.bot_data['state_manager']
@@ -145,8 +146,28 @@ async def message_handler(
         f"chat_{update.effective_chat.id}"
     )
 
-    # If user has active workflow, route to workflow handler
+    # Enhanced workflow state checking with specific ML training state detection
+    # This prevents handler collision with local path text handler
     if session.current_state is not None:
+        # Check for specific ML training states that require specialized handling
+        ml_training_states = [
+            MLTrainingState.CHOOSING_DATA_SOURCE.value,
+            MLTrainingState.AWAITING_FILE_PATH.value,
+            MLTrainingState.CHOOSING_LOAD_OPTION.value,
+            MLTrainingState.CONFIRMING_SCHEMA.value,
+            MLTrainingState.AWAITING_SCHEMA_INPUT.value,
+            MLTrainingState.SELECTING_TARGET.value,
+            MLTrainingState.SELECTING_FEATURES.value,
+            MLTrainingState.CONFIRMING_MODEL.value
+        ]
+
+        if session.current_state in ml_training_states:
+            logger.info(f"🛑 EARLY EXIT: ML training state detected ({session.current_state}), deferring to specialized handler")
+            # Return early - specialized handler should process this
+            # Don't even route to workflow handler, just exit
+            return
+
+        # For other workflow states, route to workflow handler
         workflow_router = WorkflowRouter(state_manager)
         logger.info(f"🔧 ROUTING TO WORKFLOW: state={session.current_state}, user={user_id}")
         return await workflow_router.handle(update, context, session)

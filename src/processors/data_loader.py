@@ -3,6 +3,10 @@ Data loader for handling file uploads and data processing.
 
 This module provides secure file upload handling, validation, and
 conversion to pandas DataFrames for the Statistical Modeling Agent.
+
+Supports both:
+- Telegram file uploads (original functionality)
+- Local file path loading (NEW - Phase 3)
 """
 
 import asyncio
@@ -17,8 +21,10 @@ import numpy as np
 from telegram import File as TelegramFile
 from telegram.ext import ContextTypes
 
-from src.utils.exceptions import DataError, ValidationError
+from src.utils.exceptions import DataError, ValidationError, PathValidationError
 from src.utils.logger import get_logger
+from src.utils.path_validator import validate_local_path
+from src.utils.schema_detector import detect_schema, DatasetSchema
 
 logger = get_logger(__name__)
 
@@ -47,9 +53,17 @@ class DataLoader:
     MAX_ROWS = 1_000_000  # Maximum 1M rows
     MAX_COLUMNS = 1000  # Maximum 1000 columns
 
-    def __init__(self) -> None:
-        """Initialize the data loader."""
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+        """Initialize the data loader with optional local_data configuration."""
         self.logger = logger
+        self.config = config or {}
+
+        # Local path configuration (from config.yaml)
+        local_config = self.config.get('local_data', {})
+        self.local_enabled = local_config.get('enabled', False)
+        self.allowed_directories = local_config.get('allowed_directories', [])
+        self.local_max_size_mb = local_config.get('max_file_size_mb', 1000)
+        self.local_extensions = local_config.get('allowed_extensions', ['.csv', '.xlsx', '.xls', '.parquet'])
 
     async def load_from_telegram(
         self,
@@ -102,6 +116,78 @@ class DataLoader:
                 # Clean up temporary file
                 if temp_path.exists():
                     temp_path.unlink()
+
+    async def load_from_local_path(
+        self,
+        file_path: str,
+        detect_schema_flag: bool = True
+    ) -> Tuple[pd.DataFrame, Dict[str, Any], Optional[DatasetSchema]]:
+        """
+        Load data from local file path with security validation.
+
+        Returns: (DataFrame, metadata dict, optional schema)
+        Raises: PathValidationError, DataError, ValidationError
+        """
+        self.logger.info(f"Loading from local path: {file_path}")
+
+        # Check if local path feature is enabled
+        if not self.local_enabled:
+            raise ValidationError(
+                "Local file path loading is disabled. Please upload the file directly.",
+                field="local_data",
+                value="disabled"
+            )
+
+        # Validate path security
+        is_valid, error_msg, resolved_path = validate_local_path(
+            path=file_path,
+            allowed_dirs=self.allowed_directories,
+            max_size_mb=self.local_max_size_mb,
+            allowed_extensions=self.local_extensions
+        )
+
+        if not is_valid:
+            raise PathValidationError(
+                message=error_msg or "Path validation failed",
+                path=file_path,
+                reason="security_validation"
+            )
+
+        assert resolved_path is not None, "Resolved path should not be None if validation passed"
+
+        try:
+            # Process the file (reuse existing logic)
+            df, metadata = await self._process_file(resolved_path, resolved_path.name)
+
+            # Add source information
+            metadata['source'] = 'local_path'
+            metadata['original_path'] = file_path
+            metadata['resolved_path'] = str(resolved_path)
+
+            # Optionally detect schema
+            schema = None
+            if detect_schema_flag:
+                self.logger.info(f"Detecting schema for {resolved_path}")
+                schema = detect_schema(resolved_path, auto_suggest=True)
+                metadata['schema_detected'] = True
+                metadata['suggested_task_type'] = schema.suggested_task_type
+                metadata['suggested_target'] = schema.suggested_target
+                metadata['suggested_features'] = schema.suggested_features
+            else:
+                metadata['schema_detected'] = False
+
+            self.logger.info(f"Successfully loaded from local path: {df.shape}")
+            return df, metadata, schema
+
+        except Exception as e:
+            self.logger.error(f"Failed to load from local path {file_path}: {e}")
+            if isinstance(e, (DataError, ValidationError, PathValidationError)):
+                raise
+            else:
+                raise DataError(
+                    f"Failed to load file from path: {str(e)}",
+                    missing_columns=[]
+                ) from e
 
     async def _process_file(self, file_path: Path, original_name: str) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """
@@ -406,5 +492,54 @@ class DataLoader:
 **Columns:** {column_preview}
 
 ✅ Ready for analysis!"""
+
+    def get_local_path_summary(
+        self,
+        df: pd.DataFrame,
+        metadata: Dict[str, Any],
+        schema: Optional[DatasetSchema] = None
+    ) -> str:
+        """Generate summary for local path loaded data with schema detection."""
+        rows, cols = metadata['shape']
+        resolved_path = Path(metadata.get('resolved_path', ''))
+
+        # Build base summary
+        parts = [
+            f"📂 **Data Loaded from Local Path**\n",
+            f"**File:** `{resolved_path.name}`",
+            f"**Path:** `{resolved_path.parent}`",
+            f"**Shape:** {rows:,} rows × {cols} columns | {metadata['memory_usage_mb']:.1f} MB",
+            f"**Type:** {metadata.get('file_type', 'csv').upper()}\n",
+            f"**Quality:** {metadata['missing_percentage']:.1f}% missing | "
+            f"{metadata['duplicate_count']:,} duplicates | "
+            f"{len(metadata['numeric_columns'])} numeric | {len(metadata['categorical_columns'])} text\n"
+        ]
+
+        # Add schema detection if available
+        if schema and metadata.get('schema_detected'):
+            task_emoji = "📈" if schema.suggested_task_type == "regression" else "🎯"
+            quality_pct = int(schema.overall_quality_score * 100)
+            quality_emoji = "✅" if quality_pct >= 80 else "⚠️" if quality_pct >= 60 else "❌"
+
+            task_type_display = schema.suggested_task_type.title() if schema.suggested_task_type else "Unknown"
+            parts.append(
+                f"**🤖 Auto-Detected:**\n"
+                f"{task_emoji} **{task_type_display}** | "
+                f"Target: `{schema.suggested_target}` | "
+                f"{quality_emoji} {quality_pct}% quality"
+            )
+
+            if schema.suggested_features:
+                feats = ', '.join(f"`{f}`" for f in schema.suggested_features[:5])
+                more = f" (+{len(schema.suggested_features) - 5})" if len(schema.suggested_features) > 5 else ""
+                parts.append(f"Features: {feats}{more}\n")
+
+        # Column preview
+        cols_preview = ', '.join(f"`{c}`" for c in metadata['columns'][:5])
+        if len(metadata['columns']) > 5:
+            cols_preview += f" (+{len(metadata['columns']) - 5})"
+        parts.append(f"**Columns:** {cols_preview}\n\n✅ Ready for ML training!")
+
+        return "\n".join(parts)
 
 

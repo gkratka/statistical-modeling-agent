@@ -80,12 +80,13 @@ class MLEngine:
 
     def train_model(
         self,
-        data: pd.DataFrame,
-        task_type: str,
-        model_type: str,
-        target_column: str,
-        feature_columns: List[str],
-        user_id: int,
+        data: Optional[pd.DataFrame] = None,
+        file_path: Optional[str] = None,
+        task_type: str = None,
+        model_type: str = None,
+        target_column: str = None,
+        feature_columns: List[str] = None,
+        user_id: int = None,
         hyperparameters: Optional[Dict[str, Any]] = None,
         preprocessing_config: Optional[Dict[str, Any]] = None,
         test_size: Optional[float] = None,
@@ -93,10 +94,11 @@ class MLEngine:
         cv_folds: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Train a machine learning model.
+        Train a machine learning model with support for lazy loading.
 
         Args:
-            data: Training data
+            data: Training data (optional if file_path provided)
+            file_path: Path to data file for lazy loading (optional if data provided)
             task_type: Task type (regression, classification, neural_network)
             model_type: Model type (e.g., linear, random_forest, mlp_regression)
             target_column: Name of target column
@@ -120,6 +122,33 @@ class MLEngine:
             TrainingError: If training fails
             ValidationError: If parameters are invalid
         """
+        # Lazy loading support: load data from file_path if data not provided
+        if data is None and file_path is not None:
+            try:
+                # Import data loader and handle async loading
+                import pandas as pd
+
+                # Simple synchronous loading for ML engine
+                # (DataLoader.load_from_local_path is async, so we use pandas directly)
+                file_ext = Path(file_path).suffix.lower()
+
+                if file_ext == '.csv':
+                    data = pd.read_csv(file_path)
+                elif file_ext in ['.xlsx', '.xls']:
+                    data = pd.read_excel(file_path)
+                elif file_ext == '.parquet':
+                    data = pd.read_parquet(file_path)
+                else:
+                    raise ValueError(f"Unsupported file format: {file_ext}")
+
+            except Exception as e:
+                raise DataValidationError(
+                    f"Failed to load data from {file_path}: {str(e)}"
+                )
+
+        # Validate that we have data one way or another
+        if data is None:
+            raise ValidationError("Either 'data' or 'file_path' must be provided")
         # Use defaults if not provided
         if test_size is None:
             test_size = self.config.default_test_size
@@ -318,11 +347,13 @@ class MLEngine:
             model=trained_model,
             metadata=metadata,
             scaler=scaler,
-            feature_info=feature_info
+            feature_info=feature_info,
+            encoders=encoders
         )
 
         # Return training results
         return {
+            "success": True,
             "model_id": model_id,
             "metrics": validation_results,
             "training_time": 0.0,  # Would be calculated by executor
@@ -368,6 +399,7 @@ class MLEngine:
             metadata = model_artifacts["metadata"]
             scaler = model_artifacts["scaler"]
             feature_info = model_artifacts["feature_info"]
+            encoders = model_artifacts.get("encoders", {})
 
             # Validate prediction data (validator extracts features from metadata)
             MLValidators.validate_prediction_data(data, metadata)
@@ -382,6 +414,19 @@ class MLEngine:
                 "mean"
             )
             X = MLPreprocessors.handle_missing_values(X, strategy=missing_strategy)
+
+            # Apply categorical encoding if encoders exist (must be done before scaling)
+            if encoders and len(encoders) > 0:
+                for col, encoder in encoders.items():
+                    if col in X.columns:
+                        try:
+                            # Transform categorical column using fitted encoder
+                            X[col] = encoder.transform(X[col].astype(str))
+                        except ValueError:
+                            # Handle unseen categories: map to most frequent class
+                            # This preserves model compatibility while handling edge cases
+                            most_frequent = encoder.classes_[0]
+                            X[col] = encoder.transform([most_frequent] * len(X))
 
             # Scale if scaler was used
             if scaler is not None:

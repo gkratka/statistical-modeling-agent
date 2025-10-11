@@ -52,8 +52,36 @@ def handle_telegram_errors(func: Callable) -> Callable:
         try:
             return await func(update, context)
         except Exception as e:
+            # Enhanced diagnostic logging
             user_id = getattr(update.effective_user, 'id', 'unknown') if update.effective_user else 'unknown'
-            logger.error(f"Error in {func.__name__} for user {user_id}: {e}")
+            message_text = update.message.text[:100] if update.message and update.message.text else 'N/A'
+
+            # Try to get session state for context
+            session_state = 'N/A'
+            try:
+                if context.bot_data and 'state_manager' in context.bot_data:
+                    state_manager = context.bot_data['state_manager']
+                    session = await state_manager.get_session(
+                        user_id,
+                        f"chat_{update.effective_chat.id}"
+                    )
+                    if session:
+                        session_state = session.current_state
+            except Exception:
+                pass  # Ignore session lookup errors during error handling
+
+            # Log comprehensive error context
+            logger.error(
+                f"💥 ERROR in handler '{func.__name__}' | "
+                f"User: {user_id} | "
+                f"Message: '{message_text}' | "
+                f"Session State: {session_state} | "
+                f"Error: {e}"
+            )
+
+            # Log full stack trace for debugging
+            import traceback
+            logger.error(f"💥 Stack trace:\n{traceback.format_exc()}")
 
             # Try to send error message to user
             if update.message:
