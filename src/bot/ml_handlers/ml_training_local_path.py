@@ -9,11 +9,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ApplicationHandlerStop
 
 from src.core.state_manager import StateManager, MLTrainingState, WorkflowType
+from src.core.template_manager import TemplateManager
+from src.core.training_template import TemplateConfig
 from src.processors.data_loader import DataLoader
 from src.utils.exceptions import PathValidationError, DataError, ValidationError, TrainingError
 from src.utils.schema_detector import DatasetSchema
+from src.utils.path_validator import PathValidator
 from src.bot.messages import LocalPathMessages
+from src.bot.messages.local_path_messages import add_back_button
 from src.bot.utils.markdown_escape import escape_markdown_v1
+from src.bot.ml_handlers.template_handlers import TemplateHandlers
 from src.engines.ml_engine import MLEngine
 from src.engines.ml_config import MLEngineConfig
 from src.engines.trainers.keras_templates import get_template
@@ -28,7 +33,9 @@ class LocalPathMLTrainingHandler:
     def __init__(
         self,
         state_manager: StateManager,
-        data_loader: DataLoader
+        data_loader: DataLoader,
+        template_manager: TemplateManager = None,
+        path_validator: PathValidator = None
     ):
         """Initialize handler with state manager and data loader."""
         self.state_manager = state_manager
@@ -38,6 +45,37 @@ class LocalPathMLTrainingHandler:
         # Initialize ML Engine for training
         ml_config = MLEngineConfig.get_default()
         self.ml_engine = MLEngine(ml_config)
+
+        # Initialize template handler (Phase 6: Templates)
+        if template_manager is None:
+            # Create default template manager from config
+            import yaml
+            from pathlib import Path
+            config_path = Path(__file__).parent.parent.parent.parent / "config" / "config.yaml"
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+            template_config = TemplateConfig(
+                enabled=config['templates']['enabled'],
+                templates_dir=config['templates']['templates_dir'],
+                max_templates_per_user=config['templates']['max_templates_per_user'],
+                allowed_name_pattern=config['templates']['allowed_name_pattern'],
+                name_max_length=config['templates']['name_max_length']
+            )
+            template_manager = TemplateManager(template_config)
+
+        if path_validator is None:
+            path_validator = PathValidator(
+                allowed_directories=self.data_loader.allowed_directories,
+                max_size_mb=self.data_loader.local_max_size_mb,
+                allowed_extensions=self.data_loader.local_extensions
+            )
+
+        self.template_handlers = TemplateHandlers(
+            state_manager=state_manager,
+            template_manager=template_manager,
+            data_loader=data_loader,
+            path_validator=path_validator
+        )
 
     async def handle_start_training(
         self,
@@ -61,7 +99,7 @@ class LocalPathMLTrainingHandler:
         # Get or create session
         session = await self.state_manager.get_or_create_session(
             user_id=user_id,
-            conversation_id=str(chat_id)
+            conversation_id=f"chat_{chat_id}"
         )
 
         # Check if local path feature is enabled
@@ -101,10 +139,11 @@ class LocalPathMLTrainingHandler:
         session.current_state = MLTrainingState.CHOOSING_DATA_SOURCE.value
         await self.state_manager.update_session(session)
 
-        # Create inline keyboard
+        # Create inline keyboard (no back button - this is the entry point)
         keyboard = [
             [InlineKeyboardButton("📤 Upload File", callback_data="data_source:telegram")],
-            [InlineKeyboardButton("📂 Use Local Path", callback_data="data_source:local_path")]
+            [InlineKeyboardButton("📂 Use Local Path", callback_data="data_source:local_path")],
+            [InlineKeyboardButton("📋 Use Template", callback_data="data_source:template")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -143,12 +182,16 @@ class LocalPathMLTrainingHandler:
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if choice == "telegram":
             # User chose Telegram upload
             print("🔀 DEBUG: User chose telegram data source")
             session.data_source = "telegram"
+
+            # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
+            session.save_state_snapshot()
+            self.logger.debug("📸 State snapshot saved before transition to AWAITING_DATA")
 
             old_state = session.current_state
             success, error_msg, missing = await self.state_manager.transition_state(
@@ -175,6 +218,10 @@ class LocalPathMLTrainingHandler:
             # User chose local path
             print("🔀 DEBUG: User chose local_path data source")
             session.data_source = "local_path"
+
+            # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
+            session.save_state_snapshot()
+            self.logger.debug("📸 State snapshot saved before transition to AWAITING_FILE_PATH")
 
             # Store old state before transition
             old_state = session.current_state
@@ -205,6 +252,14 @@ class LocalPathMLTrainingHandler:
             )
             print("🔀 DEBUG: File path prompt sent to user")
 
+        elif choice == "template":
+            # User chose to use a saved template
+            print("🔀 DEBUG: User chose template data source")
+            session.data_source = "template"
+
+            # Route to template handler
+            await self.template_handlers.handle_template_source_selection(update, context)
+
     async def handle_text_input(
         self,
         update: Update,
@@ -231,7 +286,7 @@ class LocalPathMLTrainingHandler:
 
             print(f"📥 DEBUG: Unified text handler called with: {text_input[:50]}...")
 
-            session = await self.state_manager.get_session(user_id, str(chat_id))
+            session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
             if session is None:
                 print(f"❌ DEBUG: Session not found for user {user_id}")
@@ -251,6 +306,9 @@ class LocalPathMLTrainingHandler:
             elif current_state == MLTrainingState.AWAITING_SCHEMA_INPUT.value:
                 print("🔀 DEBUG: Routing to schema input logic")
                 await self._process_schema_input(update, context, session, text_input)
+            elif current_state == MLTrainingState.SAVING_TEMPLATE.value:
+                print("🔀 DEBUG: Routing to template name input logic")
+                await self.template_handlers.handle_template_name_input(update, context)
             else:
                 print(f"⏭️  DEBUG: State {current_state} doesn't require text input, ignoring")
                 return
@@ -315,28 +373,39 @@ class LocalPathMLTrainingHandler:
             # Path valid - store it and get file size
             session.file_path = str(resolved_path)
             size_mb = get_file_size_mb(resolved_path)
+            print(f"📏 DEBUG: File size calculated: {size_mb}MB")
+
+            # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
+            session.save_state_snapshot()
+            self.logger.debug("📸 State snapshot saved before transition to CHOOSING_LOAD_OPTION")
+            print(f"📸 DEBUG: Snapshot saved, transitioning to CHOOSING_LOAD_OPTION")
 
             # Transition to choosing load option
             await self.state_manager.transition_state(
                 session,
                 MLTrainingState.CHOOSING_LOAD_OPTION.value
             )
+            print(f"🔀 DEBUG: State transition complete: {session.current_state}")
 
             # Delete validating message
             await validating_msg.delete()
+            print("🗑️ DEBUG: Validating message deleted")
 
             # Show load option selection
             keyboard = [
                 [InlineKeyboardButton("🔄 Load Now", callback_data="load_option:immediate")],
                 [InlineKeyboardButton("⏳ Defer Loading", callback_data="load_option:defer")]
             ]
+            add_back_button(keyboard)  # Phase 2: Workflow Back Button
             reply_markup = InlineKeyboardMarkup(keyboard)
+            print("⌨️ DEBUG: Keyboard created with Load Now/Defer Loading buttons")
 
             await update.message.reply_text(
                 LocalPathMessages.load_option_prompt(str(resolved_path), size_mb),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
+            print("📤 DEBUG: Load option message sent to user")
 
             # Stop handler propagation to prevent generic message handler from processing
             print("🛑 DEBUG: Stopping handler propagation after successful path validation")
@@ -392,7 +461,7 @@ class LocalPathMLTrainingHandler:
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if choice == "immediate":
             # Load data immediately
@@ -432,6 +501,10 @@ class LocalPathMLTrainingHandler:
                     }
                     self.logger.info(f"[LOAD_NOW] Schema detected: target={schema.suggested_target}, "
                                    f"features={len(schema.suggested_features)}, task={schema.suggested_task_type}")
+
+                # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
+                session.save_state_snapshot()
+                self.logger.debug("📸 State snapshot saved before transition to CONFIRMING_SCHEMA")
 
                 # Transition to schema confirmation
                 await self.state_manager.transition_state(
@@ -557,6 +630,10 @@ class LocalPathMLTrainingHandler:
             # Defer loading - ask for manual schema
             session.load_deferred = True
 
+            # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
+            session.save_state_snapshot()
+            self.logger.debug("📸 State snapshot saved before transition to AWAITING_SCHEMA_INPUT")
+
             await self.state_manager.transition_state(
                 session,
                 MLTrainingState.AWAITING_SCHEMA_INPUT.value
@@ -617,6 +694,10 @@ class LocalPathMLTrainingHandler:
                 except Exception as e:
                     logger.warning(f"Task type detection failed: {e}")
                     print(f"⚠️ DEBUG: Task type detection error: {e}")
+
+            # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
+            session.save_state_snapshot()
+            self.logger.debug("📸 State snapshot saved before transition to CONFIRMING_MODEL")
 
             # Transition to CONFIRMING_MODEL (skip target/feature selection since schema has both)
             old_state = session.current_state
@@ -683,6 +764,7 @@ class LocalPathMLTrainingHandler:
             [InlineKeyboardButton("✅ Accept Schema", callback_data="schema:accept")],
             [InlineKeyboardButton("❌ Try Different File", callback_data="schema:reject")]
         ]
+        add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         # Extract schema details for polished message
@@ -719,6 +801,7 @@ class LocalPathMLTrainingHandler:
             [InlineKeyboardButton("✅ Accept Schema", callback_data="schema:accept")],
             [InlineKeyboardButton("❌ Try Different File", callback_data="schema:reject")]
         ]
+        add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         # Extract schema details for polished message
@@ -749,6 +832,7 @@ class LocalPathMLTrainingHandler:
             [InlineKeyboardButton("🎯 Classification Models", callback_data="model_category:classification")],
             [InlineKeyboardButton("🧠 Neural Networks", callback_data="model_category:neural")]
         ]
+        add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
@@ -794,7 +878,11 @@ class LocalPathMLTrainingHandler:
         print(f"📊 DEBUG: User selected model category: {category}")
 
         # Get session to access stored detection from schema processing
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        # Save state snapshot BEFORE showing specific model selection (Phase 2: Back Button Fix)
+        session.save_state_snapshot()
+        self.logger.debug("📸 State snapshot saved before showing specific model selection")
 
         # Use previously detected task type from schema processing (deferred loading compatible)
         detected_task = session.selections.get('detected_task_type') if session else None
@@ -834,7 +922,7 @@ class LocalPathMLTrainingHandler:
             [InlineKeyboardButton(name, callback_data=f"model_select:{model_type}")]
             for name, model_type in models
         ]
-        keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="model_category:back")])
+        add_back_button(keyboard)  # Phase 2: Workflow Back Button (replaces manual back button)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         category_names = {
@@ -890,7 +978,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"📊 DEBUG: User selected model: {model_type}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Store model selection
         session.selections['model_type'] = model_type
@@ -942,6 +1030,7 @@ class LocalPathMLTrainingHandler:
             [InlineKeyboardButton("200 epochs", callback_data="keras_epochs:200")],
             [InlineKeyboardButton("Custom", callback_data="keras_epochs:custom")]
         ]
+        add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(
@@ -992,7 +1081,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_epochs - user={user_id}, epochs_value={epochs_value}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -1049,6 +1138,7 @@ class LocalPathMLTrainingHandler:
             [InlineKeyboardButton("64 (medium)", callback_data="keras_batch:64")],
             [InlineKeyboardButton("128 (large)", callback_data="keras_batch:128")]
         ]
+        add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message_text = (
@@ -1120,7 +1210,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_batch - user={user_id}, batch_size={batch_size}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -1186,6 +1276,7 @@ class LocalPathMLTrainingHandler:
             [InlineKeyboardButton("he_normal", callback_data="keras_init:he_normal")],
             [InlineKeyboardButton("he_uniform", callback_data="keras_init:he_uniform")]
         ]
+        add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message_text = (
@@ -1257,7 +1348,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_initializer - user={user_id}, initializer={initializer}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -1322,6 +1413,7 @@ class LocalPathMLTrainingHandler:
             [InlineKeyboardButton("1 - Progress bar (recommended)", callback_data="keras_verbose:1")],
             [InlineKeyboardButton("2 - One line per epoch", callback_data="keras_verbose:2")]
         ]
+        add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message_text = (
@@ -1394,7 +1486,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_verbose - user={user_id}, verbose={verbose}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -1461,6 +1553,7 @@ class LocalPathMLTrainingHandler:
             [InlineKeyboardButton("20% validation (recommended)", callback_data="keras_val:0.2")],
             [InlineKeyboardButton("30% validation", callback_data="keras_val:0.3")]
         ]
+        add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message_text = (
@@ -1534,7 +1627,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_validation - user={user_id}, validation_split={validation_split}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -1596,6 +1689,14 @@ class LocalPathMLTrainingHandler:
         initializer = config.get('kernel_initializer', 'glorot_uniform')
         verbose = config.get('verbose', 1)
 
+        # Offer to save as template or start training
+        keyboard = [
+            [InlineKeyboardButton("🚀 Start Training", callback_data="start_training")],
+            [InlineKeyboardButton("💾 Save as Template", callback_data="template_save")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
         message_text = (
             "✅ **Keras Configuration Complete**\n\n"
             f"📊 **Settings:**\n"
@@ -1604,13 +1705,14 @@ class LocalPathMLTrainingHandler:
             f"• Initializer: {escape_markdown_v1(initializer)}\n"
             f"• Verbosity: {verbose}\n"
             f"• Validation Split: {validation_split * 100:.0f}%\n\n"
-            f"🚀 Starting training..."
+            f"What would you like to do next?"
         )
 
         # Wrap message editing with error handling
         try:
             await query.edit_message_text(
                 message_text,
+                reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
         except telegram.error.BadRequest as e:
@@ -1618,6 +1720,7 @@ class LocalPathMLTrainingHandler:
             # Fallback: send new message
             await update.effective_message.reply_text(
                 message_text,
+                reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -1627,6 +1730,25 @@ class LocalPathMLTrainingHandler:
                 parse_mode="Markdown"
             )
 
+    async def handle_training_execution(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Execute training after 'Start Training' button click."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if not session:
+            await query.edit_message_text("❌ Session not found. Please restart with /train")
+            return
+
+        await query.edit_message_text("🚀 Starting training...\n\nThis may take a few moments.", parse_mode="Markdown")
+
         # Trigger actual Keras training
         print(f"🚀 DEBUG: Starting ML Engine training")
         try:
@@ -1635,6 +1757,7 @@ class LocalPathMLTrainingHandler:
             features = session.selections.get('feature_columns')
             file_path = session.file_path
             model_type = session.selections.get('model_type')
+            config = session.selections.get('keras_config', {})
 
             print(f"🚀 DEBUG: Training params - target={target}, features={features}, model={model_type}")
             print(f"🚀 DEBUG: File path={file_path}, config={config}")
@@ -1771,7 +1894,7 @@ class LocalPathMLTrainingHandler:
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if choice == "accept":
             # Transfer detected schema to selections (required for training)
@@ -1779,6 +1902,10 @@ class LocalPathMLTrainingHandler:
                 session.selections['target_column'] = session.detected_schema.get('target')
                 session.selections['feature_columns'] = session.detected_schema.get('features', [])
                 session.selections['detected_task_type'] = session.detected_schema.get('task_type')
+
+            # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
+            session.save_state_snapshot()
+            self.logger.debug("📸 State snapshot saved before transition to CONFIRMING_MODEL (schema accept)")
 
             # Skip target/feature selection since schema is confirmed
             # Go directly to model selection (matching deferred loading behavior)
@@ -1798,6 +1925,10 @@ class LocalPathMLTrainingHandler:
             await self._show_model_selection(update, context, session)
 
         elif choice == "reject":
+            # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
+            session.save_state_snapshot()
+            self.logger.debug("📸 State snapshot saved before transition to AWAITING_FILE_PATH (schema reject)")
+
             # User rejects schema - go back to file path input
             await self.state_manager.transition_state(
                 session,
@@ -1915,5 +2046,68 @@ def register_local_path_handlers(
             handler.handle_text_input  # Single handler routes based on state
         )
     )
+
+    # Universal back button handler (Phase 2: Workflow Back Button)
+    from src.bot.handlers import handle_workflow_back
+    application.add_handler(
+        CallbackQueryHandler(
+            handle_workflow_back,
+            pattern=r"^workflow_back$"
+        )
+    )
+    print("  ✓ Registered universal back button handler")
+
+    # Template workflow handlers (Phase 6: Templates)
+    print("  ✓ Registering template workflow handlers")
+
+    # Start training button (after template save or configuration)
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_training_execution,
+            pattern=r"^start_training$"
+        )
+    )
+
+    # Save template button
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_template_save_request,
+            pattern=r"^template_save$"
+        )
+    )
+
+    # Template selection
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_template_selection,
+            pattern=r"^load_template:"
+        )
+    )
+
+    # Template load options
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_template_load_option,
+            pattern=r"^template_load_now$|^template_defer$"
+        )
+    )
+
+    # Cancel template
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_cancel_template,
+            pattern=r"^cancel_template$"
+        )
+    )
+
+    # Back button in template selection
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_template_source_selection,
+            pattern=r"^back$"
+        )
+    )
+
+    print("  ✓ Template handlers registered")
 
     print("✅ Local path ML training handlers registered successfully")

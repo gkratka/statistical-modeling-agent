@@ -1,6 +1,7 @@
 """User-facing messages for local path workflow."""
 
 from typing import List, Optional
+from telegram import InlineKeyboardButton
 
 
 class LocalPathMessages:
@@ -182,3 +183,29 @@ class LocalPathMessages:
         }
 
         return templates.get(error_type, templates["unexpected"])
+
+
+# Back Button Utilities (Phase 2: Workflow Back Button)
+def create_back_button() -> InlineKeyboardButton:
+    """
+    Create standardized back button for workflow navigation.
+
+    Returns:
+        InlineKeyboardButton with callback_data='workflow_back'
+    """
+    return InlineKeyboardButton("⬅️ Back", callback_data="workflow_back")
+
+
+def add_back_button(keyboard: List[List[InlineKeyboardButton]]) -> None:
+    """
+    Add back button to keyboard layout as last row.
+
+    Args:
+        keyboard: Existing keyboard layout (modified in-place)
+
+    Example:
+        >>> keyboard = [[button1, button2]]
+        >>> add_back_button(keyboard)
+        >>> # keyboard is now: [[button1, button2], [back_button]]
+    """
+    keyboard.append([create_back_button()])

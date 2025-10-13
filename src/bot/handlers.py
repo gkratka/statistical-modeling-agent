@@ -722,6 +722,151 @@ async def train_handler(
     )
 
 
+@log_user_action("Workflow back button")
+async def handle_workflow_back(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Universal back button handler for workflow navigation.
+
+    Handles the 'workflow_back' callback from inline keyboards across
+    all workflows. Implements debouncing (500ms) to prevent race conditions
+    from rapid clicks.
+
+    Behavior:
+    1. Retrieve user session from StateManager
+    2. Check if back navigation is possible (state history not empty)
+    3. Apply debouncing (reject if last_back_action < 500ms ago)
+    4. Restore previous state from history
+    5. Re-render the previous step's UI
+
+    Args:
+        update: Telegram update object (callback query)
+        context: Bot context
+
+    Related: dev/implemented/workflow-back-button.md (Phase 2, Phase 3: Error Handling)
+    """
+    query = update.callback_query
+    await query.answer()  # Acknowledge the button press
+
+    user_id = update.effective_user.id
+
+    try:
+        # Get session from StateManager
+        state_manager = context.bot_data['state_manager']
+        session = await state_manager.get_or_create_session(
+            user_id,
+            f"chat_{update.effective_chat.id}"
+        )
+
+        # Enhanced logging: Current state before back navigation (Phase 3 fix)
+        logger.info(
+            f"🔙 Back button pressed - user_id={user_id}, "
+            f"current_state={session.current_state}, "
+            f"history_depth={session.state_history.get_depth()}"
+        )
+
+        # Check if back navigation is possible
+        if not session.can_go_back():
+            logger.warning(f"⚠️ Cannot go back - history empty for user {user_id}")
+            await query.edit_message_text(
+                "⚠️ **Cannot Go Back**\n\n"
+                "You're at the beginning of the workflow.\n\n"
+                "Use /cancel to exit.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Debouncing: prevent rapid clicks (500ms cooldown)
+        import time
+        current_time = time.time()
+
+        if session.last_back_action is not None:
+            time_since_last = current_time - session.last_back_action
+            if time_since_last < 0.5:  # 500ms debounce
+                logger.info(
+                    f"🔙 Back button debounced for user {user_id}: "
+                    f"{time_since_last * 1000:.0f}ms since last action"
+                )
+                await query.answer(
+                    "⏳ Please wait a moment...",
+                    show_alert=False
+                )
+                return
+
+        # Update debounce timestamp
+        session.last_back_action = current_time
+
+        # Store previous state for logging (Phase 3 fix)
+        previous_state = session.current_state
+
+        # Restore previous state
+        logger.debug(f"📦 Attempting to restore previous state for user {user_id}")
+        success = session.restore_previous_state()
+
+        if not success:
+            logger.error(
+                f"❌ restore_previous_state() failed for user {user_id} "
+                f"at state {previous_state}"
+            )
+            await query.edit_message_text(
+                "❌ **Navigation Error**\n\n"
+                "Failed to restore previous state.\n\n"
+                "Use /cancel to exit workflow.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Log successful restoration (Phase 3 fix)
+        restored_state = session.current_state
+        logger.info(
+            f"✅ State restored successfully - user_id={user_id}, "
+            f"{previous_state} → {restored_state}, "
+            f"remaining_depth={session.state_history.get_depth()}"
+        )
+
+        # Save updated session
+        await state_manager.update_session(session)
+        logger.debug(f"💾 Session updated after state restoration for user {user_id}")
+
+        # Re-render the UI for the restored state (Phase 3 fix: added logging)
+        logger.info(
+            f"🎨 Attempting to render state '{restored_state}' for user {user_id}"
+        )
+
+        from src.bot.workflow_handlers import WorkflowRouter
+        workflow_router = WorkflowRouter(state_manager)
+
+        await workflow_router.render_current_state(update, context, session)
+
+        logger.info(
+            f"✅ Successfully rendered state '{restored_state}' for user {user_id}"
+        )
+
+    except Exception as e:
+        # Comprehensive error handling and logging (Phase 3 fix)
+        logger.exception(
+            f"💥 CRITICAL ERROR in handle_workflow_back() for user {user_id}"
+        )
+        logger.error(f"💥 Error type: {type(e).__name__}")
+        logger.error(f"💥 Error message: {str(e)}")
+
+        try:
+            # Try to show user-friendly error
+            await query.edit_message_text(
+                f"❌ **Critical Error**\n\n"
+                f"An error occurred during back navigation:\n\n"
+                f"`{str(e)[:200]}`\n\n"
+                f"Please use /cancel to restart the workflow.",
+                parse_mode="Markdown"
+            )
+        except Exception as msg_error:
+            logger.error(
+                f"💥 Failed to send error message to user {user_id}: {msg_error}"
+            )
+
+
 async def error_handler(
     update: object,
     context: ContextTypes.DEFAULT_TYPE
