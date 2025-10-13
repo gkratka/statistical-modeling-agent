@@ -277,6 +277,10 @@ class WorkflowRouter:
         session.selections["target_column"] = selected_column
         self.logger.info(f"💾 Stored target_column in session: '{selected_column}'")
 
+        # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button)
+        session.save_state_snapshot()
+        self.logger.debug("📸 State snapshot saved before transition to SELECTING_FEATURES")
+
         # Transition to feature selection
         self.logger.info(f"🔄 Attempting transition: SELECTING_TARGET → SELECTING_FEATURES")
         success, error_msg, missing = await self.state_manager.transition_state(
@@ -371,6 +375,10 @@ class WorkflowRouter:
         # Store features in session
         session.selections["feature_columns"] = selected_features
         self.logger.info(f"💾 Stored feature_columns in session: {selected_features}")
+
+        # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button)
+        session.save_state_snapshot()
+        self.logger.debug("📸 State snapshot saved before transition to CONFIRMING_MODEL")
 
         # Transition to model confirmation
         self.logger.info(f"🔄 Attempting transition: SELECTING_FEATURES → CONFIRMING_MODEL")
@@ -468,6 +476,10 @@ class WorkflowRouter:
         # Store model type in session
         session.selections["model_type"] = model_type
         self.logger.info(f"💾 Initial model_type stored: '{model_type}'")
+
+        # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button)
+        session.save_state_snapshot()
+        self.logger.debug("📸 State snapshot saved before model type transition")
 
         # Auto-detect Keras variant for generic "neural_network"
         if model_type == "neural_network":
@@ -833,6 +845,279 @@ class WorkflowRouter:
                     "Please enter a number (<b>1</b> or <b>2</b>).",
                     parse_mode="HTML"
                 )
+
+    async def render_current_state(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        session: UserSession
+    ) -> None:
+        """
+        Render UI for current workflow state (for back button navigation).
+
+        Called by handle_workflow_back() after state restoration to re-display
+        the previous step's UI.
+
+        Args:
+            update: Telegram update object (callback query from back button)
+            context: Bot context
+            session: User session with restored state
+
+        Related: dev/implemented/workflow-back-button.md (Phase 2)
+        """
+        query = update.callback_query
+        current_state = session.current_state
+
+        self.logger.info(
+            f"🎨 render_current_state() - user_id={session.user_id}, state={current_state}"
+        )
+
+        # Render based on current state
+        if current_state == MLTrainingState.SELECTING_TARGET.value:
+            # Get dataframe for target selection
+            dataframe = await self.state_manager.get_data(session)
+            columns = dataframe.columns.tolist()
+
+
+            # Target selection prompt
+            message = (
+                f"🎯 **Select Target Column**\n\n"
+                f"Your data has {len(columns)} columns:\n"
+                + "\n".join(f"{i+1}. {col}" for i, col in enumerate(columns[:20]))
+                + (f"\n... and {len(columns) - 20} more" if len(columns) > 20 else "")
+                + f"\n\n**Reply with:**\n"
+                f"• Column number (e.g., `21`)\n"
+                f"• Column name (e.g., `class`)"
+            )
+            await query.edit_message_text(message, parse_mode="Markdown")
+
+        elif current_state == MLTrainingState.SELECTING_FEATURES.value:
+            # Get dataframe for feature selection
+            dataframe = await self.state_manager.get_data(session)
+            columns = dataframe.columns.tolist()
+
+            # Feature selection prompt
+            target_column = session.selections.get("target_column")
+            available_features = [col for col in columns if col != target_column]
+
+            message = (
+                f"📋 **Select Feature Columns**\n\n"
+                f"Target: `{target_column}`\n\n"
+                f"Available features ({len(available_features)}):\n"
+                + "\n".join(f"{i+1}. {col}" for i, col in enumerate(available_features[:20]))
+                + (f"\n... and {len(available_features) - 20} more" if len(available_features) > 20 else "")
+                + f"\n\n**Reply with:**\n"
+                f"• Numbers: `1,2,3`\n"
+                f"• Range: `1-5`\n"
+                f"• Names: `age,income`\n"
+                f"• All: `all`"
+            )
+            await query.edit_message_text(message, parse_mode="Markdown")
+
+        elif current_state == MLTrainingState.CONFIRMING_MODEL.value:
+            # Detect which workflow (local path vs old) based on session data
+            is_local_path_workflow = (
+                session.data_source == "local_path" or
+                session.load_deferred == True
+            )
+
+            if is_local_path_workflow:
+                # LOCAL PATH WORKFLOW: Show button-based category UI
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                from src.bot.messages.local_path_messages import add_back_button
+
+                keyboard = [
+                    [InlineKeyboardButton("📈 Regression Models", callback_data="model_category:regression")],
+                    [InlineKeyboardButton("🎯 Classification Models", callback_data="model_category:classification")],
+                    [InlineKeyboardButton("🧠 Neural Networks", callback_data="model_category:neural")]
+                ]
+                add_back_button(keyboard)
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await query.edit_message_text(
+                    "🤖 **Choose Model Type**\n\n"
+                    "Select the type of model for your training:\n\n"
+                    "📈 **Regression**: Predict continuous values (prices, temperatures, etc.)\n"
+                    "🎯 **Classification**: Categorize data (spam/not spam, approve/reject, etc.)\n"
+                    "🧠 **Neural Networks**: Advanced deep learning models\n\n"
+                    "Which category fits your task?",
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                # OLD WORKFLOW: Show numbered list (text input)
+                target_column = session.selections.get("target_column")
+                feature_count = len(session.selections.get("feature_columns", []))
+
+                message = (
+                    f"🤖 **Select Model Type**\n\n"
+                    f"Target: `{target_column}`\n"
+                    f"Features: {feature_count} columns\n\n"
+                    f"**Available models:**\n"
+                    f"1. Linear Regression\n"
+                    f"2. Random Forest\n"
+                    f"3. Neural Network (sklearn MLP)\n"
+                    f"4. Auto (best model selected)\n"
+                    f"5. Keras Binary Classification\n"
+                    f"6. Keras Multiclass Classification\n"
+                    f"7. Keras Regression\n\n"
+                    f"**Reply with number or name:**"
+                )
+                await query.edit_message_text(message, parse_mode="Markdown")
+
+        elif current_state == MLTrainingState.SPECIFYING_ARCHITECTURE.value:
+            # Architecture specification prompt
+            message = (
+                f"🏗️ **Architecture Configuration**\n\n"
+                f"Choose architecture:\n"
+                f"1. Default template (recommended)\n"
+                f"2. Custom JSON (advanced)\n\n"
+                f"Enter choice:"
+            )
+            await query.edit_message_text(message, parse_mode="Markdown")
+
+        elif current_state == MLTrainingState.COLLECTING_HYPERPARAMETERS.value:
+            # Hyperparameter collection prompt
+            hyperparam_step = session.selections.get('hyperparam_step', 'epochs')
+
+            if hyperparam_step == 'epochs':
+                message = (
+                    f"⚙️ **Training Parameters**\n\n"
+                    f"How many epochs? (Recommended: 100-500)"
+                )
+            else:  # batch_size
+                epochs = session.selections.get('hyperparameters', {}).get('epochs', 'N/A')
+                message = (
+                    f"✅ Epochs: **{epochs}**\n\n"
+                    f"Batch size? (Recommended: 32-128, default: **32**)"
+                )
+
+            await query.edit_message_text(message, parse_mode="Markdown")
+
+        # Local Path Workflow States (Phase 2: Workflow Back Button Fix)
+        elif current_state == MLTrainingState.CHOOSING_DATA_SOURCE.value:
+            # Data source selection (Upload vs Local Path)
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            from src.bot.messages.local_path_messages import LocalPathMessages
+
+            keyboard = [
+                [InlineKeyboardButton("📤 Upload File", callback_data="data_source:telegram")],
+                [InlineKeyboardButton("📂 Use Local Path", callback_data="data_source:local_path")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                LocalPathMessages.data_source_selection_prompt(),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif current_state == MLTrainingState.AWAITING_FILE_PATH.value:
+            # File path input prompt
+            from src.bot.messages.local_path_messages import LocalPathMessages
+
+            # Get data_loader from bot_data (already initialized at startup)
+            data_loader = context.bot_data['data_loader']
+
+            await query.edit_message_text(
+                LocalPathMessages.file_path_input_prompt(data_loader.allowed_directories),
+                parse_mode="Markdown"
+            )
+
+        elif current_state == MLTrainingState.CHOOSING_LOAD_OPTION.value:
+            # Load option selection (Load Now vs Defer) - THE KEY STATE FOR USER'S BUG
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            from src.bot.messages.local_path_messages import LocalPathMessages, add_back_button
+            from src.utils.path_validator import get_file_size_mb
+            from pathlib import Path
+
+            # Get file path from session
+            file_path = session.file_path
+            if not file_path:
+                self.logger.error("File path missing in session for CHOOSING_LOAD_OPTION state")
+                await query.edit_message_text(
+                    "❌ **Error**: File path not found. Please restart with /train",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Get file size
+            size_mb = get_file_size_mb(Path(file_path))
+
+            # Recreate keyboard with back button
+            keyboard = [
+                [InlineKeyboardButton("🔄 Load Now", callback_data="load_option:immediate")],
+                [InlineKeyboardButton("⏳ Defer Loading", callback_data="load_option:defer")]
+            ]
+            add_back_button(keyboard)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                LocalPathMessages.load_option_prompt(file_path, size_mb),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif current_state == MLTrainingState.CONFIRMING_SCHEMA.value:
+            # Schema confirmation after data load
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            from src.bot.messages.local_path_messages import LocalPathMessages, add_back_button
+
+            # Reconstruct schema confirmation UI from detected_schema
+            detected_schema = session.detected_schema
+            if not detected_schema:
+                self.logger.error("detected_schema missing in session for CONFIRMING_SCHEMA state")
+                await query.edit_message_text(
+                    "❌ **Error**: Schema data not found. Please restart with /train",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Build summary message
+            summary = (
+                f"📊 **Dataset Summary**\n\n"
+                f"• Rows: {detected_schema.get('n_rows', 'N/A')}\n"
+                f"• Columns: {detected_schema.get('n_columns', 'N/A')}\n"
+                f"• Quality Score: {detected_schema.get('quality_score', 'N/A'):.2f}"
+            )
+
+            suggested_target = detected_schema.get('target')
+            suggested_features = detected_schema.get('features', [])
+            task_type = detected_schema.get('task_type')
+
+            keyboard = [
+                [InlineKeyboardButton("✅ Accept Schema", callback_data="schema:accept")],
+                [InlineKeyboardButton("❌ Try Different File", callback_data="schema:reject")]
+            ]
+            add_back_button(keyboard)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                LocalPathMessages.schema_confirmation_prompt(
+                    summary, suggested_target, suggested_features, task_type
+                ),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif current_state == MLTrainingState.AWAITING_SCHEMA_INPUT.value:
+            # Manual schema input (deferred loading)
+            from src.bot.messages.local_path_messages import LocalPathMessages
+
+            await query.edit_message_text(
+                LocalPathMessages.schema_input_prompt(),
+                parse_mode="Markdown"
+            )
+
+        else:
+            # Unknown state or non-interactive state
+            self.logger.warning(f"⚠️ Cannot render state: {current_state}")
+            await query.edit_message_text(
+                f"⚠️ **Navigation Error**\n\n"
+                f"Current state: {current_state}\n\n"
+                f"Use /cancel to exit workflow.",
+                parse_mode="Markdown"
+            )
 
     async def handle_hyperparameter_collection(
         self,

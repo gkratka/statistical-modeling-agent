@@ -96,3 +96,11 @@ session:
   timeout_minutes: 30               # Session inactivity timeout
   max_concurrent_sessions: 100      # Maximum concurrent user sessions
   cleanup_interval_minutes: 10      # How often to clean up expired sessions
+
+# ML Training Templates Configuration
+templates:
+  enabled: true                     # Feature flag: enable/disable templates
+  templates_dir: ./templates        # Directory for saved templates
+  max_templates_per_user: 50        # Maximum templates per user
+  allowed_name_pattern: "^[a-zA-Z0-9_]{1,32}$"  # Template name validation regex
+  name_max_length: 32               # Maximum template name length

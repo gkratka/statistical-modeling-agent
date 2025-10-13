@@ -182,3 +182,47 @@ def get_file_size_mb(path: Path) -> float:
             path=str(path),
             reason="stat_failed"
         )
+
+
+class PathValidator:
+    """
+    Wrapper class for path validation functions.
+    
+    This class provides an object-oriented interface to the path validation functions.
+    """
+    
+    def __init__(self, allowed_directories: list[str], max_size_mb: int, allowed_extensions: list[str]):
+        """
+        Initialize path validator.
+        
+        Args:
+            allowed_directories: List of allowed directory paths
+            max_size_mb: Maximum file size in MB
+            allowed_extensions: List of allowed file extensions (e.g., ['.csv', '.xlsx'])
+        """
+        self.allowed_directories = allowed_directories
+        self.max_size_mb = max_size_mb
+        self.allowed_extensions = allowed_extensions
+    
+    def validate_path(self, path: str) -> dict[str, any]:
+        """
+        Validate a file path.
+        
+        Args:
+            path: File path to validate
+            
+        Returns:
+            Dictionary with 'is_valid', 'error', and 'resolved_path' keys
+        """
+        is_valid, error, resolved_path = validate_local_path(
+            path=path,
+            allowed_dirs=self.allowed_directories,
+            max_size_mb=self.max_size_mb,
+            allowed_extensions=self.allowed_extensions
+        )
+        
+        return {
+            'is_valid': is_valid,
+            'error': error,
+            'resolved_path': resolved_path
+        }

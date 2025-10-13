@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
@@ -16,6 +17,7 @@ from src.utils.exceptions import (
     DataSizeLimitError,
     SessionLimitError
 )
+from src.core.state_history import StateHistory, get_fields_to_clear
 
 
 class WorkflowType(Enum):
@@ -46,6 +48,11 @@ class MLTrainingState(Enum):
     COLLECTING_HYPERPARAMETERS = "collecting_hyperparameters"  # Keras only
     TRAINING = "training"
     COMPLETE = "complete"
+
+    # NEW (Phase 6): Template workflow states
+    SAVING_TEMPLATE = "saving_template"            # User saving template
+    LOADING_TEMPLATE = "loading_template"          # User browsing templates
+    CONFIRMING_TEMPLATE = "confirming_template"    # User confirming template selection
 
 
 class MLPredictionState(Enum):
@@ -78,6 +85,10 @@ class UserSession:
     # NEW (Phase 5): Deferred loading workflow data
     load_deferred: bool = False  # True if data loading is deferred until training
     manual_schema: Optional[Dict[str, Any]] = None  # User-provided schema for deferred loading
+
+    # NEW: Back button workflow navigation
+    state_history: StateHistory = field(default_factory=lambda: StateHistory(max_depth=10))
+    last_back_action: Optional[float] = None  # Timestamp of last back button press (for debouncing)
 
     def __post_init__(self) -> None:
         if self.user_id <= 0:
@@ -115,6 +126,84 @@ class UserSession:
         if self.uploaded_data is None:
             return 0.0
         return self.uploaded_data.memory_usage(deep=True).sum() / (1024 * 1024)
+
+    # =========================================================================
+    # Back Button Navigation Methods (NEW)
+    # =========================================================================
+
+    def save_state_snapshot(self) -> None:
+        """
+        Save current state to history before transition.
+
+        Call this method BEFORE transitioning to a new state to enable
+        back button navigation.
+        """
+        from src.core.state_history import StateSnapshot
+        snapshot = StateSnapshot(self)
+        self.state_history.push(snapshot)
+
+    def restore_previous_state(self) -> bool:
+        """
+        Restore previous state from history and clear downstream fields.
+
+        This implements the "not retain previous choices" requirement by:
+        1. Popping the most recent snapshot from history
+        2. Restoring core state (step, workflow)
+        3. Restoring selections from snapshot
+        4. Clearing fields set AFTER the restored state
+
+        Returns:
+            True if restoration successful, False if history is empty
+        """
+        previous = self.state_history.pop()
+        if not previous:
+            return False
+
+        # Restore core state
+        self.current_state = previous.step
+        self.workflow_type = WorkflowType(previous.workflow) if previous.workflow else None
+
+        # Restore data reference (shallow copy from snapshot)
+        if previous.data_ref is not None:
+            self.uploaded_data = previous.data_ref
+
+        # Restore selections (from deep copy in snapshot)
+        for key, value in previous.selections.items():
+            setattr(self, key, value)
+
+        # Restore metadata
+        self.file_path = previous.file_path
+        self.detected_schema = previous.detected_schema
+
+        # Clear fields set AFTER this state (clean slate requirement)
+        fields_to_clear = get_fields_to_clear(self.current_state)
+        self.clear_fields(fields_to_clear)
+
+        return True
+
+    def clear_fields(self, field_list: List[str]) -> None:
+        """
+        Clear specified state fields.
+
+        Args:
+            field_list: List of field names to set to None
+        """
+        for field in field_list:
+            if hasattr(self, field):
+                setattr(self, field, None)
+
+    def can_go_back(self) -> bool:
+        """
+        Check if back navigation is possible.
+
+        Returns:
+            True if history contains at least one snapshot
+        """
+        return self.state_history.can_go_back()
+
+    def clear_history(self) -> None:
+        """Clear all state history (e.g., on workflow restart)."""
+        self.state_history.clear()
 
 
 @dataclass
@@ -156,7 +245,8 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     # NEW: Local path workflow
     MLTrainingState.CHOOSING_DATA_SOURCE.value: {
         MLTrainingState.AWAITING_FILE_PATH.value,    # User chose local path
-        MLTrainingState.AWAITING_DATA.value          # User chose Telegram upload
+        MLTrainingState.AWAITING_DATA.value,         # User chose Telegram upload
+        MLTrainingState.LOADING_TEMPLATE.value       # User chose "Use Template"
     },
     MLTrainingState.AWAITING_FILE_PATH.value: {
         MLTrainingState.CHOOSING_LOAD_OPTION.value   # Path valid, choose load strategy
@@ -184,12 +274,30 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     MLTrainingState.SELECTING_FEATURES.value: {MLTrainingState.CONFIRMING_MODEL.value},
     MLTrainingState.CONFIRMING_MODEL.value: {
         MLTrainingState.SPECIFYING_ARCHITECTURE.value,
-        MLTrainingState.TRAINING.value
+        MLTrainingState.TRAINING.value,
+        MLTrainingState.SAVING_TEMPLATE.value
     },
     MLTrainingState.SPECIFYING_ARCHITECTURE.value: {MLTrainingState.COLLECTING_HYPERPARAMETERS.value},
-    MLTrainingState.COLLECTING_HYPERPARAMETERS.value: {MLTrainingState.TRAINING.value},
+    MLTrainingState.COLLECTING_HYPERPARAMETERS.value: {
+        MLTrainingState.SAVING_TEMPLATE.value,       # User clicks "Save as Template"
+        MLTrainingState.TRAINING.value               # User proceeds to training
+    },
     MLTrainingState.TRAINING.value: {MLTrainingState.COMPLETE.value},
-    MLTrainingState.COMPLETE.value: set()
+    MLTrainingState.COMPLETE.value: set(),
+
+    # NEW: Template workflow
+    MLTrainingState.SAVING_TEMPLATE.value: {
+        MLTrainingState.TRAINING.value,              # After saving, continue to training
+        MLTrainingState.COMPLETE.value               # User cancels after saving
+    },
+    MLTrainingState.LOADING_TEMPLATE.value: {
+        MLTrainingState.CONFIRMING_TEMPLATE.value    # After selecting template
+    },
+    MLTrainingState.CONFIRMING_TEMPLATE.value: {
+        MLTrainingState.CHOOSING_LOAD_OPTION.value,  # Proceed with template config
+        MLTrainingState.LOADING_TEMPLATE.value,      # Go back to template list
+        MLTrainingState.TRAINING.value               # Direct to training after data load (Bug #9 fix)
+    }
 }
 
 ML_PREDICTION_TRANSITIONS: Dict[Optional[str], Set[str]] = {
@@ -532,6 +640,8 @@ class StateManager:
             "detected_schema": session.detected_schema,
             "load_deferred": session.load_deferred,
             "manual_schema": session.manual_schema,
+            "state_history": session.state_history.to_dict(),  # NEW: Serialize state history
+            "last_back_action": session.last_back_action,  # NEW: Serialize debounce timestamp
         }
         # Note: uploaded_data (DataFrame) is NOT persisted due to size
         return data
@@ -554,6 +664,12 @@ class StateManager:
         session.detected_schema = data.get("detected_schema")
         session.load_deferred = data.get("load_deferred", False)
         session.manual_schema = data.get("manual_schema")
+
+        # NEW: Deserialize state history
+        if "state_history" in data:
+            session.state_history = StateHistory.from_dict(data["state_history"])
+        session.last_back_action = data.get("last_back_action")
+
         # uploaded_data remains None - must be reloaded if needed
         return session
 
