@@ -468,8 +468,8 @@ class ModelManager:
             "size_mb": round(size_mb, 2),
             "metrics": metadata.get("metrics", {}),
             "n_features": len(metadata.get("feature_columns", [])),
-            "features": metadata.get("feature_columns", []),
-            "target": metadata.get("target_column")
+            "feature_columns": metadata.get("feature_columns", []),
+            "target_column": metadata.get("target_column")
         }
 
     def cleanup_old_models(self, user_id: int, days: int = 30) -> int:
@@ -506,6 +506,41 @@ class ModelManager:
                 continue
 
         return deleted_count
+
+    def set_model_name(self, user_id: int, model_id: str, custom_name: str) -> None:
+        """
+        Set custom name for a model by updating metadata.
+
+        Args:
+            user_id: User identifier
+            model_id: Model identifier
+            custom_name: User-provided custom name
+
+        Raises:
+            ModelNotFoundError: If model doesn't exist
+        """
+        # Get model directory (validates existence)
+        model_dir = self.get_model_dir(user_id, model_id)
+        metadata_path = model_dir / "metadata.json"
+
+        if not metadata_path.exists():
+            raise ModelNotFoundError(
+                f"Metadata not found for model '{model_id}'",
+                model_id=model_id,
+                user_id=user_id
+            )
+
+        # Load existing metadata
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+
+        # Update custom_name and display_name
+        metadata['custom_name'] = custom_name
+        metadata['display_name'] = custom_name
+
+        # Save updated metadata
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
 
     def __repr__(self) -> str:
         """String representation."""

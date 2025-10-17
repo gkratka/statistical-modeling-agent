@@ -187,14 +187,14 @@ def get_file_size_mb(path: Path) -> float:
 class PathValidator:
     """
     Wrapper class for path validation functions.
-    
+
     This class provides an object-oriented interface to the path validation functions.
     """
-    
+
     def __init__(self, allowed_directories: list[str], max_size_mb: int, allowed_extensions: list[str]):
         """
         Initialize path validator.
-        
+
         Args:
             allowed_directories: List of allowed directory paths
             max_size_mb: Maximum file size in MB
@@ -203,14 +203,14 @@ class PathValidator:
         self.allowed_directories = allowed_directories
         self.max_size_mb = max_size_mb
         self.allowed_extensions = allowed_extensions
-    
+
     def validate_path(self, path: str) -> dict[str, any]:
         """
         Validate a file path.
-        
+
         Args:
             path: File path to validate
-            
+
         Returns:
             Dictionary with 'is_valid', 'error', and 'resolved_path' keys
         """
@@ -220,9 +220,192 @@ class PathValidator:
             max_size_mb=self.max_size_mb,
             allowed_extensions=self.allowed_extensions
         )
-        
+
         return {
             'is_valid': is_valid,
             'error': error,
             'resolved_path': resolved_path
         }
+
+    def validate_output_path(
+        self,
+        directory_path: str,
+        filename: str,
+        required_mb: int = 0
+    ) -> dict[str, any]:
+        """
+        Validate output directory and filename for saving predictions.
+
+        Args:
+            directory_path: Directory path where file will be saved
+            filename: Desired filename
+            required_mb: Required disk space in MB (0 = no check)
+
+        Returns:
+            Dictionary with:
+                - is_valid: bool
+                - resolved_path: Path (if valid)
+                - error: str (if invalid)
+                - warnings: list[str] (if valid but with warnings)
+        """
+        import shutil
+
+        warnings = []
+
+        # Check for path traversal in filename BEFORE sanitization
+        if detect_path_traversal(filename):
+            return {
+                'is_valid': False,
+                'error': "Invalid filename: path traversal detected",
+                'resolved_path': None,
+                'warnings': []
+            }
+
+        # Sanitize filename
+        sanitized_filename = self.sanitize_filename(filename)
+
+        # Double-check after sanitization (belt and suspenders)
+        if detect_path_traversal(sanitized_filename):
+            return {
+                'is_valid': False,
+                'error': "Invalid filename: path traversal detected",
+                'resolved_path': None,
+                'warnings': []
+            }
+
+        # Validate directory exists
+        try:
+            dir_path = Path(directory_path).resolve()
+        except (ValueError, OSError) as e:
+            return {
+                'is_valid': False,
+                'error': f"Invalid directory path: {str(e)}",
+                'resolved_path': None,
+                'warnings': []
+            }
+
+        if not dir_path.exists():
+            return {
+                'is_valid': False,
+                'error': f"Directory not found: {directory_path}",
+                'resolved_path': None,
+                'warnings': []
+            }
+
+        if not dir_path.is_dir():
+            return {
+                'is_valid': False,
+                'error': f"Path is not a directory: {directory_path}",
+                'resolved_path': None,
+                'warnings': []
+            }
+
+        # Check directory is in whitelist
+        if not is_path_in_allowed_directory(dir_path, self.allowed_directories):
+            dirs_list = "\n".join(f"  • {d}" for d in self.allowed_directories)
+            return {
+                'is_valid': False,
+                'error': f"Directory not in allowed paths.\n\nAllowed:\n{dirs_list}",
+                'resolved_path': None,
+                'warnings': []
+            }
+
+        # Check directory is writable
+        if not os.access(dir_path, os.W_OK):
+            return {
+                'is_valid': False,
+                'error': f"Directory is not writable (permission denied): {directory_path}",
+                'resolved_path': None,
+                'warnings': []
+            }
+
+        # Validate file extension
+        file_ext = Path(sanitized_filename).suffix.lower()
+        if file_ext not in [ext.lower() for ext in self.allowed_extensions]:
+            # Auto-add .csv if no extension
+            if not file_ext:
+                sanitized_filename += '.csv'
+            else:
+                exts_list = ", ".join(self.allowed_extensions)
+                return {
+                    'is_valid': False,
+                    'error': f"Invalid file extension: {file_ext}\nAllowed: {exts_list}",
+                    'resolved_path': None,
+                    'warnings': []
+                }
+
+        # Build full path
+        full_path = dir_path / sanitized_filename
+
+        # Check if file already exists
+        if full_path.exists():
+            warnings.append(f"File already exists: {full_path.name}")
+
+        # Check disk space if required
+        if required_mb > 0:
+            if not self.check_disk_space(dir_path, required_mb):
+                usage = shutil.disk_usage(dir_path)
+                free_mb = usage.free / (1024 * 1024)
+                return {
+                    'is_valid': False,
+                    'error': f"Insufficient disk space. Required: {required_mb}MB, Available: {free_mb:.1f}MB",
+                    'resolved_path': None,
+                    'warnings': []
+                }
+
+        return {
+            'is_valid': True,
+            'error': None,
+            'resolved_path': full_path,
+            'warnings': warnings
+        }
+
+    def sanitize_filename(self, filename: str) -> str:
+        """
+        Remove/replace invalid filename characters.
+
+        Args:
+            filename: Original filename
+
+        Returns:
+            Sanitized filename safe for filesystem
+        """
+        import re
+
+        # Define invalid characters for filenames
+        # Windows: < > : " / \ | ? *
+        # Unix: /
+        invalid_chars = r'[<>:"/\\|?*]'
+
+        # Replace invalid characters with underscore
+        sanitized = re.sub(invalid_chars, '_', filename)
+
+        # Remove leading/trailing spaces and dots
+        sanitized = sanitized.strip(' .')
+
+        # Ensure not empty
+        if not sanitized:
+            sanitized = "output"
+
+        return sanitized
+
+    def check_disk_space(self, path: Path, required_mb: int) -> bool:
+        """
+        Verify sufficient disk space available.
+
+        Args:
+            path: Directory path to check
+            required_mb: Required space in megabytes
+
+        Returns:
+            True if sufficient space available, False otherwise
+        """
+        import shutil
+
+        try:
+            usage = shutil.disk_usage(path)
+            free_mb = usage.free / (1024 * 1024)
+            return free_mb >= required_mb
+        except OSError:
+            # If we can't check, assume insufficient space (fail safe)
+            return False

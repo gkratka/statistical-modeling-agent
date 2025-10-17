@@ -47,6 +47,12 @@ class MLTrainingState(Enum):
     SPECIFYING_ARCHITECTURE = "specifying_architecture"  # Keras only
     COLLECTING_HYPERPARAMETERS = "collecting_hyperparameters"  # Keras only
     TRAINING = "training"
+
+    # NEW (Model Naming Feature): Model naming workflow states
+    TRAINING_COMPLETE = "training_complete"        # Training finished, showing naming options
+    NAMING_MODEL = "naming_model"                  # User is entering custom name
+    MODEL_NAMED = "model_named"                    # Name set, workflow complete
+
     COMPLETE = "complete"
 
     # NEW (Phase 6): Template workflow states
@@ -57,10 +63,22 @@ class MLTrainingState(Enum):
 
 class MLPredictionState(Enum):
     """States for ML prediction workflow."""
-    AWAITING_MODEL = "awaiting_model"
-    AWAITING_DATA = "awaiting_data"
-    PREDICTING = "predicting"
-    COMPLETE = "complete"
+    STARTED = "started"                                    # Initial state after /predict
+    CHOOSING_DATA_SOURCE = "choosing_data_source"          # Select upload vs local path
+    AWAITING_FILE_UPLOAD = "awaiting_file_upload"          # Waiting for Telegram upload
+    AWAITING_FILE_PATH = "awaiting_file_path"              # Waiting for local path input
+    CHOOSING_LOAD_OPTION = "choosing_load_option"          # Choose: immediate load or defer
+    CONFIRMING_SCHEMA = "confirming_schema"                # Show schema for confirmation
+    AWAITING_FEATURE_SELECTION = "awaiting_feature_selection"  # User selects features
+    SELECTING_MODEL = "selecting_model"                    # Show model list
+    CONFIRMING_PREDICTION_COLUMN = "confirming_prediction_column"  # Confirm column name
+    READY_TO_RUN = "ready_to_run"                          # Show run/back options
+    RUNNING_PREDICTION = "running_prediction"              # Executing prediction
+    COMPLETE = "complete"                                  # Workflow finished
+
+    # NEW: Local file save workflow states
+    AWAITING_SAVE_PATH = "awaiting_save_path"              # User provides output directory
+    CONFIRMING_SAVE_FILENAME = "confirming_save_filename"  # User confirms filename
 
 
 @dataclass
@@ -89,6 +107,9 @@ class UserSession:
     # NEW: Back button workflow navigation
     state_history: StateHistory = field(default_factory=lambda: StateHistory(max_depth=10))
     last_back_action: Optional[float] = None  # Timestamp of last back button press (for debouncing)
+
+    # NEW: Prediction workflow - compatible models list for button index lookup
+    compatible_models: Optional[List[Dict[str, Any]]] = None  # Stores models for index-based button selection
 
     def __post_init__(self) -> None:
         if self.user_id <= 0:
@@ -282,7 +303,19 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
         MLTrainingState.SAVING_TEMPLATE.value,       # User clicks "Save as Template"
         MLTrainingState.TRAINING.value               # User proceeds to training
     },
-    MLTrainingState.TRAINING.value: {MLTrainingState.COMPLETE.value},
+    MLTrainingState.TRAINING.value: {MLTrainingState.TRAINING_COMPLETE.value},
+
+    # NEW: Model naming workflow transitions
+    MLTrainingState.TRAINING_COMPLETE.value: {
+        MLTrainingState.NAMING_MODEL.value,          # User clicks "Name Model"
+        MLTrainingState.MODEL_NAMED.value            # User clicks "Skip" or auto-default
+    },
+    MLTrainingState.NAMING_MODEL.value: {
+        MLTrainingState.MODEL_NAMED.value,           # After name provided
+        MLTrainingState.TRAINING_COMPLETE.value      # Back button (optional)
+    },
+    MLTrainingState.MODEL_NAMED.value: {MLTrainingState.COMPLETE.value},
+
     MLTrainingState.COMPLETE.value: set(),
 
     # NEW: Template workflow
@@ -301,11 +334,58 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
 }
 
 ML_PREDICTION_TRANSITIONS: Dict[Optional[str], Set[str]] = {
-    None: {MLPredictionState.AWAITING_MODEL.value},
-    MLPredictionState.AWAITING_MODEL.value: {MLPredictionState.AWAITING_DATA.value},
-    MLPredictionState.AWAITING_DATA.value: {MLPredictionState.PREDICTING.value},
-    MLPredictionState.PREDICTING.value: {MLPredictionState.COMPLETE.value},
-    MLPredictionState.COMPLETE.value: set()
+    # Start: /predict command initiates workflow
+    None: {MLPredictionState.STARTED.value},
+
+    # Step 1-3: Data loading (similar to training workflow)
+    MLPredictionState.STARTED.value: {MLPredictionState.CHOOSING_DATA_SOURCE.value},
+    MLPredictionState.CHOOSING_DATA_SOURCE.value: {
+        MLPredictionState.AWAITING_FILE_UPLOAD.value,    # User chose Telegram upload
+        MLPredictionState.AWAITING_FILE_PATH.value       # User chose local path
+    },
+    MLPredictionState.AWAITING_FILE_UPLOAD.value: {MLPredictionState.CONFIRMING_SCHEMA.value},
+    MLPredictionState.AWAITING_FILE_PATH.value: {MLPredictionState.CHOOSING_LOAD_OPTION.value},  # NEW: Choose load strategy
+
+    # NEW: Defer loading workflow
+    MLPredictionState.CHOOSING_LOAD_OPTION.value: {
+        MLPredictionState.CONFIRMING_SCHEMA.value,           # Immediate: load now, show schema
+        MLPredictionState.AWAITING_FEATURE_SELECTION.value   # Defer: skip to features
+    },
+
+    MLPredictionState.CONFIRMING_SCHEMA.value: {
+        MLPredictionState.AWAITING_FEATURE_SELECTION.value,  # Schema accepted
+        MLPredictionState.CHOOSING_DATA_SOURCE.value         # Schema rejected, go back
+    },
+
+    # Step 4-5: Feature selection
+    MLPredictionState.AWAITING_FEATURE_SELECTION.value: {MLPredictionState.SELECTING_MODEL.value},
+
+    # Step 6-7: Model selection
+    MLPredictionState.SELECTING_MODEL.value: {MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value},
+
+    # Step 8-11: Prediction column confirmation and execution
+    MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value: {
+        MLPredictionState.READY_TO_RUN.value,            # Column name accepted
+        MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value  # User provides new name (retry)
+    },
+    MLPredictionState.READY_TO_RUN.value: {
+        MLPredictionState.RUNNING_PREDICTION.value,      # User clicks "Run Model"
+        MLPredictionState.SELECTING_MODEL.value          # User clicks "Go Back"
+    },
+
+    # Step 12-13: Execution and completion
+    MLPredictionState.RUNNING_PREDICTION.value: {MLPredictionState.COMPLETE.value},
+
+    # NEW: Local file save workflow transitions
+    MLPredictionState.COMPLETE.value: {
+        MLPredictionState.AWAITING_SAVE_PATH.value       # User chooses to save locally
+    },
+    MLPredictionState.AWAITING_SAVE_PATH.value: {
+        MLPredictionState.CONFIRMING_SAVE_FILENAME.value # Path validated, confirm filename
+    },
+    MLPredictionState.CONFIRMING_SAVE_FILENAME.value: {
+        MLPredictionState.COMPLETE.value                 # File saved, back to complete
+    }
 }
 
 WORKFLOW_TRANSITIONS: Dict[WorkflowType, Dict[Optional[str], Set[str]]] = {
@@ -320,11 +400,33 @@ ML_TRAINING_PREREQUISITES: Dict[str, PrerequisiteChecker] = {
     MLTrainingState.SPECIFYING_ARCHITECTURE.value: lambda s: 'model_type' in s.selections,
     MLTrainingState.COLLECTING_HYPERPARAMETERS.value: lambda s: 'architecture' in s.selections,
     MLTrainingState.TRAINING.value: lambda s: 'model_type' in s.selections,
+
+    # NEW: Model naming workflow prerequisites
+    MLTrainingState.NAMING_MODEL.value: lambda s: 'pending_model_id' in s.selections,
+    MLTrainingState.MODEL_NAMED.value: lambda s: 'pending_model_id' in s.selections,
 }
 
 ML_PREDICTION_PREREQUISITES: Dict[str, PrerequisiteChecker] = {
-    MLPredictionState.AWAITING_DATA.value: lambda s: len(s.model_ids) > 0,
-    MLPredictionState.PREDICTING.value: lambda s: s.uploaded_data is not None,
+    # Data must be loaded before confirming schema
+    MLPredictionState.CONFIRMING_SCHEMA.value: lambda s: s.uploaded_data is not None or s.file_path is not None,
+
+    # Features must be selected before model selection
+    MLPredictionState.SELECTING_MODEL.value: lambda s: 'selected_features' in s.selections and s.selections['selected_features'],
+
+    # Model must be selected before column confirmation
+    MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value: lambda s: 'selected_model_id' in s.selections,
+
+    # Column name must be confirmed before ready to run
+    MLPredictionState.READY_TO_RUN.value: lambda s: 'prediction_column_name' in s.selections,
+
+    # All data and model must be ready before running prediction
+    # DEFER LOADING FIX: Allow None data if defer loading is enabled (data loads during execution)
+    MLPredictionState.RUNNING_PREDICTION.value: lambda s: (
+        (s.uploaded_data is not None or getattr(s, 'load_deferred', False)) and
+        'selected_model_id' in s.selections and
+        'selected_features' in s.selections and
+        'prediction_column_name' in s.selections
+    ),
 }
 
 WORKFLOW_PREREQUISITES: Dict[WorkflowType, Dict[str, PrerequisiteChecker]] = {
@@ -334,12 +436,18 @@ WORKFLOW_PREREQUISITES: Dict[WorkflowType, Dict[str, PrerequisiteChecker]] = {
 
 # Prerequisite name mapping for error messages
 PREREQUISITE_NAMES: Dict[Tuple[WorkflowType, str], str] = {
+    # ML Training prerequisites
     (WorkflowType.ML_TRAINING, MLTrainingState.SELECTING_TARGET.value): "uploaded_data",
     (WorkflowType.ML_TRAINING, MLTrainingState.SELECTING_FEATURES.value): "target_selection",
     (WorkflowType.ML_TRAINING, MLTrainingState.CONFIRMING_MODEL.value): "feature_selection",
     (WorkflowType.ML_TRAINING, MLTrainingState.TRAINING.value): "model_type_selection",
-    (WorkflowType.ML_PREDICTION, MLPredictionState.AWAITING_DATA.value): "trained_model",
-    (WorkflowType.ML_PREDICTION, MLPredictionState.PREDICTING.value): "prediction_data",
+
+    # ML Prediction prerequisites
+    (WorkflowType.ML_PREDICTION, MLPredictionState.CONFIRMING_SCHEMA.value): "prediction_data",
+    (WorkflowType.ML_PREDICTION, MLPredictionState.SELECTING_MODEL.value): "feature_selection",
+    (WorkflowType.ML_PREDICTION, MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value): "model_selection",
+    (WorkflowType.ML_PREDICTION, MLPredictionState.READY_TO_RUN.value): "prediction_column_name",
+    (WorkflowType.ML_PREDICTION, MLPredictionState.RUNNING_PREDICTION.value): "all_prediction_requirements",
 }
 
 

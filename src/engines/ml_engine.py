@@ -5,7 +5,7 @@ This module provides the main interface for ML operations including
 training, prediction, and model management.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 from pathlib import Path
 
@@ -441,6 +441,28 @@ class MLEngine:
             # Make predictions
             predictions = model.predict(X_scaled)
 
+            # Convert Keras classification probabilities to class labels
+            # Keras models return 2D probability arrays for classification,
+            # but we need 1D class labels for compatibility with pandas statistics
+            if metadata.get("model_format") == "keras":
+                model_type = metadata.get("model_type", "")
+                # Check if this is a classification model (binary or multiclass)
+                if "classification" in model_type.lower():
+                    import numpy as np
+
+                    # Check output shape to determine prediction strategy
+                    # predictions shape: (n_samples, n_outputs)
+                    if predictions.shape[1] == 1:
+                        # Single-output binary classification (sigmoid activation)
+                        # Shape: (n_samples, 1) with probabilities for class 1
+                        # Apply threshold: probability > 0.5 → class 1, else → class 0
+                        predictions = (predictions.flatten() > 0.5).astype(int)
+                    else:
+                        # Multi-output classification (softmax activation)
+                        # Shape: (n_samples, n_classes) with probability distribution
+                        # Use argmax to get the predicted class index
+                        predictions = np.argmax(predictions, axis=1)
+
             result = {
                 "predictions": predictions.tolist(),
                 "model_id": model_id,
@@ -476,19 +498,48 @@ class MLEngine:
         """
         List user's models with optional filtering.
 
+        Now includes display_name field for UI presentation.
+
         Args:
             user_id: User identifier
             task_type: Filter by task type (optional)
             model_type: Filter by model type (optional)
 
         Returns:
-            List of model metadata dictionaries
+            List of model info dicts with display_name
+
+        Example:
+            >>> models = ml_engine.list_models(12345)
+            >>> for model in models:
+            ...     print(f"{model['display_name']} ({model['model_id']})")
+            Housing Price Predictor (model_12345_linear_20251014)
+            Binary Classification - Jan 10, 2025 (model_12345_keras_20251010)
         """
-        return self.model_manager.list_user_models(
+        models = self.model_manager.list_user_models(
             user_id,
             task_type=task_type,
             model_type=model_type
         )
+
+        # Enhancement: Add display_name to each model
+        for model in models:
+            # Check if custom_name exists
+            custom_name = model.get('custom_name')
+
+            if custom_name:
+                model['display_name'] = custom_name
+            else:
+                # Generate default display name
+                default_name = self._generate_default_name(
+                    model_type=model['model_type'],
+                    task_type=model['task_type'],
+                    created_at=model['created_at']
+                )
+                model['display_name'] = default_name
+                # Set custom_name to None to indicate it's a default
+                model['custom_name'] = None
+
+        return models
 
     def get_model_info(self, user_id: int, model_id: str) -> Dict[str, Any]:
         """
@@ -525,6 +576,205 @@ class MLEngine:
         """
         trainer = self.get_trainer(task_type)
         return trainer.get_supported_models()
+
+    def _generate_default_name(
+        self,
+        model_type: str,
+        task_type: str,
+        created_at: str
+    ) -> str:
+        """
+        Generate default model name when user skips custom naming.
+
+        Format: "{Model Type Display} - {Date}"
+
+        Args:
+            model_type: Technical model type (e.g., 'keras_binary_classification')
+            task_type: Task type ('classification' or 'regression')
+            created_at: ISO format timestamp
+
+        Returns:
+            Human-readable default name
+
+        Examples:
+            >>> _generate_default_name('keras_binary_classification', 'classification', '2025-01-14T21:44:00Z')
+            'Binary Classification - Jan 14, 2025'
+
+            >>> _generate_default_name('random_forest', 'regression', '2025-01-10T15:30:00Z')
+            'Random Forest - Jan 10, 2025'
+        """
+        # Convert timestamp to readable date
+        from datetime import datetime
+        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+        date_str = dt.strftime("%b %d, %Y")
+
+        # Convert model type to display name
+        model_display = model_type.replace('_', ' ').title()
+
+        # Simplify common names
+        simplifications = {
+            'Keras Binary Classification': 'Binary Classification',
+            'Keras Multiclass Classification': 'Multiclass Classification',
+            'Keras Regression': 'Neural Network Regression',
+            'Random Forest': 'Random Forest',
+            'Logistic': 'Logistic Regression',
+            'Linear': 'Linear Regression'
+        }
+
+        model_display = simplifications.get(model_display, model_display)
+
+        return f"{model_display} - {date_str}"
+
+    def _validate_model_name(self, name: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validate model name format.
+
+        Rules:
+        - Length: 3-100 characters
+        - Allowed: letters, numbers, spaces, hyphens, underscores
+        - Not allowed: special characters, path separators, quotes
+
+        Args:
+            name: Proposed model name
+
+        Returns:
+            (is_valid, error_message)
+
+        Examples:
+            >>> _validate_model_name("My Model")
+            (True, None)
+
+            >>> _validate_model_name("ab")
+            (False, "Name must be at least 3 characters")
+
+            >>> _validate_model_name("model/test")
+            (False, "Name can only contain letters, numbers, spaces, hyphens, and underscores")
+        """
+        import re
+
+        # Check empty/whitespace
+        if not name or not name.strip():
+            return False, "Name cannot be empty"
+
+        name = name.strip()
+
+        # Length validation
+        if len(name) < 3:
+            return False, "Name must be at least 3 characters"
+
+        if len(name) > 100:
+            return False, "Name must be less than 100 characters"
+
+        # Character validation
+        pattern = r'^[a-zA-Z0-9\s\-_]+$'
+        if not re.match(pattern, name):
+            return False, (
+                "Name can only contain letters, numbers, spaces, "
+                "hyphens, and underscores"
+            )
+
+        return True, None
+
+    def set_model_name(
+        self,
+        user_id: int,
+        model_id: str,
+        custom_name: str
+    ) -> bool:
+        """
+        Set custom name for a trained model.
+
+        Updates the model's metadata.json with custom_name and display_name.
+
+        Args:
+            user_id: User identifier
+            model_id: Model identifier (technical ID)
+            custom_name: User-provided custom name
+
+        Returns:
+            True if successful, False otherwise
+
+        Raises:
+            ModelNotFoundError: If model doesn't exist
+            ValidationError: If custom_name is invalid format
+
+        Example:
+            >>> ml_engine.set_model_name(
+            ...     user_id=12345,
+            ...     model_id="model_12345_linear_20251014",
+            ...     custom_name="Housing Price Predictor"
+            ... )
+            True
+        """
+        # 1. Validate name format
+        is_valid, error_msg = self._validate_model_name(custom_name)
+        if not is_valid:
+            raise ValidationError(error_msg, field="custom_name", value=custom_name)
+
+        # 2. Check for duplicate names (warn only, don't block)
+        existing = self.get_model_by_name(user_id, custom_name)
+        if existing:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"User {user_id} already has a model named '{custom_name}'"
+            )
+
+        # 3. Delegate to model_manager to update metadata
+        try:
+            self.model_manager.set_model_name(user_id, model_id, custom_name)
+            return True
+        except Exception as e:
+            from src.utils.exceptions import ModelNotFoundError
+            if "not found" in str(e).lower():
+                raise ModelNotFoundError(f"Model {model_id} not found")
+            raise
+
+    def get_model_by_name(
+        self,
+        user_id: int,
+        custom_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve model by custom name.
+
+        Searches user's models for one with matching custom_name.
+        If multiple models have the same name, returns the most recent.
+
+        Args:
+            user_id: User identifier
+            custom_name: Custom model name to search for
+
+        Returns:
+            Model info dict if found, None otherwise
+
+        Example:
+            >>> model = ml_engine.get_model_by_name(12345, "Housing Predictor")
+            >>> print(model['model_id'])
+            'model_12345_linear_20251014_123456'
+        """
+        models = self.list_models(user_id)
+
+        # Find all matching models
+        matches = [
+            model for model in models
+            if model.get('custom_name') == custom_name
+        ]
+
+        if not matches:
+            return None
+
+        # If multiple matches, return most recent
+        if len(matches) > 1:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Multiple models named '{custom_name}' for user {user_id}, "
+                f"returning most recent"
+            )
+            matches.sort(key=lambda m: m.get('created_at', ''), reverse=True)
+
+        return matches[0]
 
     def __repr__(self) -> str:
         """String representation."""
