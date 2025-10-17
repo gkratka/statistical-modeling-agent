@@ -137,7 +137,7 @@ async def message_handler(
 
     # NEW: Check for active workflow BEFORE parsing
     from src.bot.workflow_handlers import WorkflowRouter
-    from src.core.state_manager import MLTrainingState
+    from src.core.state_manager import MLTrainingState, MLPredictionState
 
     # Use shared StateManager instance from bot_data
     state_manager = context.bot_data['state_manager']
@@ -158,13 +158,39 @@ async def message_handler(
             MLTrainingState.AWAITING_SCHEMA_INPUT.value,
             MLTrainingState.SELECTING_TARGET.value,
             MLTrainingState.SELECTING_FEATURES.value,
-            MLTrainingState.CONFIRMING_MODEL.value
+            MLTrainingState.CONFIRMING_MODEL.value,
+            # Model naming workflow states (NEW - Bug Fix)
+            MLTrainingState.TRAINING_COMPLETE.value,  # After training, showing naming options
+            MLTrainingState.NAMING_MODEL.value,       # User entering custom model name (THE FIX)
         ]
 
         if session.current_state in ml_training_states:
             logger.info(f"🛑 EARLY EXIT: ML training state detected ({session.current_state}), deferring to specialized handler")
             # Return early - specialized handler should process this
             # Don't even route to workflow handler, just exit
+            return
+
+        # Check for ML prediction states that require specialized handling
+        ml_prediction_states = [
+            MLPredictionState.STARTED.value,
+            MLPredictionState.CHOOSING_DATA_SOURCE.value,
+            MLPredictionState.AWAITING_FILE_UPLOAD.value,
+            MLPredictionState.AWAITING_FILE_PATH.value,
+            MLPredictionState.CHOOSING_LOAD_OPTION.value,
+            MLPredictionState.CONFIRMING_SCHEMA.value,
+            MLPredictionState.AWAITING_FEATURE_SELECTION.value,
+            MLPredictionState.SELECTING_MODEL.value,
+            MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value,
+            MLPredictionState.READY_TO_RUN.value,
+            MLPredictionState.RUNNING_PREDICTION.value,
+            MLPredictionState.COMPLETE.value,
+            MLPredictionState.AWAITING_SAVE_PATH.value,
+            MLPredictionState.CONFIRMING_SAVE_FILENAME.value,
+        ]
+
+        if session.current_state in ml_prediction_states:
+            logger.info(f"🛑 EARLY EXIT: ML prediction state detected ({session.current_state}), deferring to specialized handler")
+            # Return early - specialized handler should process this
             return
 
         # For other workflow states, route to workflow handler
@@ -879,9 +905,23 @@ async def error_handler(
         context: Bot context containing error information
     """
     error = context.error
+
+    # Import telegram error types for filtering
+    from telegram import error as telegram_error
+
+    # Filter Telegram API errors - log but don't show to users
+    if isinstance(error, (telegram_error.Conflict, telegram_error.NetworkError, telegram_error.BadRequest)):
+        logger.warning(
+            f"⚠️ Telegram API error (not user-facing): {type(error).__name__} - {error}"
+        )
+        # Don't send error message to user for API-level errors
+        return
+
+    # Log all other errors
     logger.error(f"Bot error occurred: {error}", exc_info=error)
 
     # If we have an update with a message, try to inform the user
+    # (Only for application logic errors, not API errors)
     if isinstance(update, Update) and update.effective_message:
         try:
             await update.effective_message.reply_text(

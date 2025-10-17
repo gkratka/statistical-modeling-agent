@@ -11,11 +11,13 @@ import asyncio
 import os
 import signal
 import sys
+import time
 import yaml
 from pathlib import Path
 from typing import NoReturn, Dict, Any
 
 from dotenv import load_dotenv
+from telegram import error as telegram_error
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -30,6 +32,7 @@ sys.path.insert(0, str(project_root))
 
 from src.bot import handlers
 from src.bot.ml_handlers.ml_training_local_path import register_local_path_handlers
+from src.bot.ml_handlers.prediction_handlers import register_prediction_handlers
 
 # Import handler functions from handlers.py file
 start_handler = handlers.start_handler
@@ -204,6 +207,9 @@ class StatisticalModelingBot:
         # This replaces the old train_handler with the enhanced version
         register_local_path_handlers(self.application, state_manager, data_loader)
 
+        # Register prediction handlers (NEW)
+        register_prediction_handlers(self.application, state_manager, data_loader)
+
         # Script command handler
         from src.bot.script_handler import script_command_handler
         self.application.add_handler(CommandHandler("script", script_command_handler))
@@ -270,15 +276,53 @@ class StatisticalModelingBot:
             await self.application.initialize()
             await self.application.start()
 
-            # Start polling
+            # Start polling with exponential backoff retry logic
             self.logger.info("Bot started successfully. Polling for messages...")
-            await self.application.updater.start_polling(
-                poll_interval=1.0,
-                timeout=30,
-                drop_pending_updates=True
-            )
 
-            # Wait for shutdown signal
+            max_retries = 10
+            retry_count = 0
+            polling_started = False
+
+            while not polling_started and retry_count < max_retries:
+                try:
+                    await self.application.updater.start_polling(
+                        poll_interval=1.0,
+                        timeout=30,
+                        drop_pending_updates=True
+                    )
+                    polling_started = True
+                    self.logger.info("✓ Polling started successfully")
+
+                except telegram_error.Conflict as e:
+                    retry_count += 1
+                    backoff_time = min(2 ** retry_count, 30)  # Exponential backoff capped at 30s
+                    self.logger.warning(
+                        f"⚠️ Telegram API Conflict detected (attempt {retry_count}/{max_retries}). "
+                        f"Another bot instance may be running. Retrying in {backoff_time}s..."
+                    )
+                    await asyncio.sleep(backoff_time)
+
+                except telegram_error.NetworkError as e:
+                    retry_count += 1
+                    backoff_time = min(2 ** retry_count, 30)
+                    self.logger.warning(
+                        f"⚠️ Network error (attempt {retry_count}/{max_retries}): {e}. "
+                        f"Retrying in {backoff_time}s..."
+                    )
+                    await asyncio.sleep(backoff_time)
+
+                except Exception as e:
+                    self.logger.error(f"❌ Unexpected error starting polling: {e}", exc_info=True)
+                    raise
+
+            if not polling_started:
+                raise RuntimeError(
+                    f"Failed to start polling after {max_retries} attempts. "
+                    "Please ensure no other bot instances are running."
+                )
+
+            # Wait for shutdown signal with periodic health logging
+            self.logger.info("Bot is now running and processing messages...")
             while not self._shutdown_requested:
                 await asyncio.sleep(1)
 

@@ -246,10 +246,22 @@ class LocalPathMLTrainingHandler:
             # Show allowed directories with polished prompt
             allowed_dirs = self.data_loader.allowed_directories
 
-            await query.edit_message_text(
-                LocalPathMessages.file_path_input_prompt(allowed_dirs),
-                parse_mode="Markdown"
-            )
+            # Wrap message editing with defensive error handling
+            try:
+                await query.edit_message_text(
+                    LocalPathMessages.file_path_input_prompt(allowed_dirs),
+                    parse_mode="Markdown"
+                )
+            except telegram.error.BadRequest as e:
+                logger.warning(f"Failed to edit message in handle_data_source_selection: {e}")
+                # Fallback: send new message instead
+                await update.effective_message.reply_text(
+                    LocalPathMessages.file_path_input_prompt(allowed_dirs),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.warning(f"Telegram API error in handle_data_source_selection: {e}")
+                # Continue even if message editing fails
             print("🔀 DEBUG: File path prompt sent to user")
 
         elif choice == "template":
@@ -286,14 +298,13 @@ class LocalPathMLTrainingHandler:
 
             print(f"📥 DEBUG: Unified text handler called with: {text_input[:50]}...")
 
-            session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+            # Get or create session - prevents false "Session Expired" errors
+            session = await self.state_manager.get_or_create_session(user_id, f"chat_{chat_id}")
 
-            if session is None:
-                print(f"❌ DEBUG: Session not found for user {user_id}")
-                await update.message.reply_text(
-                    "⚠️ **Session Expired**\n\nYour session has expired. Please start again with /train",
-                    parse_mode="Markdown"
-                )
+            # WORKFLOW ISOLATION: Only process if in TRAINING workflow
+            # Prevents collision with prediction workflow handler (group=2)
+            if session.workflow_type != WorkflowType.ML_TRAINING:
+                print(f"⏭️  DEBUG: Session is in {session.workflow_type} workflow, not ML_TRAINING - ignoring")
                 return
 
             current_state = session.current_state
@@ -309,6 +320,9 @@ class LocalPathMLTrainingHandler:
             elif current_state == MLTrainingState.SAVING_TEMPLATE.value:
                 print("🔀 DEBUG: Routing to template name input logic")
                 await self.template_handlers.handle_template_name_input(update, context)
+            elif current_state == MLTrainingState.NAMING_MODEL.value:
+                print("🔀 DEBUG: Routing to model name input logic")
+                await self.handle_model_name_input(update, context)
             else:
                 print(f"⏭️  DEBUG: State {current_state} doesn't require text input, ignoring")
                 return
@@ -1747,7 +1761,38 @@ class LocalPathMLTrainingHandler:
             await query.edit_message_text("❌ Session not found. Please restart with /train")
             return
 
-        await query.edit_message_text("🚀 Starting training...\n\nThis may take a few moments.", parse_mode="Markdown")
+        # Wrap message editing with defensive error handling
+        try:
+            await query.edit_message_text("🚀 Starting training...\n\nThis may take a few moments.", parse_mode="Markdown")
+        except telegram.error.BadRequest as e:
+            logger.warning(f"Failed to edit message in handle_training_execution: {e}")
+            # Fallback: send new message instead
+            await update.effective_message.reply_text(
+                "🚀 Starting training...\n\nThis may take a few moments.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.warning(f"Telegram API error in handle_training_execution message edit: {e}")
+            # Continue with training even if message editing fails
+
+        # Transition to TRAINING state before starting training
+        # BUG FIX: Must transition to TRAINING state first, otherwise transition to
+        # TRAINING_COMPLETE will fail (state machine only allows training → training_complete)
+        print(f"🔍 DEBUG: Transitioning to TRAINING state")
+        success, error_msg, _ = await self.state_manager.transition_state(
+            session,
+            MLTrainingState.TRAINING.value
+        )
+
+        if not success:
+            logger.error(f"Failed to transition to TRAINING: {error_msg}")
+            await query.edit_message_text(
+                f"❌ **State Transition Error**\n\n{error_msg}\n\nPlease restart with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        print(f"✅ DEBUG: State transition to TRAINING successful, state={session.current_state}")
 
         # Trigger actual Keras training
         print(f"🚀 DEBUG: Starting ML Engine training")
@@ -1782,28 +1827,69 @@ class LocalPathMLTrainingHandler:
                 'n_features': n_features
             }
 
-            # Call ML Engine to train
-            result = self.ml_engine.train_model(
-                file_path=file_path,  # Lazy loading from deferred file
-                task_type='neural_network',
-                model_type=model_type,  # 'keras_binary_classification'
-                target_column=target,
-                feature_columns=features,
-                user_id=user_id,
-                hyperparameters=hyperparameters,  # Complete hyperparameters with architecture
-                test_size=1.0 - config.get('validation_split', 0.2)
+            # Call ML Engine to train (wrapped in executor to prevent blocking event loop)
+            # FIX: ml_engine.train_model() is synchronous and would block the async event loop
+            # during training (several minutes for 100 epochs). Using run_in_executor() runs
+            # the blocking call in a separate thread, keeping the event loop responsive.
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,  # Use default ThreadPoolExecutor
+                lambda: self.ml_engine.train_model(
+                    file_path=file_path,  # Lazy loading from deferred file
+                    task_type='neural_network',
+                    model_type=model_type,  # 'keras_binary_classification'
+                    target_column=target,
+                    feature_columns=features,
+                    user_id=user_id,
+                    hyperparameters=hyperparameters,  # Complete hyperparameters with architecture
+                    test_size=1.0 - config.get('validation_split', 0.2)
+                )
             )
 
             print(f"🚀 DEBUG: Training result = {result}")
 
-            # Send success message with metrics
+            # Send success message with metrics and transition to naming workflow
             if result.get('success'):
+                model_id = result.get('model_id', 'N/A')
                 metrics_text = self._format_keras_metrics(result.get('metrics', {}))
+
+                # Transition to TRAINING_COMPLETE state
+                print(f"🔍 DEBUG: Transitioning to TRAINING_COMPLETE state")
+                success, error_msg, _ = await self.state_manager.transition_state(
+                    session,
+                    MLTrainingState.TRAINING_COMPLETE.value
+                )
+
+                if not success:
+                    logger.error(f"Failed to transition to TRAINING_COMPLETE: {error_msg}")
+                    await update.effective_message.reply_text(
+                        f"❌ **State Transition Error**\n\n{error_msg}",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                print(f"✅ DEBUG: State transition to TRAINING_COMPLETE successful, state={session.current_state}")
+
+                # Store model_id in session for naming workflow
+                session.selections['pending_model_id'] = model_id
+                await self.state_manager.update_session(session)
+
+                # Show naming options with inline keyboard
+                # NOTE: callback_data is short (no model_id) to stay within Telegram's 64-byte limit
+                # model_id is already stored in session.selections['pending_model_id'] at line 1831
+                keyboard = [
+                    [InlineKeyboardButton("📝 Name Model", callback_data="name_model")],
+                    [InlineKeyboardButton("⏭️ Skip - Use Default", callback_data="skip_naming")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
                 await update.effective_message.reply_text(
                     f"✅ **Training Complete!**\n\n"
                     f"📊 **Metrics:**\n{metrics_text}\n\n"
-                    f"🆔 **Model ID:** `{result.get('model_id', 'N/A')}`\n\n"
-                    f"You can now use this model for predictions.",
+                    f"🆔 **Model ID:** `{model_id}`\n\n"
+                    f"Would you like to give this model a custom name?",
+                    reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
             else:
@@ -1828,6 +1914,250 @@ class LocalPathMLTrainingHandler:
             logger.error(f"Unexpected training error: {e}", exc_info=True)
             await update.effective_message.reply_text(
                 f"❌ **Unexpected Error**\n\nAn error occurred during training. Please try again or check logs.",
+                parse_mode="Markdown"
+            )
+
+    async def handle_name_model_callback(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle 'Name Model' button click - prompt for custom name."""
+        query = update.callback_query
+        await query.answer()
+
+        # Defensive extraction
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update object in handle_name_model_callback: {e}")
+            try:
+                await query.edit_message_text(
+                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                if update and update.effective_message:
+                    await update.effective_message.reply_text(
+                        "❌ Please restart with /train",
+                        parse_mode="Markdown"
+                    )
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Retrieve model_id from session (stored at training completion)
+        model_id = session.selections.get('pending_model_id')
+        if not model_id:
+            logger.error("No pending_model_id found in session")
+            await query.edit_message_text(
+                "❌ **Session Error**\n\nModel ID not found. Please restart with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Transition to NAMING_MODEL state
+        await self.state_manager.transition_state(
+            session,
+            MLTrainingState.NAMING_MODEL.value
+        )
+
+        # model_id already in session, no need to store again
+        await self.state_manager.update_session(session)
+
+        # Send prompt for custom name
+        await query.edit_message_text(
+            "📝 **Name Your Model**\n\n"
+            "Choose a memorable name for your model.\n\n"
+            "**Rules:**\n"
+            "• 3-100 characters\n"
+            "• Letters, numbers, spaces, hyphens, underscores only\n\n"
+            "**Examples:**\n"
+            "• `Housing Price Predictor`\n"
+            "• `Customer Churn Model v2`\n"
+            "• `Sales Forecast 2025`\n\n"
+            "💬 **Type your custom name:**",
+            parse_mode="Markdown"
+        )
+
+    async def handle_model_name_input(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle custom model name text input."""
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            custom_name = update.message.text.strip()
+        except AttributeError as e:
+            logger.error(f"Malformed update object in handle_model_name_input: {e}")
+            if update and update.effective_message:
+                await update.effective_message.reply_text(
+                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    parse_mode="Markdown"
+                )
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await update.message.reply_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Only process if in NAMING_MODEL state
+        if session.current_state != MLTrainingState.NAMING_MODEL.value:
+            # Not in naming state, ignore this text input
+            return
+
+        # Get pending model_id from session
+        model_id = session.selections.get('pending_model_id')
+
+        if not model_id:
+            await update.message.reply_text(
+                "❌ **Error**\n\nModel ID not found. Please restart with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Set custom name using ML Engine
+        try:
+            self.ml_engine.set_model_name(user_id, model_id, custom_name)
+
+            # Transition to MODEL_NAMED state
+            await self.state_manager.transition_state(
+                session,
+                MLTrainingState.MODEL_NAMED.value
+            )
+
+            # Get model info for confirmation
+            model_info = self.ml_engine.get_model_info(user_id, model_id)
+
+            # Send success confirmation
+            await update.message.reply_text(
+                f"✅ **Model Named Successfully!**\n\n"
+                f"📝 **Name:** {escape_markdown_v1(custom_name)}\n"
+                f"🆔 **Model ID:** `{model_id}`\n"
+                f"🎯 **Type:** {model_info.get('model_type', 'N/A')}\n\n"
+                f"💾 Your model is ready for predictions!",
+                parse_mode="Markdown"
+            )
+
+            # Stop handler propagation
+            raise ApplicationHandlerStop
+
+        except ApplicationHandlerStop:
+            # Re-raise immediately - this is control flow, not an error
+            raise
+
+        except ValidationError as e:
+            # Invalid name format - show error and stay in NAMING_MODEL state
+            await update.message.reply_text(
+                f"❌ **Invalid Name**\n\n"
+                f"{escape_markdown_v1(str(e))}\n\n"
+                f"Please try again with a valid name.",
+                parse_mode="Markdown"
+            )
+
+        except Exception as e:
+            logger.error(f"Error setting model name: {e}")
+            await update.message.reply_text(
+                f"❌ **Error**\n\nFailed to set model name. Please try again.",
+                parse_mode="Markdown"
+            )
+
+    async def handle_skip_naming_callback(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle 'Skip - Use Default' button click."""
+        query = update.callback_query
+        await query.answer()
+
+        # Defensive extraction
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update object in handle_skip_naming_callback: {e}")
+            try:
+                await query.edit_message_text(
+                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                if update and update.effective_message:
+                    await update.effective_message.reply_text(
+                        "❌ Please restart with /train",
+                        parse_mode="Markdown"
+                    )
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Retrieve model_id from session (stored at training completion)
+        model_id = session.selections.get('pending_model_id')
+        if not model_id:
+            logger.error("No pending_model_id found in session")
+            await query.edit_message_text(
+                "❌ **Session Error**\n\nModel ID not found. Please restart with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        try:
+            # Get model info to generate default name
+            model_info = self.ml_engine.get_model_info(user_id, model_id)
+
+            # Generate default name
+            default_name = self.ml_engine._generate_default_name(
+                model_type=model_info.get('model_type', 'model'),
+                task_type=model_info.get('task_type', 'unknown'),
+                created_at=model_info.get('created_at', '')
+            )
+
+            # Set default name
+            self.ml_engine.set_model_name(user_id, model_id, default_name)
+
+            # Transition to MODEL_NAMED state
+            await self.state_manager.transition_state(
+                session,
+                MLTrainingState.MODEL_NAMED.value
+            )
+
+            # Send confirmation
+            await query.edit_message_text(
+                f"✅ **Model Ready!**\n\n"
+                f"📝 **Default Name:** {escape_markdown_v1(default_name)}\n"
+                f"🆔 **Model ID:** `{model_id}`\n"
+                f"🎯 **Type:** {model_info.get('model_type', 'N/A')}\n\n"
+                f"💾 Your model is ready for predictions!",
+                parse_mode="Markdown"
+            )
+
+        except Exception as e:
+            logger.error(f"Error setting default model name: {e}")
+            await query.edit_message_text(
+                f"❌ **Error**\n\nFailed to set default name. Model ID: `{model_id}`",
                 parse_mode="Markdown"
             )
 
@@ -2039,12 +2369,14 @@ def register_local_path_handlers(
     # Unified text message handler for file paths and schema input
     # Accepts all text including Unix paths starting with "/"
     # Internal state-based routing handles different inputs
-    print("  ✓ Registering unified text input handler")
+    # GROUP 1: Ensures this handler is checked before general message_handler (group 0)
+    print("  ✓ Registering unified text input handler (group=1)")
     application.add_handler(
         MessageHandler(
             filters.TEXT,
             handler.handle_text_input  # Single handler routes based on state
-        )
+        ),
+        group=1  # Priority group to prevent collision with general handler
     )
 
     # Universal back button handler (Phase 2: Workflow Back Button)
@@ -2109,5 +2441,30 @@ def register_local_path_handlers(
     )
 
     print("  ✓ Template handlers registered")
+
+    # Model naming workflow handlers (Phase 4)
+    print("  ✓ Registering model naming workflow handlers")
+
+    # Name model button
+    # Pattern matches simple callback_data (no colon, no model_id)
+    # model_id is retrieved from session.selections['pending_model_id']
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_name_model_callback,
+            pattern=r"^name_model$"  # Exact match (no colon separator)
+        )
+    )
+
+    # Skip naming button
+    # Pattern matches simple callback_data (no colon, no model_id)
+    # model_id is retrieved from session.selections['pending_model_id']
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_skip_naming_callback,
+            pattern=r"^skip_naming$"  # Exact match (no colon separator)
+        )
+    )
+
+    print("  ✓ Model naming handlers registered")
 
     print("✅ Local path ML training handlers registered successfully")

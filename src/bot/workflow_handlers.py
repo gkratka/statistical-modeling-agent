@@ -192,6 +192,15 @@ class WorkflowRouter:
             f"message='{user_msg}...'"
         )
 
+        # WORKFLOW ISOLATION: Only handle ML_TRAINING workflow
+        # Prediction workflow has its own handler (prediction_handlers.py)
+        if session.workflow_type != WorkflowType.ML_TRAINING:
+            self.logger.debug(
+                f"⏭️ Skipping WorkflowRouter - not ML_TRAINING workflow "
+                f"(current: {session.workflow_type.value if session.workflow_type else 'None'})"
+            )
+            return  # Let other handlers process this message
+
         # Check for cancel command
         if update.message.text.lower() in ['/cancel', 'cancel']:
             self.logger.info(f"🚫 User {session.user_id} requested cancel")
