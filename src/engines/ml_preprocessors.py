@@ -5,7 +5,7 @@ This module provides data preprocessing functions for ML operations including
 missing value handling, feature scaling, and categorical encoding.
 """
 
-from typing import Any, Tuple
+from typing import Any, List, Tuple
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, LabelEncoder
@@ -217,7 +217,7 @@ class MLPreprocessors:
     def remove_outliers(
         X: pd.DataFrame,
         y: pd.Series,
-        columns: list[str] = None,
+        columns: List[str] = None,
         multiplier: float = 1.5
     ) -> Tuple[pd.DataFrame, pd.Series]:
         """

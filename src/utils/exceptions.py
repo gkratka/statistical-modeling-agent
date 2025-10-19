@@ -5,6 +5,8 @@ This module defines the exception hierarchy as specified in CLAUDE.md
 to enable proper error handling and propagation throughout the system.
 """
 
+from typing import List, Tuple, Any, Optional
+
 
 class AgentError(Exception):
     """Base exception for all agent errors."""
@@ -77,8 +79,8 @@ class DataError(ValidationError):
     def __init__(
         self,
         message: str,
-        data_shape: tuple[int, ...] = (),
-        missing_columns: list[str] = None
+        data_shape: Tuple[int, ...] = (),
+        missing_columns: Optional[List[str]] = None
     ) -> None:
         """
         Initialize data error.
@@ -145,7 +147,7 @@ class ScriptGenerationError(AgentError):
 class SecurityViolationError(ExecutionError):
     """Security constraint violations."""
 
-    def __init__(self, message: str, violations: list = None) -> None:
+    def __init__(self, message: str, violations: Optional[List[Any]] = None) -> None:
         """
         Initialize security violation error.
 
@@ -217,9 +219,9 @@ class DataValidationError(MLError):
     def __init__(
         self,
         message: str,
-        data_shape: tuple[int, ...] = (),
-        missing_columns: list[str] = None,
-        invalid_columns: list[str] = None
+        data_shape: Tuple[int, ...] = (),
+        missing_columns: Optional[List[str]] = None,
+        invalid_columns: Optional[List[str]] = None
     ) -> None:
         """
         Initialize data validation error.
@@ -309,10 +311,10 @@ class FeatureMismatchError(PredictionError):
     def __init__(
         self,
         message: str,
-        expected_features: list[str] = None,
-        provided_features: list[str] = None,
-        missing_features: list[str] = None,
-        extra_features: list[str] = None
+        expected_features: Optional[List[str]] = None,
+        provided_features: Optional[List[str]] = None,
+        missing_features: Optional[List[str]] = None,
+        extra_features: Optional[List[str]] = None
     ) -> None:
         """
         Initialize feature mismatch error.
@@ -362,8 +364,8 @@ class HyperparameterError(MLError):
         self,
         message: str,
         parameter_name: str = "",
-        parameter_value: any = None,
-        allowed_range: tuple = None
+        parameter_value: Any = None,
+        allowed_range: Optional[Tuple[Any, Any]] = None
     ) -> None:
         """
         Initialize hyperparameter error.
@@ -498,7 +500,7 @@ class PrerequisiteNotMetError(StateError):
         self,
         message: str,
         state: str = "",
-        missing_prerequisites: list[str] = None
+        missing_prerequisites: Optional[List[str]] = None
     ) -> None:
         """
         Initialize prerequisite not met error.

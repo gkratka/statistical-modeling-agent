@@ -14,7 +14,7 @@ import sys
 import time
 import yaml
 from pathlib import Path
-from typing import NoReturn, Dict, Any
+from typing import NoReturn, Dict, Any, Optional
 
 from dotenv import load_dotenv
 from telegram import error as telegram_error
@@ -33,6 +33,7 @@ sys.path.insert(0, str(project_root))
 from src.bot import handlers
 from src.bot.ml_handlers.ml_training_local_path import register_local_path_handlers
 from src.bot.ml_handlers.prediction_handlers import register_prediction_handlers
+from src.bot.ml_handlers.prediction_template_handlers import PredictionTemplateHandlers
 
 # Import handler functions from handlers.py file
 start_handler = handlers.start_handler
@@ -99,11 +100,11 @@ class StatisticalModelingBot:
 
     def __init__(self) -> None:
         """Initialize the bot application."""
-        self.application: Application | None = None
+        self.application: Optional[Application] = None
         self.logger = get_logger(__name__)
         self._shutdown_requested = False
 
-    def _load_configuration(self) -> dict[str, str]:
+    def _load_configuration(self) -> Dict[str, str]:
         """
         Load and validate configuration from environment.
 
@@ -210,6 +211,113 @@ class StatisticalModelingBot:
         # Register prediction handlers (NEW)
         register_prediction_handlers(self.application, state_manager, data_loader)
 
+        # Register prediction template handlers (NEW)
+        from src.core.prediction_template import PredictionTemplateConfig
+        from src.core.prediction_template_manager import PredictionTemplateManager
+        from src.utils.path_validator import PathValidator
+        from src.engines.ml_engine import MLEngine
+        from src.engines.ml_config import MLEngineConfig
+        from telegram.ext import CallbackQueryHandler
+
+        # Initialize template system components
+        template_config = PredictionTemplateConfig()
+        template_manager = PredictionTemplateManager(template_config)
+        path_validator = PathValidator(
+            allowed_directories=data_loader.allowed_directories,
+            max_size_mb=data_loader.local_max_size_mb,
+            allowed_extensions=data_loader.local_extensions
+        )
+        ml_engine = MLEngine(MLEngineConfig.get_default())
+
+        # Create template handler instance
+        template_handlers = PredictionTemplateHandlers(
+            state_manager=state_manager,
+            template_manager=template_manager,
+            data_loader=data_loader,
+            path_validator=path_validator,
+            ml_engine=ml_engine
+        )
+
+        # Register template-specific callback handlers
+        self.application.add_handler(
+            CallbackQueryHandler(
+                template_handlers.handle_template_source_selection,
+                pattern=r"^use_pred_template$"
+            )
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(
+                template_handlers.handle_template_selection,
+                pattern=r"^load_pred_template:"
+            )
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(
+                template_handlers.handle_template_confirmation,
+                pattern=r"^confirm_pred_template$"
+            )
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(
+                template_handlers.handle_back_to_templates,
+                pattern=r"^back_to_pred_templates$"
+            )
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(
+                template_handlers.handle_template_save_request,
+                pattern=r"^save_pred_template$"
+            )
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(
+                template_handlers.handle_cancel_template,
+                pattern=r"^cancel_pred_template$"
+            )
+        )
+
+        # Register template name text input handler (group 3 to avoid collisions)
+        from src.core.state_manager import MLPredictionState
+
+        async def template_name_text_wrapper(update, context):
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            session = await state_manager.get_session(user_id, f"chat_{chat_id}")
+
+            if session and session.current_state == MLPredictionState.SAVING_PRED_TEMPLATE.value:
+                await template_handlers.handle_template_name_input(update, context)
+
+        self.application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, template_name_text_wrapper),
+            group=3  # Separate group for template text input
+        )
+
+        # Store template manager in bot_data for access by other handlers
+        self.application.bot_data['prediction_template_manager'] = template_manager
+        self.application.bot_data['prediction_template_handlers'] = template_handlers
+
+        # Register score workflow handler (NEW)
+        from src.bot.score_workflow import ScoreWorkflowHandler
+        from telegram.ext import CallbackQueryHandler
+        score_handler = ScoreWorkflowHandler(state_manager)
+        self.application.add_handler(CommandHandler("score", score_handler.handle_score_command))
+
+        # Create callback wrapper for score workflow
+        async def score_callback_wrapper(update, context):
+            user_id = update.effective_user.id
+            conversation_id = f"chat_{update.effective_chat.id}"
+            session = await state_manager.get_or_create_session(user_id, conversation_id)
+
+            # Determine if confirmed or cancelled based on callback_data
+            confirmed = update.callback_query.data == "score_confirm"
+            await score_handler.handle_confirmation(update, context, session, confirmed)
+
+        # Add callback query handlers for score workflow buttons
+        self.application.add_handler(
+            CallbackQueryHandler(score_callback_wrapper, pattern="^score_(confirm|cancel)$")
+        )
+        self.application.bot_data['score_handler'] = score_handler
+
         # Script command handler
         from src.bot.script_handler import script_command_handler
         self.application.add_handler(CommandHandler("script", script_command_handler))
@@ -220,8 +328,10 @@ class StatisticalModelingBot:
         )
 
         # Text message handler (must be last to catch all other messages)
+        # Use group=1 to ensure CommandHandlers (group=0) have priority
         self.application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler)
+            MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler),
+            group=1
         )
 
         # Error handler

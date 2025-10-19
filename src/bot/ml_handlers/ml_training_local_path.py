@@ -310,6 +310,17 @@ class LocalPathMLTrainingHandler:
             current_state = session.current_state
             print(f"📊 DEBUG: Current session state = {current_state}")
 
+            # Check for score template submission (highest priority - before state routing)
+            score_template_markers = ['TRAIN_DATA:', 'PREDICT_DATA:', 'MODEL:', 'TARGET:']
+            if any(marker in text_input for marker in score_template_markers):
+                print(f"📋 Score template detected in ML handler - cancelling ML workflow")
+                # Cancel ML training workflow to allow score workflow
+                if session.workflow_type == WorkflowType.ML_TRAINING:
+                    await self.state_manager.cancel_workflow(session)
+                    print(f"🔄 Cancelled ML_TRAINING workflow for score template")
+                # Don't stop propagation - return to allow message_handler to process template
+                return
+
             # Route based on current state
             if current_state == MLTrainingState.AWAITING_FILE_PATH.value:
                 print("🔀 DEBUG: Routing to file path logic")
@@ -2054,6 +2065,10 @@ class LocalPathMLTrainingHandler:
                 parse_mode="Markdown"
             )
 
+            # Complete workflow after successful naming
+            await self.state_manager.transition_state(session, MLTrainingState.COMPLETE.value)
+            await self.state_manager.complete_workflow(user_id)
+
             # Stop handler propagation
             raise ApplicationHandlerStop
 
@@ -2154,12 +2169,18 @@ class LocalPathMLTrainingHandler:
                 parse_mode="Markdown"
             )
 
+            # Complete workflow after successful skip naming
+            await self.state_manager.transition_state(session, MLTrainingState.COMPLETE.value)
+            await self.state_manager.complete_workflow(user_id)
+
         except Exception as e:
             logger.error(f"Error setting default model name: {e}")
             await query.edit_message_text(
                 f"❌ **Error**\n\nFailed to set default name. Model ID: `{model_id}`",
                 parse_mode="Markdown"
             )
+            # Cancel workflow after naming error
+            await self.state_manager.cancel_workflow(session)
 
     def _format_keras_metrics(self, metrics: dict) -> str:
         """

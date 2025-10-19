@@ -5,6 +5,8 @@ This template generates standalone Python scripts for making predictions
 with trained machine learning models.
 """
 
+from typing import List
+
 # This is the template string that will be populated with parameters
 PREDICTION_TEMPLATE = """
 import json
@@ -134,7 +136,7 @@ except Exception as e:
 def generate_prediction_script(
     user_id: int,
     model_id: str,
-    feature_columns: list[str]
+    feature_columns: List[str]
 ) -> str:
     """
     Generate a prediction script from the template.

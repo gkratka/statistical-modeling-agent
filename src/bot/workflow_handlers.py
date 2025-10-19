@@ -874,6 +874,21 @@ class WorkflowRouter:
 
         Related: dev/implemented/workflow-back-button.md (Phase 2)
         """
+        # FIX: Import all required modules at TOP of function to avoid UnboundLocalError
+        # Python treats variables as local for ENTIRE function if assigned anywhere inside
+        from src.core.state_manager import MLPredictionState
+        from src.bot.messages.prediction_messages import (
+            PredictionMessages,
+            create_data_source_buttons,
+            create_load_option_buttons,
+            create_schema_confirmation_buttons,
+            create_model_selection_buttons,
+            create_column_confirmation_buttons,
+            create_ready_to_run_buttons,
+            create_output_option_buttons
+        )
+        from telegram import InlineKeyboardMarkup
+
         query = update.callback_query
         current_state = session.current_state
 
@@ -960,7 +975,7 @@ class WorkflowRouter:
 
                 message = (
                     f"🤖 **Select Model Type**\n\n"
-                    f"Target: `{target_column}`\n"
+                    f"Target: {target_column}\n"
                     f"Features: {feature_count} columns\n\n"
                     f"**Available models:**\n"
                     f"1. Linear Regression\n"
@@ -1118,14 +1133,182 @@ class WorkflowRouter:
                 parse_mode="Markdown"
             )
 
+        # =====================================================================
+        # Prediction Workflow States (NEW: Back Button Fix)
+        # =====================================================================
+        elif current_state == MLPredictionState.AWAITING_FEATURE_SELECTION.value:
+            # Feature selection prompt for prediction workflow
+            # Check if data is loaded or deferred
+            df = session.uploaded_data
+            if df is not None:
+                # Data loaded - show full prompt with columns
+                available_columns = df.columns.tolist()
+                dataset_shape = df.shape
+                await query.edit_message_text(
+                    PredictionMessages.feature_selection_prompt(available_columns, dataset_shape),
+                    parse_mode="Markdown"
+                )
+            else:
+                # Data deferred - show simplified prompt
+                await query.edit_message_text(
+                    PredictionMessages.feature_selection_prompt_no_preview(),
+                    parse_mode="Markdown"
+                )
+
+        elif current_state == MLPredictionState.SELECTING_MODEL.value:
+            # Model selection prompt for prediction workflow
+            # Retrieve selected features and compatible models from session
+            selected_features = session.selections.get('selected_features', [])
+            compatible_models = getattr(session, 'compatible_models', [])
+
+            if not compatible_models:
+                # No compatible models stored - show error
+                await query.edit_message_text(
+                    PredictionMessages.no_models_available_error(),
+                    parse_mode="Markdown"
+                )
+            else:
+                # Show model selection with buttons
+                keyboard = create_model_selection_buttons(compatible_models)
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await query.edit_message_text(
+                    PredictionMessages.model_selection_prompt(compatible_models, selected_features),
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+
+        elif current_state == MLPredictionState.CHOOSING_DATA_SOURCE.value:
+            # Data source selection for prediction workflow
+            keyboard = create_data_source_buttons()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                PredictionMessages.data_source_selection_prompt(),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif current_state == MLPredictionState.CHOOSING_LOAD_OPTION.value:
+            # Load option selection (Load Now vs Defer)
+            keyboard = create_load_option_buttons()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Get file path for display (should be in session from previous step)
+            file_path = session.file_path or "Unknown"
+
+            await query.edit_message_text(
+                f"📂 **Data Load Strategy**\n\n"
+                f"File: `{file_path}`\n\n"
+                f"**🔄 Load Now:** Load data immediately to preview\n"
+                f"**⏳ Defer Loading:** Skip loading, save memory\n\n"
+                f"Choose your option:",
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif current_state == MLPredictionState.CONFIRMING_SCHEMA.value:
+            # Schema confirmation for prediction workflow
+            # Get data for schema display
+            df = session.uploaded_data
+            if df is not None:
+                summary = f"📊 **Dataset Loaded**\n• Rows: {df.shape[0]:,}\n• Columns: {df.shape[1]}"
+                available_columns = df.columns.tolist()
+
+                keyboard = create_schema_confirmation_buttons()
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await query.edit_message_text(
+                    PredictionMessages.schema_confirmation_prompt(summary, available_columns),
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                # Data not loaded - show error
+                await query.edit_message_text(
+                    "❌ **Error**: Data not found in session. Please restart with /predict",
+                    parse_mode="Markdown"
+                )
+
+        elif current_state == MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value:
+            # Prediction column name confirmation
+            # Get model info from session
+            selected_model_id = session.selections.get('selected_model_id')
+            compatible_models = getattr(session, 'compatible_models', [])
+
+            # Find the selected model to get target column
+            target_column = "Unknown"
+            for model in compatible_models:
+                if model.get('model_id') == selected_model_id:
+                    target_column = model.get('target_column', 'Unknown')
+                    break
+
+            # Get existing columns (if data loaded)
+            existing_columns = []
+            df = session.uploaded_data
+            if df is not None:
+                existing_columns = df.columns.tolist()
+
+            keyboard = create_column_confirmation_buttons()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                PredictionMessages.prediction_column_prompt(target_column, existing_columns),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif current_state == MLPredictionState.READY_TO_RUN.value:
+            # Ready to run predictions
+            # Get all required info from session
+            selected_model_id = session.selections.get('selected_model_id')
+            selected_features = session.selections.get('selected_features', [])
+            prediction_column = session.selections.get('prediction_column_name', 'prediction')
+            compatible_models = getattr(session, 'compatible_models', [])
+
+            # Find selected model details
+            model_type = "Unknown"
+            target_column = "Unknown"
+            for model in compatible_models:
+                if model.get('model_id') == selected_model_id:
+                    model_type = model.get('model_type', 'Unknown')
+                    target_column = model.get('target_column', 'Unknown')
+                    break
+
+            # Get dataset info
+            df = session.uploaded_data
+            n_rows = df.shape[0] if df is not None else "Deferred"
+            n_features = len(selected_features)
+
+            keyboard = create_ready_to_run_buttons()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                PredictionMessages.ready_to_run_prompt(
+                    model_type, target_column, prediction_column, n_rows, n_features
+                ),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif current_state == MLPredictionState.COMPLETE.value:
+            # Workflow complete - show output options
+            keyboard = create_output_option_buttons()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                PredictionMessages.output_options_prompt(),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
         else:
             # Unknown state or non-interactive state
             self.logger.warning(f"⚠️ Cannot render state: {current_state}")
             await query.edit_message_text(
-                f"⚠️ **Navigation Error**\n\n"
+                f"⚠️ Navigation Error\n\n"
                 f"Current state: {current_state}\n\n"
-                f"Use /cancel to exit workflow.",
-                parse_mode="Markdown"
+                f"Use /cancel to exit workflow."
             )
 
     async def handle_hyperparameter_collection(

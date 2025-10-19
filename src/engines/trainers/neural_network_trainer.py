@@ -5,7 +5,7 @@ This module provides the trainer for neural network models using scikit-learn's
 MLPClassifier and MLPRegressor for both classification and regression tasks.
 """
 
-from typing import Any, Dict, Literal
+from typing import Any, Dict, List, Literal
 import numpy as np
 import pandas as pd
 from sklearn.neural_network import MLPClassifier, MLPRegressor
@@ -257,7 +257,7 @@ class NeuralNetworkTrainer(ModelTrainer):
         self,
         model: Any,
         model_type: str,
-        feature_names: list[str]
+        feature_names: List[str]
     ) -> Dict[str, Any]:
         """
         Get summary information about trained neural network.
@@ -321,7 +321,7 @@ class NeuralNetworkTrainer(ModelTrainer):
         return summary
 
     @classmethod
-    def get_supported_models(cls) -> list[str]:
+    def get_supported_models(cls) -> List[str]:
         """
         Get list of supported model types.
 

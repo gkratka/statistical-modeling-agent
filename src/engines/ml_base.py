@@ -7,7 +7,7 @@ defining the interface for training, validation, and model persistence.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
@@ -86,7 +86,7 @@ class ModelTrainer(ABC):
         self,
         data: pd.DataFrame,
         target_column: str,
-        feature_columns: list[str],
+        feature_columns: List[str],
         test_size: float = None,
         random_state: int = 42
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
@@ -180,7 +180,7 @@ class ModelTrainer(ABC):
     def get_feature_importance(
         self,
         model: Any,
-        feature_names: list[str]
+        feature_names: List[str]
     ) -> Optional[Dict[str, float]]:
         """
         Extract feature importance from model if available.

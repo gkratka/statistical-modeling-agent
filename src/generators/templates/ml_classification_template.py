@@ -4,6 +4,7 @@ ML Classification Training Script Template.
 Uses base template with classification-specific model creation and metrics.
 """
 
+from typing import List, Dict
 from src.generators.templates.base_ml_template import create_ml_script
 
 # Model-specific imports
@@ -73,10 +74,10 @@ CLASSIFICATION_FEATURE_IMPORTANCE = """feature_importance = None
 def generate_classification_training_script(
     model_type: str,
     target_column: str,
-    feature_columns: list[str],
+    feature_columns: List[str],
     test_size: float = 0.2,
-    hyperparameters: dict = None,
-    preprocessing_config: dict = None,
+    hyperparameters: Dict = None,
+    preprocessing_config: Dict = None,
     validation_type: str = "hold_out",
     cv_folds: int = 5,
     user_id: int = 0

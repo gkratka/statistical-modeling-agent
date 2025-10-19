@@ -680,8 +680,28 @@ class PredictionHandler:
             parse_mode="Markdown"
         )
 
-        # Show model selection
-        await self._show_model_selection(update, context, session)
+        # Show model selection WITH ERROR HANDLING
+        try:
+            await self._show_model_selection(update, context, session)
+        except Exception as e:
+            logger.error(f"Error loading compatible models: {e}", exc_info=True)
+
+            # Rollback state transition
+            session.restore_previous_state()
+            await self.state_manager.update_session(session)
+
+            # Show user-friendly error
+            await update.message.reply_text(
+                "❌ **Model Loading Error**\n\n"
+                f"Failed to load compatible models: {str(e)}\n\n"
+                "**Possible causes:**\n"
+                "• No trained models available\n"
+                "• Model metadata corrupted\n"
+                "• File permission issues\n\n"
+                "**Solution:** Use /train to create a model first, then try /predict again.",
+                parse_mode="Markdown"
+            )
+            return  # Stop execution
 
         raise ApplicationHandlerStop
 
@@ -699,8 +719,12 @@ class PredictionHandler:
         user_id = session.user_id
         selected_features = session.selections.get('selected_features', [])
 
+        # DEFENSIVE: Log model loading attempt
+        logger.info(f"Loading models for user {user_id} with {len(selected_features)} features")
+
         # List all user models
         all_models = self.ml_engine.list_models(user_id=user_id)
+        logger.debug(f"Found {len(all_models)} total models for user {user_id}")
 
         if not all_models:
             await update.effective_message.reply_text(
@@ -842,6 +866,7 @@ class PredictionHandler:
     ) -> None:
         """Show prediction column name confirmation."""
         target_column = session.selections.get('model_target_column', 'target')
+        # PHASE 1: Skip existing columns check if data not loaded (deferred loading)
         existing_columns = session.uploaded_data.columns.tolist() if session.uploaded_data is not None else []
 
         keyboard = create_column_confirmation_buttons()
@@ -875,7 +900,7 @@ class PredictionHandler:
         target_column = session.selections.get('model_target_column', 'target')
         prediction_column = f"{target_column}_predicted"
 
-        # Check for conflicts (skip if data loading deferred)
+        # PHASE 3: Check for conflicts ONLY if data is loaded (skip if deferred)
         if session.uploaded_data is not None:
             existing_columns = session.uploaded_data.columns.tolist()
             if prediction_column in existing_columns:
@@ -884,6 +909,7 @@ class PredictionHandler:
                     parse_mode="Markdown"
                 )
                 return
+        # If data not loaded (deferred), conflict check happens later in _execute_prediction()
 
         # Store column name
         session.selections['prediction_column_name'] = prediction_column
@@ -922,7 +948,7 @@ class PredictionHandler:
         if session is None or session.current_state != MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value:
             return
 
-        # Check for conflicts (skip if data loading deferred)
+        # PHASE 3: Check for conflicts ONLY if data is loaded (skip if deferred)
         if session.uploaded_data is not None:
             existing_columns = session.uploaded_data.columns.tolist()
             if column_name in existing_columns:
@@ -931,6 +957,7 @@ class PredictionHandler:
                     parse_mode="Markdown"
                 )
                 return
+        # If data not loaded (deferred), conflict check happens later in _execute_prediction()
 
         # Store column name
         session.selections['prediction_column_name'] = column_name
@@ -1156,6 +1183,13 @@ class PredictionHandler:
         """Execute prediction and return results."""
         start_time = time.time()
 
+        # PHASE 2: Enhanced error logging at start of execution
+        logger.info(f"🚀 Starting prediction execution for user {session.user_id}")
+        logger.debug(f"Session state: {session.current_state}")
+        logger.debug(f"Has uploaded_data: {session.uploaded_data is not None}")
+        logger.debug(f"Selected model: {session.selections.get('selected_model_id')}")
+        logger.debug(f"Load deferred: {getattr(session, 'load_deferred', False)}")
+
         try:
             # Check if data loading was deferred
             if getattr(session, 'load_deferred', False):
@@ -1187,8 +1221,42 @@ class PredictionHandler:
             selected_features = session.selections.get('selected_features', [])
             prediction_column = session.selections.get('prediction_column_name')
 
+            # PHASE 3: Explicit data validation before prediction execution
+            if session.uploaded_data is None:
+                error_msg = (
+                    "❌ **Data Not Found**\n\n"
+                    "Prediction data is missing from session. This can happen if:\n"
+                    "• Session expired\n"
+                    "• Data loading failed silently\n"
+                    "• Memory limit exceeded\n\n"
+                    "**Solution:** Please reload the template or restart with /predict"
+                )
+                await update.effective_message.reply_text(error_msg, parse_mode="Markdown")
+                logger.error(
+                    f"Missing uploaded_data for user {session.user_id} during prediction execution. "
+                    f"Model: {model_id}, Features: {selected_features}"
+                )
+                return
+
             # Prepare data (only selected features)
-            df = session.uploaded_data
+            # FIX: Use .copy() to prevent in-memory mutations from persisting across workflow runs
+            df = session.uploaded_data.copy()
+
+            # PHASE 2: Deferred conflict check (for workflows where data loaded late)
+            if prediction_column in df.columns:
+                error_msg = (
+                    f"❌ **Column Name Conflict**\n\n"
+                    f"Column `{prediction_column}` already exists in your dataset.\n\n"
+                    f"**Existing columns:** {', '.join(df.columns.tolist()[:10])}{'...' if len(df.columns) > 10 else ''}\n\n"
+                    f"**Solution:** Please restart /predict and choose a different column name."
+                )
+                await update.effective_message.reply_text(error_msg, parse_mode="Markdown")
+                logger.warning(
+                    f"Prediction column conflict for user {session.user_id}: "
+                    f"'{prediction_column}' already in dataset columns"
+                )
+                return
+
             prediction_data = df[selected_features].copy()
 
             # Run prediction
@@ -1242,8 +1310,8 @@ class PredictionHandler:
                 parse_mode="Markdown"
             )
 
-            # NEW: Show output options instead of auto-sending file
-            await self._show_output_options(update, context, session)
+            # PHASE 1: Show template save prompt after prediction completes
+            await self._show_template_save_prompt(update, context, session)
 
         except Exception as e:
             logger.error(f"Prediction execution error: {e}", exc_info=True)
@@ -1255,6 +1323,27 @@ class PredictionHandler:
     # =========================================================================
     # NEW: Local File Save Workflow Handlers
     # =========================================================================
+
+    async def _show_template_save_prompt(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        session
+    ) -> None:
+        """Show template save prompt after prediction completion."""
+        keyboard = [
+            [InlineKeyboardButton("💾 Save as Template", callback_data="save_pred_template")],
+            [InlineKeyboardButton("⏭️ Skip to Output", callback_data="skip_to_output")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.effective_message.reply_text(
+            "**What would you like to do next?**\n\n"
+            "You can save this prediction configuration as a template for quick reuse, "
+            "or skip directly to output options.",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
 
     async def _show_output_options(
         self,
@@ -1578,9 +1667,17 @@ class PredictionHandler:
                 parse_mode="Markdown"
             )
 
-            # Show workflow complete
+            # Show template save option
+            keyboard = [
+                [InlineKeyboardButton("💾 Save as Template", callback_data="save_pred_template")],
+                [InlineKeyboardButton("✅ Done", callback_data="pred_output_done")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
             await update.effective_message.reply_text(
-                PredictionMessages.workflow_complete_message(),
+                "**What would you like to do next?**\n\n"
+                "You can save this prediction configuration as a template for quick reuse.",
+                reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
@@ -1604,6 +1701,37 @@ class PredictionHandler:
         date_str = dt.strftime("%Y%m%d_%H%M%S")
 
         return f"predictions_{model_type}_{date_str}.csv"
+
+    # =========================================================================
+    # PHASE 2: Template Save Skip Handler
+    # =========================================================================
+
+    async def handle_skip_to_output(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle skip button - show output options directly."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_skip_to_output: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        # Edit message to show skip confirmation
+        await query.edit_message_text(
+            "⏭️ **Skipped Template Save**\n\nProceeding to output options...",
+            parse_mode="Markdown"
+        )
+
+        # Show output options
+        await self._show_output_options(update, context, session)
 
     # =========================================================================
     # Unified Text Handler
@@ -1738,6 +1866,14 @@ def register_prediction_handlers(
         CallbackQueryHandler(
             handler.handle_cancel_workflow,
             pattern=r"^pred_cancel$"
+        )
+    )
+
+    # PHASE 3: Template save skip handler
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_skip_to_output,
+            pattern=r"^skip_to_output$"
         )
     )
 
