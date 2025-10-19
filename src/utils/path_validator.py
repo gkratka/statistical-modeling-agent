@@ -2,16 +2,16 @@
 
 import os
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict, Any
 
 from src.utils.exceptions import PathValidationError
 
 
 def validate_local_path(
     path: str,
-    allowed_dirs: list[str],
+    allowed_dirs: List[str],
     max_size_mb: int,
-    allowed_extensions: list[str]
+    allowed_extensions: List[str]
 ) -> Tuple[bool, Optional[str], Optional[Path]]:
     """
     Comprehensive local file path validation with multi-layer security.
@@ -29,9 +29,20 @@ def validate_local_path(
     extension validation, existence/readability checks, size validation.
     """
     try:
+        # Layer 0: Auto-fix missing leading slash for absolute paths
+        # Common user error: "Users/..." instead of "/Users/..."
+        normalized_path = path
+        if not path.startswith('/') and not path.startswith('./'):
+            # Check for common absolute path patterns
+            absolute_patterns = ['Users/', 'home/', 'var/', 'tmp/', 'opt/']
+            for pattern in absolute_patterns:
+                if path.startswith(pattern):
+                    normalized_path = '/' + path
+                    break
+
         # Layer 1: Path normalization (resolve symlinks, relative paths)
         try:
-            resolved_path = Path(path).resolve()
+            resolved_path = Path(normalized_path).resolve()
         except (ValueError, OSError) as e:
             return False, f"Invalid path format: {str(e)}", None
 
@@ -109,7 +120,7 @@ def validate_local_path(
         return False, f"Validation error: {str(e)}", None
 
 
-def is_path_in_allowed_directory(path: Path, allowed_dirs: list[str]) -> bool:
+def is_path_in_allowed_directory(path: Path, allowed_dirs: List[str]) -> bool:
     """
     Check if resolved path is within any of the allowed directories.
 
@@ -191,7 +202,7 @@ class PathValidator:
     This class provides an object-oriented interface to the path validation functions.
     """
 
-    def __init__(self, allowed_directories: list[str], max_size_mb: int, allowed_extensions: list[str]):
+    def __init__(self, allowed_directories: List[str], max_size_mb: int, allowed_extensions: List[str]):
         """
         Initialize path validator.
 
@@ -204,7 +215,7 @@ class PathValidator:
         self.max_size_mb = max_size_mb
         self.allowed_extensions = allowed_extensions
 
-    def validate_path(self, path: str) -> dict[str, any]:
+    def validate_path(self, path: str) -> Dict[str, Any]:
         """
         Validate a file path.
 
@@ -232,7 +243,7 @@ class PathValidator:
         directory_path: str,
         filename: str,
         required_mb: int = 0
-    ) -> dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Validate output directory and filename for saving predictions.
 
@@ -246,7 +257,7 @@ class PathValidator:
                 - is_valid: bool
                 - resolved_path: Path (if valid)
                 - error: str (if invalid)
-                - warnings: list[str] (if valid but with warnings)
+                - warnings: List[str] (if valid but with warnings)
         """
         import shutil
 

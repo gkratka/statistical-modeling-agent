@@ -7,7 +7,7 @@ that can be processed by the orchestrator and engines.
 
 import re
 from dataclasses import dataclass
-from typing import Any, Optional, Literal
+from typing import Any, Optional, Literal, List, Tuple, Dict
 from src.utils.exceptions import ParseError
 from src.utils.logger import get_logger
 
@@ -21,8 +21,8 @@ class DataSource:
     file_id: Optional[str] = None  # Telegram file ID
     file_name: Optional[str] = None
     file_type: str = "unknown"  # csv, xlsx, json, etc.
-    columns: Optional[list[str]] = None
-    shape: Optional[tuple[int, int]] = None
+    columns: Optional[List[str]] = None
+    shape: Optional[Tuple[int, int]] = None
 
     def __post_init__(self) -> None:
         """Validate data source after initialization."""
@@ -36,7 +36,7 @@ class TaskDefinition:
 
     task_type: Literal["stats", "ml_train", "ml_score", "data_info", "script"]
     operation: str  # "descriptive_stats", "correlation", "train_model", etc.
-    parameters: dict[str, Any]
+    parameters: Dict[str, Any]
     data_source: Optional[DataSource]
     user_id: int
     conversation_id: str
@@ -64,7 +64,7 @@ class RequestParser:
         self.column_patterns = self._init_column_patterns()
         self.script_patterns = self._init_script_patterns()
 
-    def _init_stats_patterns(self) -> dict[str, str]:
+    def _init_stats_patterns(self) -> Dict[str, str]:
         """Initialize statistical operation patterns."""
         return {
             'mean': r'(calculate|compute|find|show|get)?\s*(the)?\s*mean',
@@ -81,7 +81,7 @@ class RequestParser:
             'quartile': r'(quartile|percentile|quantile)',
         }
 
-    def _init_ml_patterns(self) -> dict[str, str]:
+    def _init_ml_patterns(self) -> Dict[str, str]:
         """Initialize machine learning operation patterns."""
         return {
             'train': r'(train|build|create|make)\s*(a|the)?\s*(model|classifier|predictor)',
@@ -94,7 +94,7 @@ class RequestParser:
             'logistic_regression': r'(logistic\s*regression)',
         }
 
-    def _init_column_patterns(self) -> dict[str, str]:
+    def _init_column_patterns(self) -> Dict[str, str]:
         """Initialize column extraction patterns."""
         return {
             'column_reference': r'(column|field|variable)\s*["\']?([a-zA-Z_][a-zA-Z0-9_]*)["\']?',
@@ -103,7 +103,7 @@ class RequestParser:
             'features': r'(based\s*on|using|features?|independent\s*variables?)\s*["\']?([a-zA-Z_][a-zA-Z0-9_,\s]*)["\']?',
         }
 
-    def _init_script_patterns(self) -> dict[str, str]:
+    def _init_script_patterns(self) -> Dict[str, str]:
         """Initialize script generation patterns."""
         return {
             'script_command': r'^/script\s+(\w+)',
@@ -161,7 +161,7 @@ class RequestParser:
             confidence_score=confidence
         )
 
-    def _classify_request(self, text: str) -> tuple[str, str, dict[str, Any], float]:
+    def _classify_request(self, text: str) -> Tuple[str, str, Dict[str, Any], float]:
         """
         Classify the request into task type and extract parameters.
 
@@ -191,7 +191,7 @@ class RequestParser:
         # Default to low confidence stats request
         return ("stats", "unknown", {}, 0.1)
 
-    def _check_stats_patterns(self, text: str) -> tuple[str, str, dict[str, Any], float]:
+    def _check_stats_patterns(self, text: str) -> Tuple[str, str, Dict[str, Any], float]:
         """Check for statistical operation patterns."""
         operations = []
         columns = self.extract_column_names(text)
@@ -223,7 +223,7 @@ class RequestParser:
         confidence = min(total_confidence / len(operations), 1.0) if operations else 0.0
         return ("stats", operation, parameters, confidence)
 
-    def _check_ml_patterns(self, text: str) -> tuple[str, str, dict[str, Any], float]:
+    def _check_ml_patterns(self, text: str) -> Tuple[str, str, Dict[str, Any], float]:
         """Check for machine learning operation patterns."""
         ml_operations = []
         model_types = []
@@ -282,7 +282,7 @@ class RequestParser:
 
         return (task_type, operation, parameters, min(confidence, 1.0))
 
-    def _check_data_info_patterns(self, text: str) -> tuple[str, str, dict[str, Any], float]:
+    def _check_data_info_patterns(self, text: str) -> Tuple[str, str, Dict[str, Any], float]:
         """Check for data information requests."""
         info_patterns = [
             r'(what|show|display|tell me about).*data',
@@ -303,7 +303,7 @@ class RequestParser:
 
         return ("data_info", "unknown", {}, 0.0)
 
-    def _check_script_patterns(self, text: str) -> tuple[str, str, dict[str, Any], float]:
+    def _check_script_patterns(self, text: str) -> Tuple[str, str, Dict[str, Any], float]:
         """Check for script generation patterns."""
         confidence = 0.0
         operation = "unknown"
@@ -385,7 +385,7 @@ class RequestParser:
 
         return ("script", "unknown", {}, 0.0)
 
-    def _determine_script_operation(self, text: str, script_operations: list[str]) -> str:
+    def _determine_script_operation(self, text: str, script_operations: List[str]) -> str:
         """Determine specific script operation from patterns and context."""
         # Check for specific analysis types in the text
         text_lower = text.lower()
@@ -413,7 +413,7 @@ class RequestParser:
 
         return "descriptive"
 
-    def _extract_script_parameters(self, text: str, operation: str) -> dict[str, Any]:
+    def _extract_script_parameters(self, text: str, operation: str) -> Dict[str, Any]:
         """Extract parameters specific to script generation."""
         parameters = {}
 
@@ -431,7 +431,7 @@ class RequestParser:
 
         return parameters
 
-    def extract_column_names(self, text: str) -> list[str]:
+    def extract_column_names(self, text: str) -> List[str]:
         """Extract column names referenced in the text."""
         columns = []
 
@@ -491,7 +491,7 @@ class RequestParser:
             return match.groups()[-1].strip()
         return None
 
-    def _extract_features(self, text: str) -> list[str]:
+    def _extract_features(self, text: str) -> List[str]:
         """Extract feature variables from ML request."""
         pattern = self.column_patterns['features']
         match = re.search(pattern, text, re.IGNORECASE)
@@ -504,14 +504,14 @@ class RequestParser:
 
 
 # Convenience functions for backward compatibility
-def parse_stats_request(text: str) -> dict[str, Any]:
+def parse_stats_request(text: str) -> Dict[str, Any]:
     """Parse statistical operation request and return parameters."""
     parser = RequestParser()
     result = parser._check_stats_patterns(text.lower())
     return result[2]  # parameters
 
 
-def parse_ml_request(text: str) -> dict[str, Any]:
+def parse_ml_request(text: str) -> Dict[str, Any]:
     """Parse ML operation request and return parameters."""
     parser = RequestParser()
     result = parser._check_ml_patterns(text.lower())

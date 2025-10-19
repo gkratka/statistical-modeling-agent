@@ -56,6 +56,10 @@ Type /help for more information.""",
 Commands:
 /start - Start using the bot
 /help - Show this help message
+/train - Step-by-step ML training workflow
+/predict - Run predictions with trained model
+/score - Advanced: Train & predict in one step
+/cancel - Cancel active workflow
 
 How to use:
 1. Upload Data: Send a CSV file
@@ -71,10 +75,17 @@ Supported Operations:
 🧠 Machine learning training
 🔮 Model predictions
 
-Example:
-1. Upload: housing_data.csv
-2. Message: Train a model to predict house prices
-3. Get: Model training results and performance metrics
+ML Workflows:
+/train - Step-by-step model training (beginner-friendly)
+/predict - Generate predictions with existing model
+/score - Power-user: Train + predict in single template
+
+/score Example:
+TRAIN_DATA: /path/to/train.csv
+TARGET: price
+FEATURES: sqft, bedrooms, bathrooms
+MODEL: random_forest
+PREDICT_DATA: /path/to/test.csv
 
 Need more help? Just ask me anything!"""
 }
@@ -137,7 +148,7 @@ async def message_handler(
 
     # NEW: Check for active workflow BEFORE parsing
     from src.bot.workflow_handlers import WorkflowRouter
-    from src.core.state_manager import MLTrainingState, MLPredictionState
+    from src.core.state_manager import MLTrainingState, MLPredictionState, ScoreWorkflowState
 
     # Use shared StateManager instance from bot_data
     state_manager = context.bot_data['state_manager']
@@ -145,6 +156,47 @@ async def message_handler(
         user_id,
         f"chat_{update.effective_chat.id}"
     )
+
+    # Check for score template submission (before state routing)
+    # Template markers: TRAIN_DATA:, MODEL:, TARGET:, PREDICT_DATA:
+    score_template_markers = ['TRAIN_DATA:', 'PREDICT_DATA:', 'MODEL:', 'TARGET:']
+    if any(marker in message_text for marker in score_template_markers):
+        logger.info(f"📋 Score template detected for user {user_id}")
+
+        # Cancel non-score workflow if active
+        from src.core.state_manager import WorkflowType, ScoreWorkflowState
+        if session.workflow_type is not None and session.workflow_type != WorkflowType.SCORE_WORKFLOW:
+            await state_manager.cancel_workflow(session)
+            logger.info(f"🔄 Cancelled workflow ({session.workflow_type.value}) for score template submission")
+
+        # Start score workflow if not active
+        if session.workflow_type != WorkflowType.SCORE_WORKFLOW:
+            await state_manager.start_workflow(session, WorkflowType.SCORE_WORKFLOW)
+            session.current_state = ScoreWorkflowState.AWAITING_TEMPLATE.value
+            await state_manager.update_session(session)
+            logger.info(f"🎯 Started score workflow for user {user_id}")
+
+        # Route to score handler
+        score_handler = context.bot_data.get('score_handler')
+        if score_handler:
+            logger.info(f"📤 Routing template to score handler for user {user_id}")
+            return await score_handler.handle_template_submission(update, context, session)
+        else:
+            logger.error(f"❌ Score handler not found in bot_data for user {user_id}")
+            await update.message.reply_text(
+                "⚠️ **Score Handler Error**\n\nScore workflow is not properly configured. Please contact support.",
+                parse_mode="Markdown"
+            )
+            return
+
+    # Check for /score command - cancel workflow and let CommandHandler process it
+    # This prevents workflow state from blocking command execution
+    if message_text.strip().startswith('/score'):
+        if session.current_state is not None:
+            await state_manager.cancel_workflow(session)
+            logger.info(f"🔄 Cancelled workflow ({session.current_state}) to allow /score command")
+        # Let CommandHandler process the command
+        return
 
     # Enhanced workflow state checking with specific ML training state detection
     # This prevents handler collision with local path text handler
@@ -191,6 +243,24 @@ async def message_handler(
         if session.current_state in ml_prediction_states:
             logger.info(f"🛑 EARLY EXIT: ML prediction state detected ({session.current_state}), deferring to specialized handler")
             # Return early - specialized handler should process this
+            return
+
+        # Check for score workflow states (NEW)
+        score_workflow_states = [
+            ScoreWorkflowState.AWAITING_TEMPLATE.value,
+            ScoreWorkflowState.VALIDATING_INPUTS.value,
+            ScoreWorkflowState.CONFIRMING_EXECUTION.value,
+            ScoreWorkflowState.TRAINING_MODEL.value,
+            ScoreWorkflowState.RUNNING_PREDICTION.value,
+            ScoreWorkflowState.COMPLETE.value,
+        ]
+
+        if session.current_state in score_workflow_states:
+            logger.info(f"🛑 EARLY EXIT: Score workflow state detected ({session.current_state}), deferring to score handler")
+            # Route to score handler
+            score_handler = context.bot_data.get('score_handler')
+            if score_handler and session.current_state == ScoreWorkflowState.AWAITING_TEMPLATE.value:
+                return await score_handler.handle_template_submission(update, context, session)
             return
 
         # For other workflow states, route to workflow handler

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 import pandas as pd
 
 
@@ -16,7 +16,7 @@ class ColumnSchema:
     null_percentage: float
     unique_count: int
     unique_percentage: float
-    sample_values: list[str]
+    sample_values: List[str]
     is_target_candidate: bool
     is_feature_candidate: bool
 
@@ -27,10 +27,10 @@ class DatasetSchema:
     file_path: str
     n_rows: int
     n_columns: int
-    columns: list[ColumnSchema]
+    columns: List[ColumnSchema]
     suggested_task_type: Optional[Literal["regression", "classification"]]
     suggested_target: Optional[str]
-    suggested_features: list[str]
+    suggested_features: List[str]
     memory_usage_mb: float
     has_missing_values: bool
     overall_quality_score: float
@@ -176,7 +176,7 @@ def _is_candidate(col: pd.Series, dtype: str, unique_count: int, null_pct: float
     return False
 
 
-def _suggest_task_type(columns: list[ColumnSchema]) -> Optional[Literal["regression", "classification"]]:
+def _suggest_task_type(columns: List[ColumnSchema]) -> Optional[Literal["regression", "classification"]]:
     """Suggest ML task type."""
     targets = [c for c in columns if c.is_target_candidate]
     if not targets:
@@ -193,7 +193,7 @@ def _suggest_task_type(columns: list[ColumnSchema]) -> Optional[Literal["regress
     return "regression" if any(c.dtype == "numeric" for c in targets) else "classification"
 
 
-def _suggest_target(columns: list[ColumnSchema], task_type: Optional[str]) -> Optional[str]:
+def _suggest_target(columns: List[ColumnSchema], task_type: Optional[str]) -> Optional[str]:
     """Suggest target column."""
     candidates = [c for c in columns if c.is_target_candidate]
     if not candidates:
@@ -221,6 +221,6 @@ def _suggest_target(columns: list[ColumnSchema], task_type: Optional[str]) -> Op
     return max(candidates, key=score).name
 
 
-def _suggest_features(columns: list[ColumnSchema], target: Optional[str]) -> list[str]:
+def _suggest_features(columns: List[ColumnSchema], target: Optional[str]) -> List[str]:
     """Suggest feature columns."""
     return [c.name for c in columns if c.is_feature_candidate and c.name != target]

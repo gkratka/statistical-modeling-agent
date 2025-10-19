@@ -7,7 +7,7 @@ data validation, hyperparameter validation, and model access validation.
 
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import pandas as pd
 
 from src.utils.exceptions import (
@@ -25,7 +25,7 @@ class MLValidators:
     def validate_training_data(
         data: pd.DataFrame,
         target_column: str,
-        feature_columns: list[str],
+        feature_columns: List[str],
         min_samples: int = 10
     ) -> None:
         """

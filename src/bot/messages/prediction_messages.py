@@ -263,7 +263,7 @@ class PredictionMessages:
             models_text += f" | {escaped_task_type}\n"
 
             # Add details line
-            models_text += f"   Target: `{escaped_target}`"
+            models_text += f"   Target: {escaped_target}"
             if accuracy:
                 models_text += f" | Accuracy: {accuracy:.2%}"
             models_text += "\n\n"
@@ -634,6 +634,7 @@ def create_data_source_buttons() -> List[List[InlineKeyboardButton]]:
             InlineKeyboardButton("📤 Upload File", callback_data="pred_upload"),
             InlineKeyboardButton("📂 Local Path", callback_data="pred_local_path")
         ],
+        [InlineKeyboardButton("📋 Use Template", callback_data="use_pred_template")],
         [create_back_button()]
     ]
 

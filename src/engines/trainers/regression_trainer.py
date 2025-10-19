@@ -5,7 +5,7 @@ This module provides the trainer for regression models including
 linear regression, ridge, lasso, elastic net, and polynomial regression.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
@@ -187,7 +187,7 @@ class RegressionTrainer(ModelTrainer):
         self,
         model: Any,
         model_type: str,
-        feature_names: list[str]
+        feature_names: List[str]
     ) -> Dict[str, Any]:
         """
         Get summary information about trained model.
@@ -245,7 +245,7 @@ class RegressionTrainer(ModelTrainer):
         return summary
 
     @classmethod
-    def get_supported_models(cls) -> list[str]:
+    def get_supported_models(cls) -> List[str]:
         """
         Get list of supported model types.
 

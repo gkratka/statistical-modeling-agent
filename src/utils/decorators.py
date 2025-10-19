@@ -7,7 +7,7 @@ to reduce code duplication across handlers and processors.
 
 import functools
 import logging
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, List
 
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -195,7 +195,7 @@ def safe_get_user_data(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> Opti
     return context.user_data.get(get_user_data_key(user_id))
 
 
-def format_data_columns(columns: list[str], max_display: int = 10) -> str:
+def format_data_columns(columns: List[str], max_display: int = 10) -> str:
     """
     Format column list for display with truncation.
 

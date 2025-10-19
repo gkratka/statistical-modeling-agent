@@ -26,6 +26,7 @@ class WorkflowType(Enum):
     ML_PREDICTION = "ml_prediction"
     STATS_ANALYSIS = "stats_analysis"
     DATA_EXPLORATION = "data_exploration"
+    SCORE_WORKFLOW = "score_workflow"  # NEW: Combined train + predict workflow
 
 
 class MLTrainingState(Enum):
@@ -79,6 +80,21 @@ class MLPredictionState(Enum):
     # NEW: Local file save workflow states
     AWAITING_SAVE_PATH = "awaiting_save_path"              # User provides output directory
     CONFIRMING_SAVE_FILENAME = "confirming_save_filename"  # User confirms filename
+
+    # NEW: Prediction template workflow states
+    LOADING_PRED_TEMPLATE = "loading_pred_template"        # Browsing prediction templates
+    CONFIRMING_PRED_TEMPLATE = "confirming_pred_template"  # Reviewing selected template
+    SAVING_PRED_TEMPLATE = "saving_pred_template"          # Entering template name
+
+
+class ScoreWorkflowState(Enum):
+    """States for score workflow (combined train + predict)."""
+    AWAITING_TEMPLATE = "awaiting_template"        # User submits template text
+    VALIDATING_INPUTS = "validating_inputs"        # Validating paths and schemas
+    CONFIRMING_EXECUTION = "confirming_execution"  # User confirms configuration
+    TRAINING_MODEL = "training_model"              # Training ML model
+    RUNNING_PREDICTION = "running_prediction"      # Generating predictions
+    COMPLETE = "complete"                          # Workflow finished
 
 
 @dataclass
@@ -338,10 +354,14 @@ ML_PREDICTION_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     None: {MLPredictionState.STARTED.value},
 
     # Step 1-3: Data loading (similar to training workflow)
-    MLPredictionState.STARTED.value: {MLPredictionState.CHOOSING_DATA_SOURCE.value},
+    MLPredictionState.STARTED.value: {
+        MLPredictionState.CHOOSING_DATA_SOURCE.value,
+        MLPredictionState.LOADING_PRED_TEMPLATE.value  # NEW: User chooses "Use Template"
+    },
     MLPredictionState.CHOOSING_DATA_SOURCE.value: {
         MLPredictionState.AWAITING_FILE_UPLOAD.value,    # User chose Telegram upload
-        MLPredictionState.AWAITING_FILE_PATH.value       # User chose local path
+        MLPredictionState.AWAITING_FILE_PATH.value,      # User chose local path
+        MLPredictionState.LOADING_PRED_TEMPLATE.value    # User chose "Use Template"
     },
     MLPredictionState.AWAITING_FILE_UPLOAD.value: {MLPredictionState.CONFIRMING_SCHEMA.value},
     MLPredictionState.AWAITING_FILE_PATH.value: {MLPredictionState.CHOOSING_LOAD_OPTION.value},  # NEW: Choose load strategy
@@ -378,19 +398,70 @@ ML_PREDICTION_TRANSITIONS: Dict[Optional[str], Set[str]] = {
 
     # NEW: Local file save workflow transitions
     MLPredictionState.COMPLETE.value: {
-        MLPredictionState.AWAITING_SAVE_PATH.value       # User chooses to save locally
+        MLPredictionState.AWAITING_SAVE_PATH.value,      # User chooses to save locally
+        MLPredictionState.SAVING_PRED_TEMPLATE.value     # NEW: User chooses "Save as Template"
     },
     MLPredictionState.AWAITING_SAVE_PATH.value: {
         MLPredictionState.CONFIRMING_SAVE_FILENAME.value # Path validated, confirm filename
     },
     MLPredictionState.CONFIRMING_SAVE_FILENAME.value: {
         MLPredictionState.COMPLETE.value                 # File saved, back to complete
+    },
+
+    # NEW: Prediction template workflow transitions
+    MLPredictionState.LOADING_PRED_TEMPLATE.value: {
+        MLPredictionState.CONFIRMING_PRED_TEMPLATE.value,  # User selects template
+        MLPredictionState.STARTED.value                    # Go back to start
+    },
+    MLPredictionState.CONFIRMING_PRED_TEMPLATE.value: {
+        MLPredictionState.READY_TO_RUN.value,              # After loading data, ready to run
+        MLPredictionState.LOADING_PRED_TEMPLATE.value      # Go back to template list
+    },
+    MLPredictionState.SAVING_PRED_TEMPLATE.value: {
+        MLPredictionState.COMPLETE.value                   # After save or cancel
     }
+}
+
+SCORE_WORKFLOW_TRANSITIONS: Dict[Optional[str], Set[str]] = {
+    # Start: /score command initiates workflow
+    None: {ScoreWorkflowState.AWAITING_TEMPLATE.value},
+
+    # Step 1: Template submission and validation
+    ScoreWorkflowState.AWAITING_TEMPLATE.value: {
+        ScoreWorkflowState.VALIDATING_INPUTS.value,      # Template submitted
+        ScoreWorkflowState.CONFIRMING_EXECUTION.value    # Fast path if validation passes
+    },
+
+    # Step 2: Validation (may be skipped with fast path)
+    ScoreWorkflowState.VALIDATING_INPUTS.value: {
+        ScoreWorkflowState.CONFIRMING_EXECUTION.value,   # Validation passed
+        ScoreWorkflowState.AWAITING_TEMPLATE.value       # Validation failed, retry
+    },
+
+    # Step 3: User confirmation
+    ScoreWorkflowState.CONFIRMING_EXECUTION.value: {
+        ScoreWorkflowState.TRAINING_MODEL.value,         # User confirmed
+        ScoreWorkflowState.AWAITING_TEMPLATE.value       # User cancelled, restart
+    },
+
+    # Step 4: Training
+    ScoreWorkflowState.TRAINING_MODEL.value: {
+        ScoreWorkflowState.RUNNING_PREDICTION.value      # Training complete, start prediction
+    },
+
+    # Step 5: Prediction
+    ScoreWorkflowState.RUNNING_PREDICTION.value: {
+        ScoreWorkflowState.COMPLETE.value                # Prediction complete
+    },
+
+    # Step 6: Complete (terminal state)
+    ScoreWorkflowState.COMPLETE.value: set()
 }
 
 WORKFLOW_TRANSITIONS: Dict[WorkflowType, Dict[Optional[str], Set[str]]] = {
     WorkflowType.ML_TRAINING: ML_TRAINING_TRANSITIONS,
     WorkflowType.ML_PREDICTION: ML_PREDICTION_TRANSITIONS,
+    WorkflowType.SCORE_WORKFLOW: SCORE_WORKFLOW_TRANSITIONS,
 }
 
 ML_TRAINING_PREREQUISITES: Dict[str, PrerequisiteChecker] = {
@@ -429,9 +500,21 @@ ML_PREDICTION_PREREQUISITES: Dict[str, PrerequisiteChecker] = {
     ),
 }
 
+SCORE_WORKFLOW_PREREQUISITES: Dict[str, PrerequisiteChecker] = {
+    # Configuration must exist before confirmation
+    ScoreWorkflowState.CONFIRMING_EXECUTION.value: lambda s: 'score_config' in s.selections,
+
+    # Configuration must exist before training
+    ScoreWorkflowState.TRAINING_MODEL.value: lambda s: 'score_config' in s.selections,
+
+    # Configuration must exist before prediction
+    ScoreWorkflowState.RUNNING_PREDICTION.value: lambda s: 'score_config' in s.selections,
+}
+
 WORKFLOW_PREREQUISITES: Dict[WorkflowType, Dict[str, PrerequisiteChecker]] = {
     WorkflowType.ML_TRAINING: ML_TRAINING_PREREQUISITES,
     WorkflowType.ML_PREDICTION: ML_PREDICTION_PREREQUISITES,
+    WorkflowType.SCORE_WORKFLOW: SCORE_WORKFLOW_PREREQUISITES,
 }
 
 # Prerequisite name mapping for error messages
@@ -448,6 +531,11 @@ PREREQUISITE_NAMES: Dict[Tuple[WorkflowType, str], str] = {
     (WorkflowType.ML_PREDICTION, MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value): "model_selection",
     (WorkflowType.ML_PREDICTION, MLPredictionState.READY_TO_RUN.value): "prediction_column_name",
     (WorkflowType.ML_PREDICTION, MLPredictionState.RUNNING_PREDICTION.value): "all_prediction_requirements",
+
+    # Score Workflow prerequisites
+    (WorkflowType.SCORE_WORKFLOW, ScoreWorkflowState.CONFIRMING_EXECUTION.value): "score_configuration",
+    (WorkflowType.SCORE_WORKFLOW, ScoreWorkflowState.TRAINING_MODEL.value): "score_configuration",
+    (WorkflowType.SCORE_WORKFLOW, ScoreWorkflowState.RUNNING_PREDICTION.value): "score_configuration",
 }
 
 
