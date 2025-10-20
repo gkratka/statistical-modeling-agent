@@ -197,6 +197,10 @@ class StatisticalModelingBot:
         self.application.bot_data['data_loader'] = data_loader
         self.application.bot_data['config'] = yaml_config
 
+        # Check XGBoost availability and log status
+        from src.utils.xgboost_checker import log_xgboost_status
+        log_xgboost_status()
+
         # Command handlers
         self.application.add_handler(CommandHandler("start", start_handler))
         self.application.add_handler(CommandHandler("help", help_handler))

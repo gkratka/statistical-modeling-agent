@@ -924,13 +924,15 @@ class LocalPathMLTrainingHandler:
                 ("Ridge Regression (L2)", "ridge"),
                 ("Lasso Regression (L1)", "lasso"),
                 ("ElasticNet (L1+L2)", "elasticnet"),
-                ("Polynomial Regression", "polynomial")
+                ("Polynomial Regression", "polynomial"),
+                ("XGBoost Regression", "xgboost_regression")
             ],
             "classification": [
                 ("Logistic Regression", "logistic"),
                 ("Decision Tree", "decision_tree"),
                 ("Random Forest", "random_forest"),
-                ("Gradient Boosting", "gradient_boosting"),
+                ("Gradient Boosting (sklearn)", "gradient_boosting"),
+                ("XGBoost Classification", "xgboost_binary_classification"),
                 ("Support Vector Machine", "svm"),
                 ("Naive Bayes", "naive_bayes")
             ],
@@ -1009,9 +1011,9 @@ class LocalPathMLTrainingHandler:
         session.selections['model_type'] = model_type
 
         # Determine task type based on model
-        if model_type in ['linear', 'ridge', 'lasso', 'elasticnet', 'polynomial', 'mlp_regression', 'keras_regression']:
+        if model_type in ['linear', 'ridge', 'lasso', 'elasticnet', 'polynomial', 'mlp_regression', 'keras_regression', 'xgboost_regression']:
             session.selections['task_type'] = 'regression'
-        elif model_type in ['logistic', 'decision_tree', 'random_forest', 'gradient_boosting', 'svm', 'naive_bayes', 'mlp_classification', 'keras_binary_classification', 'keras_multiclass_classification']:
+        elif model_type in ['logistic', 'decision_tree', 'random_forest', 'gradient_boosting', 'svm', 'naive_bayes', 'mlp_classification', 'keras_binary_classification', 'keras_multiclass_classification', 'xgboost_binary_classification', 'xgboost_multiclass_classification']:
             session.selections['task_type'] = 'classification'
         else:
             session.selections['task_type'] = 'neural_network'
@@ -1022,21 +1024,23 @@ class LocalPathMLTrainingHandler:
         if model_type.startswith('keras_'):
             print(f"🧠 DEBUG: Keras model selected, starting parameter configuration")
             await self._start_keras_config(query, session)
+        # Check if this is an XGBoost model - needs parameter configuration
+        elif model_type.startswith('xgboost_'):
+            print(f"🚀 DEBUG: XGBoost model selected, starting parameter configuration")
+            await self._start_xgboost_config(query, session, model_type)
         else:
-            # Non-Keras models - start training immediately
+            # sklearn models - start training immediately
+            # Escape underscores in model_type for Markdown
+            model_display = model_type.replace('_', '\\_')
             await query.edit_message_text(
-                f"✅ **Model Selected**: {model_type}\n\n"
+                f"✅ **Model Selected**: {model_display}\n\n"
                 f"🚀 Starting training...\n\n"
                 f"This may take a few moments.",
                 parse_mode="Markdown"
             )
 
-            # TODO: Trigger actual training here
-            print(f"🚀 DEBUG: Ready to start training with model={model_type}")
-            print(f"🚀 DEBUG: Target={session.selections.get('target_column')}")
-            print(f"🚀 DEBUG: Features={session.selections.get('feature_columns')}")
-        print(f"🚀 DEBUG: File path={session.file_path}")
-        print(f"🚀 DEBUG: Deferred loading={session.load_deferred}")
+            # Execute sklearn training
+            await self._execute_sklearn_training(update, context, session, model_type)
 
     async def _start_keras_config(
         self,
@@ -1066,6 +1070,242 @@ class LocalPathMLTrainingHandler:
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
+
+    async def _start_xgboost_config(
+        self,
+        query,
+        session,
+        model_type: str
+    ) -> None:
+        """Start XGBoost parameter configuration workflow."""
+        # Initialize XGBoost config dict with defaults from template
+        from src.engines.trainers.xgboost_templates import get_template
+        default_config = get_template(model_type)
+
+        session.selections['xgboost_config'] = default_config
+        session.selections['xgboost_model_type'] = model_type  # Store for later
+        await self.state_manager.update_session(session)
+
+        # Start with n_estimators configuration
+        keyboard = [
+            [InlineKeyboardButton("50 trees", callback_data="xgboost_n_estimators:50")],
+            [InlineKeyboardButton("100 trees (recommended)", callback_data="xgboost_n_estimators:100")],
+            [InlineKeyboardButton("200 trees", callback_data="xgboost_n_estimators:200")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_n_estimators:custom")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 1/5: Number of Boosting Rounds**\n\n"
+            "How many trees to build?\n"
+            "(More trees = better fit, but slower training)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def _execute_sklearn_training(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        session,
+        model_type: str
+    ) -> None:
+        """Execute training for sklearn and XGBoost models."""
+        # Defensive extraction - protect against None values in update object
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update object in _execute_sklearn_training: {e}")
+            return
+
+        print(f"🚀 DEBUG: Starting sklearn/XGBoost training for model={model_type}")
+
+        # Transition to TRAINING state
+        success, error_msg, _ = await self.state_manager.transition_state(
+            session,
+            MLTrainingState.TRAINING.value
+        )
+
+        if not success:
+            logger.error(f"Failed to transition to TRAINING: {error_msg}")
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    f"❌ **State Transition Error**\n\n{error_msg}\n\nPlease restart with /train",
+                    parse_mode="Markdown"
+                )
+            return
+
+        print(f"✅ DEBUG: State transition to TRAINING successful, state={session.current_state}")
+
+        # Trigger actual sklearn/XGBoost training
+        try:
+            # Extract training parameters from session
+            target = session.selections.get('target_column')
+            features = session.selections.get('feature_columns')
+            file_path = session.file_path
+            task_type = session.selections.get('task_type', 'classification')
+
+            print(f"🚀 DEBUG: Training params - target={target}, features={features}, model={model_type}")
+            print(f"🚀 DEBUG: File path={file_path}, task_type={task_type}")
+
+            # Get hyperparameters based on model type
+            hyperparameters = None
+            if model_type.startswith('xgboost_'):
+                # Check if user configured parameters or use defaults
+                xgboost_config = session.selections.get('xgboost_config')
+                if xgboost_config:
+                    # User selected custom parameters
+                    hyperparameters = xgboost_config
+                    print(f"🚀 DEBUG: Using user-configured XGBoost parameters: {hyperparameters}")
+                else:
+                    # Use XGBoost template defaults
+                    from src.engines.trainers.xgboost_templates import get_template
+                    hyperparameters = get_template(model_type)
+                    print(f"🚀 DEBUG: Using XGBoost template hyperparameters: {hyperparameters}")
+
+            # Call ML Engine to train (wrapped in executor to prevent blocking event loop)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,  # Use default ThreadPoolExecutor
+                lambda: self.ml_engine.train_model(
+                    file_path=file_path,  # Lazy loading from deferred file
+                    task_type=task_type,
+                    model_type=model_type,
+                    target_column=target,
+                    feature_columns=features,
+                    user_id=user_id,
+                    hyperparameters=hyperparameters,
+                    test_size=0.2  # Default test split
+                )
+            )
+
+            print(f"🚀 DEBUG: Training result = {result}")
+
+            # Send success message with metrics and transition to naming workflow
+            if result.get('success'):
+                model_id = result.get('model_id', 'N/A')
+                metrics = result.get('metrics', {})
+
+                # Transition to TRAINING_COMPLETE state
+                print(f"🔍 DEBUG: Transitioning to TRAINING_COMPLETE state")
+                success, error_msg, _ = await self.state_manager.transition_state(
+                    session,
+                    MLTrainingState.TRAINING_COMPLETE.value
+                )
+
+                if not success:
+                    logger.error(f"Failed to transition to TRAINING_COMPLETE: {error_msg}")
+                    await update.effective_message.reply_text(
+                        f"❌ **State Transition Error**\n\n{error_msg}",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                print(f"✅ DEBUG: State transition to TRAINING_COMPLETE successful, state={session.current_state}")
+
+                # Store model_id in session for naming workflow
+                session.selections['pending_model_id'] = model_id
+                await self.state_manager.update_session(session)
+
+                # Format metrics based on task type
+                metrics_text = self._format_sklearn_metrics(metrics, task_type)
+
+                # Show naming options with inline keyboard
+                keyboard = [
+                    [InlineKeyboardButton("📝 Name Model", callback_data="name_model")],
+                    [InlineKeyboardButton("⏭️ Skip - Use Default", callback_data="skip_naming")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                # Escape underscores for Markdown display
+                model_display = model_type.replace('_', '\\_')
+
+                await update.effective_message.reply_text(
+                    f"✅ **Training Complete!**\n\n"
+                    f"🎯 **Model**: {model_display}\n"
+                    f"🆔 **Model ID**: `{model_id}`\n\n"
+                    f"{metrics_text}\n\n"
+                    f"Would you like to give this model a custom name?",
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                # Training failed
+                error_msg = result.get('error', 'Unknown error during training')
+                logger.error(f"Training failed: {error_msg}")
+                await update.effective_message.reply_text(
+                    f"❌ **Training Failed**\n\n"
+                    f"Error: {error_msg}\n\n"
+                    f"Please try again with /train",
+                    parse_mode="Markdown"
+                )
+
+        except TrainingError as e:
+            # Build complete error message including hidden details
+            error_msg = str(e)
+            if hasattr(e, 'error_details') and e.error_details:
+                error_msg += f"\n\nDetails: {e.error_details}"
+
+            logger.error(f"Training error: {e}", exc_info=True)
+            await update.effective_message.reply_text(
+                f"❌ **Training Error**\n\n{escape_markdown_v1(error_msg)}\n\nPlease try again with /train",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Error during sklearn/XGBoost training: {e}", exc_info=True)
+            await update.effective_message.reply_text(
+                f"❌ **Training Error**\n\n"
+                f"An unexpected error occurred: {str(e)}\n\n"
+                f"Please try again with /train",
+                parse_mode="Markdown"
+            )
+
+    def _format_sklearn_metrics(self, metrics: dict, task_type: str) -> str:
+        """Format sklearn/XGBoost metrics for user display."""
+        if task_type == 'regression':
+            # Regression metrics
+            mse = metrics.get('mse', 'N/A')
+            rmse = metrics.get('rmse', 'N/A')
+            mae = metrics.get('mae', 'N/A')
+            r2 = metrics.get('r2', 'N/A')
+
+            # Format values before f-string
+            r2_str = f"{r2:.4f}" if isinstance(r2, float) else str(r2)
+            rmse_str = f"{rmse:.4f}" if isinstance(rmse, float) else str(rmse)
+            mae_str = f"{mae:.4f}" if isinstance(mae, float) else str(mae)
+            mse_str = f"{mse:.4f}" if isinstance(mse, float) else str(mse)
+
+            return (
+                f"📊 **Performance Metrics**:\n"
+                f"• R² Score: {r2_str}\n"
+                f"• RMSE: {rmse_str}\n"
+                f"• MAE: {mae_str}\n"
+                f"• MSE: {mse_str}"
+            )
+        else:
+            # Classification metrics
+            accuracy = metrics.get('accuracy', 'N/A')
+            precision = metrics.get('precision', 'N/A')
+            recall = metrics.get('recall', 'N/A')
+            f1 = metrics.get('f1', 'N/A')
+
+            # Format values before f-string
+            accuracy_str = f"{accuracy:.4f}" if isinstance(accuracy, float) else str(accuracy)
+            precision_str = f"{precision:.4f}" if isinstance(precision, float) else str(precision)
+            recall_str = f"{recall:.4f}" if isinstance(recall, float) else str(recall)
+            f1_str = f"{f1:.4f}" if isinstance(f1, float) else str(f1)
+
+            return (
+                f"📊 **Performance Metrics**:\n"
+                f"• Accuracy: {accuracy_str}\n"
+                f"• Precision: {precision_str}\n"
+                f"• Recall: {recall_str}\n"
+                f"• F1 Score: {f1_str}"
+            )
 
     async def handle_keras_epochs(
         self,
@@ -1755,6 +1995,257 @@ class LocalPathMLTrainingHandler:
                 parse_mode="Markdown"
             )
 
+    async def handle_xgboost_n_estimators(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle XGBoost n_estimators selection."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        n_estimators_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Handle custom input (default to 100 for now - Phase 2 enhancement)
+        if n_estimators_value == "custom":
+            n_estimators = 100
+        else:
+            n_estimators = int(n_estimators_value)
+
+        session.selections['xgboost_config']['n_estimators'] = n_estimators
+        await self.state_manager.update_session(session)
+
+        # Move to max_depth selection
+        keyboard = [
+            [InlineKeyboardButton("3 levels", callback_data="xgboost_max_depth:3")],
+            [InlineKeyboardButton("6 levels (recommended)", callback_data="xgboost_max_depth:6")],
+            [InlineKeyboardButton("9 levels", callback_data="xgboost_max_depth:9")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_max_depth:custom")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 2/5: Maximum Tree Depth**\n\n"
+            "How deep should each tree be?\n"
+            "(Deeper = more complex patterns, risk of overfitting)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_xgboost_max_depth(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle XGBoost max_depth selection."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        max_depth_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        if max_depth_value == "custom":
+            max_depth = 6
+        else:
+            max_depth = int(max_depth_value)
+
+        session.selections['xgboost_config']['max_depth'] = max_depth
+        await self.state_manager.update_session(session)
+
+        # Move to learning_rate selection
+        keyboard = [
+            [InlineKeyboardButton("0.01 (conservative)", callback_data="xgboost_learning_rate:0.01")],
+            [InlineKeyboardButton("0.1 (recommended)", callback_data="xgboost_learning_rate:0.1")],
+            [InlineKeyboardButton("0.3 (aggressive)", callback_data="xgboost_learning_rate:0.3")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_learning_rate:custom")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 3/5: Learning Rate**\n\n"
+            "How fast should the model learn?\n"
+            "(Lower = more stable, but needs more trees)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_xgboost_learning_rate(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle XGBoost learning_rate selection."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        learning_rate_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        if learning_rate_value == "custom":
+            learning_rate = 0.1
+        else:
+            learning_rate = float(learning_rate_value)
+
+        session.selections['xgboost_config']['learning_rate'] = learning_rate
+        await self.state_manager.update_session(session)
+
+        # Move to subsample selection
+        keyboard = [
+            [InlineKeyboardButton("0.6 (60%)", callback_data="xgboost_subsample:0.6")],
+            [InlineKeyboardButton("0.8 (80% - recommended)", callback_data="xgboost_subsample:0.8")],
+            [InlineKeyboardButton("1.0 (100% - all data)", callback_data="xgboost_subsample:1.0")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_subsample:custom")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 4/5: Subsample Ratio**\n\n"
+            "What fraction of data to use per tree?\n"
+            "(Lower = more diverse trees, prevents overfitting)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_xgboost_subsample(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle XGBoost subsample selection."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        subsample_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        if subsample_value == "custom":
+            subsample = 0.8
+        else:
+            subsample = float(subsample_value)
+
+        session.selections['xgboost_config']['subsample'] = subsample
+        await self.state_manager.update_session(session)
+
+        # Move to colsample_bytree selection
+        keyboard = [
+            [InlineKeyboardButton("0.6 (60%)", callback_data="xgboost_colsample:0.6")],
+            [InlineKeyboardButton("0.8 (80% - recommended)", callback_data="xgboost_colsample:0.8")],
+            [InlineKeyboardButton("1.0 (100% - all features)", callback_data="xgboost_colsample:1.0")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_colsample:custom")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 5/5: Column Subsample Ratio**\n\n"
+            "What fraction of features to use per tree?\n"
+            "(Lower = more diverse trees, prevents overfitting)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_xgboost_colsample(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle XGBoost colsample_bytree selection and start training."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        colsample_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        if colsample_value == "custom":
+            colsample = 0.8
+        else:
+            colsample = float(colsample_value)
+
+        session.selections['xgboost_config']['colsample_bytree'] = colsample
+        await self.state_manager.update_session(session)
+
+        # Configuration complete - start training
+        model_type = session.selections.get('xgboost_model_type')
+        xgboost_config = session.selections.get('xgboost_config')
+
+        # Escape underscores for Markdown
+        model_display = model_type.replace('_', '\\_')
+
+        await query.edit_message_text(
+            f"✅ **XGBoost Configuration Complete**\n\n"
+            f"🎯 **Model**: {model_display}\n"
+            f"⚙️ **Parameters**:\n"
+            f"• n\\_estimators: {xgboost_config['n_estimators']}\n"
+            f"• max\\_depth: {xgboost_config['max_depth']}\n"
+            f"• learning\\_rate: {xgboost_config['learning_rate']}\n"
+            f"• subsample: {xgboost_config['subsample']}\n"
+            f"• colsample\\_bytree: {xgboost_config['colsample_bytree']}\n\n"
+            f"🚀 Starting training...\n\n"
+            f"This may take a few moments.",
+            parse_mode="Markdown"
+        )
+
+        # Execute training with XGBoost config
+        await self._execute_sklearn_training(update, context, session, model_type)
+
     async def handle_training_execution(
         self,
         update: Update,
@@ -2384,6 +2875,43 @@ def register_local_path_handlers(
         CallbackQueryHandler(
             handler.handle_keras_validation,
             pattern=r"^keras_val:"
+        )
+    )
+
+    # XGBoost configuration callback handlers
+    print("  ✓ Registering XGBoost parameter handlers")
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_xgboost_n_estimators,
+            pattern=r"^xgboost_n_estimators:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_xgboost_max_depth,
+            pattern=r"^xgboost_max_depth:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_xgboost_learning_rate,
+            pattern=r"^xgboost_learning_rate:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_xgboost_subsample,
+            pattern=r"^xgboost_subsample:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_xgboost_colsample,
+            pattern=r"^xgboost_colsample:"
         )
     )
 
