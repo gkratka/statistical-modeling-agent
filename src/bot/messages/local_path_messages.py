@@ -184,6 +184,66 @@ class LocalPathMessages:
 
         return templates.get(error_type, templates["unexpected"])
 
+    @staticmethod
+    def xgboost_description() -> str:
+        """Description of XGBoost models for users."""
+        return (
+            "🌳 **XGBoost (Gradient Boosting)**\n\n"
+            "**Best for:** Tabular/structured data\n"
+            "**Performance:** Often outperforms neural networks on structured datasets\n\n"
+            "**Advantages:**\n"
+            "✓ High accuracy on structured data\n"
+            "✓ Built-in feature importance\n"
+            "✓ Handles missing values\n"
+            "✓ Fast training\n\n"
+            "**When to use:**\n"
+            "• Credit scoring, fraud detection\n"
+            "• Customer churn prediction\n"
+            "• Price prediction, sales forecasting\n"
+            "• Any structured/tabular data\n\n"
+            "**When NOT to use:**\n"
+            "• Image data\n"
+            "• Text/NLP tasks\n"
+            "• Time series with complex patterns"
+        )
+
+    @staticmethod
+    def xgboost_hyperparameter_help() -> str:
+        """Help text for XGBoost hyperparameters."""
+        return (
+            "🔧 **XGBoost Hyperparameters**\n\n"
+            "**n_estimators** (100-1000):\n"
+            "Number of trees. More = better but slower.\n"
+            "Default: 100\n\n"
+            "**max_depth** (3-10):\n"
+            "Maximum tree depth. Higher = more complex.\n"
+            "Default: 6\n\n"
+            "**learning_rate** (0.01-0.3):\n"
+            "Step size. Lower = more conservative.\n"
+            "Default: 0.1\n\n"
+            "**subsample** (0.5-1.0):\n"
+            "Fraction of samples per tree.\n"
+            "Default: 0.8\n\n"
+            "**colsample_bytree** (0.5-1.0):\n"
+            "Fraction of features per tree.\n"
+            "Default: 0.8"
+        )
+
+    @staticmethod
+    def xgboost_setup_required() -> str:
+        """Error message when XGBoost is unavailable due to missing OpenMP."""
+        return (
+            "❌ **XGBoost Setup Required**\n\n"
+            "XGBoost needs OpenMP runtime to work.\n\n"
+            "**macOS Quick Fix:**\n"
+            "```\n"
+            "brew install libomp\n"
+            "```\n\n"
+            "**OR** Use **Gradient Boosting (sklearn)** instead\n"
+            "_(Works immediately, no setup needed)_\n\n"
+            "📖 Full guide: `XGBOOST_SETUP.md`"
+        )
+
 
 # Back Button Utilities (Phase 2: Workflow Back Button)
 def create_back_button() -> InlineKeyboardButton:

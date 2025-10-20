@@ -55,7 +55,7 @@ class MLEngine:
 
         Args:
             task_type: Task type (regression, classification, neural_network)
-            model_type: Model type (optional, used for Keras routing)
+            model_type: Model type (optional, used for XGBoost/Keras routing)
 
         Returns:
             Trainer instance
@@ -63,6 +63,11 @@ class MLEngine:
         Raises:
             ValidationError: If task_type is unknown
         """
+        # Check if XGBoost model (prefix-based detection)
+        if model_type and model_type.startswith("xgboost_"):
+            from src.engines.trainers.xgboost_trainer import XGBoostTrainer
+            return XGBoostTrainer(self.config)
+
         # Check if Keras model (prefix-based detection)
         if model_type and model_type.startswith("keras_"):
             from src.engines.trainers.keras_trainer import KerasNeuralNetworkTrainer
@@ -598,15 +603,15 @@ class MLEngine:
 
         Examples:
             >>> _generate_default_name('keras_binary_classification', 'classification', '2025-01-14T21:44:00Z')
-            'Binary Classification - Jan 14, 2025'
+            'Binary Classification - Jan 14 2025'
 
             >>> _generate_default_name('random_forest', 'regression', '2025-01-10T15:30:00Z')
-            'Random Forest - Jan 10, 2025'
+            'Random Forest - Jan 10 2025'
         """
         # Convert timestamp to readable date
         from datetime import datetime
         dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-        date_str = dt.strftime("%b %d, %Y")
+        date_str = dt.strftime("%b %d %Y")  # No comma to pass validation
 
         # Convert model type to display name
         model_display = model_type.replace('_', ' ').title()
@@ -616,6 +621,9 @@ class MLEngine:
             'Keras Binary Classification': 'Binary Classification',
             'Keras Multiclass Classification': 'Multiclass Classification',
             'Keras Regression': 'Neural Network Regression',
+            'Xgboost Binary Classification': 'XGBoost Binary Classification',
+            'Xgboost Multiclass Classification': 'XGBoost Multiclass Classification',
+            'Xgboost Regression': 'XGBoost Regression',
             'Random Forest': 'Random Forest',
             'Logistic': 'Logistic Regression',
             'Linear': 'Linear Regression'
