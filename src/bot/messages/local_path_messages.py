@@ -244,6 +244,90 @@ class LocalPathMessages:
             "📖 Full guide: `XGBOOST_SETUP.md`"
         )
 
+    # =========================================================================
+    # Password Protection Messages (Phase 6: Password Implementation)
+    # =========================================================================
+
+    @staticmethod
+    def password_prompt(original_path: str, resolved_dir: str) -> str:
+        """Password prompt for non-whitelisted path.
+
+        Args:
+            original_path: Original path string from user
+            resolved_dir: Resolved parent directory
+
+        Returns:
+            Markdown-formatted password prompt
+        """
+        return (
+            f"🔐 **Password Required**\n\n"
+            f"The path you entered is not in the allowed directories:\n"
+            f"`{original_path}`\n\n"
+            f"**Resolved to:** `{resolved_dir}`\n\n"
+            f"To access this directory, please enter the password.\n\n"
+            f"⚠️ **Security Note:** This will grant access to ALL files in "
+            f"this directory for the current session only."
+        )
+
+    @staticmethod
+    def password_success(directory: str) -> str:
+        """Message shown after successful password entry.
+
+        Args:
+            directory: Directory that was granted access
+
+        Returns:
+            Markdown-formatted success message
+        """
+        return (
+            f"✅ **Access Granted**\n\n"
+            f"Directory added to allowed paths for this session:\n"
+            f"`{directory}`\n\n"
+            f"You can now access any file in this directory."
+        )
+
+    @staticmethod
+    def password_failure(error_message: str) -> str:
+        """Message shown after failed password attempt.
+
+        Args:
+            error_message: Error message from PasswordValidator
+
+        Returns:
+            Markdown-formatted error message
+        """
+        return f"❌ {error_message}"
+
+    @staticmethod
+    def password_lockout(wait_seconds: int) -> str:
+        """Message shown when user is locked out.
+
+        Args:
+            wait_seconds: Seconds until lockout expires
+
+        Returns:
+            Markdown-formatted lockout message
+        """
+        return (
+            f"🔒 **Access Locked**\n\n"
+            f"Too many failed password attempts.\n\n"
+            f"Please wait {wait_seconds} seconds before trying again, "
+            f"or choose a different path from the whitelist."
+        )
+
+    @staticmethod
+    def password_timeout() -> str:
+        """Message shown when password prompt expires.
+
+        Returns:
+            Markdown-formatted timeout message
+        """
+        return (
+            f"⏱️ **Session Timeout**\n\n"
+            f"The password prompt has expired (5 minute limit).\n\n"
+            f"Please restart with /train or /predict to try again."
+        )
+
 
 # Back Button Utilities (Phase 2: Workflow Back Button)
 def create_back_button() -> InlineKeyboardButton:
