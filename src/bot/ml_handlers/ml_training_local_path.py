@@ -15,6 +15,7 @@ from src.processors.data_loader import DataLoader
 from src.utils.exceptions import PathValidationError, DataError, ValidationError, TrainingError
 from src.utils.schema_detector import DatasetSchema
 from src.utils.path_validator import PathValidator
+from src.utils.password_validator import PasswordValidator
 from src.bot.messages import LocalPathMessages
 from src.bot.messages.local_path_messages import add_back_button
 from src.bot.utils.markdown_escape import escape_markdown_v1
@@ -76,6 +77,9 @@ class LocalPathMLTrainingHandler:
             data_loader=data_loader,
             path_validator=path_validator
         )
+
+        # NEW: Initialize password validator (Phase 3: Password Protection)
+        self.password_validator = PasswordValidator()
 
     async def handle_start_training(
         self,
@@ -325,6 +329,9 @@ class LocalPathMLTrainingHandler:
             if current_state == MLTrainingState.AWAITING_FILE_PATH.value:
                 print("🔀 DEBUG: Routing to file path logic")
                 await self._process_file_path_input(update, context, session, text_input)
+            elif current_state == MLTrainingState.AWAITING_PASSWORD.value:  # NEW
+                print("🔀 DEBUG: Routing to password input logic")
+                await self.handle_password_input(update, context)
             elif current_state == MLTrainingState.AWAITING_SCHEMA_INPUT.value:
                 print("🔀 DEBUG: Routing to schema input logic")
                 await self._process_schema_input(update, context, session, text_input)
@@ -385,15 +392,24 @@ class LocalPathMLTrainingHandler:
             )
 
             if not is_valid:
-                await validating_msg.delete()
-                # Show validation error
-                error_display = LocalPathMessages.format_path_error(
-                    error_type="security_validation",
-                    path=file_path,
-                    error_details=error_msg
-                )
-                await update.message.reply_text(error_display)
-                return
+                # NEW: Check if error is specifically whitelist failure
+                if "not in allowed directories" in error_msg.lower():
+                    # Whitelist check failed - prompt for password
+                    await validating_msg.delete()
+                    await self._prompt_for_password(
+                        update, context, session, file_path, resolved_path
+                    )
+                    raise ApplicationHandlerStop
+                else:
+                    # Other validation error (path traversal, size, etc.)
+                    await validating_msg.delete()
+                    error_display = LocalPathMessages.format_path_error(
+                        error_type="security_validation",
+                        path=file_path,
+                        error_details=error_msg
+                    )
+                    await update.message.reply_text(error_display)
+                    return
 
             # Path valid - store it and get file size
             session.file_path = str(resolved_path)
@@ -456,6 +472,212 @@ class LocalPathMLTrainingHandler:
                     error_details=str(e)
                 )
             )
+
+    # =========================================================================
+    # Password-Protected Path Access Methods (Phase 3: Password Implementation)
+    # =========================================================================
+
+    async def _prompt_for_password(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        session,
+        original_path: str,
+        resolved_path
+    ) -> None:
+        """Prompt user for password to access non-whitelisted path.
+
+        Args:
+            update: Telegram update
+            context: Telegram context
+            session: User session
+            original_path: Original path string from user
+            resolved_path: Resolved absolute path (Path object)
+        """
+        from pathlib import Path
+
+        # Store pending path for later validation
+        session.pending_auth_path = str(resolved_path)
+
+        # Transition to password state
+        session.save_state_snapshot()
+        success, error_msg, missing = await self.state_manager.transition_state(
+            session,
+            MLTrainingState.AWAITING_PASSWORD.value
+        )
+
+        if not success:
+            await update.message.reply_text(
+                f"❌ **State Transition Failed**\n\n{error_msg}",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Get parent directory for display
+        parent_dir = str(Path(resolved_path).parent)
+
+        # Show password prompt
+        keyboard = [
+            [InlineKeyboardButton("❌ Cancel", callback_data="password:cancel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            LocalPathMessages.password_prompt(original_path, parent_dir),
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_password_input(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle password input for path access."""
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            password_input = update.message.text.strip()
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_password_input: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        # Validate we're in password state
+        if session.current_state != MLTrainingState.AWAITING_PASSWORD.value:
+            return
+
+        # Get pending path
+        pending_path = session.pending_auth_path
+        if not pending_path:
+            await update.message.reply_text(
+                "❌ **Session Error**\n\nNo pending path found. Please try /train again.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Validate password
+        is_valid, error_msg = self.password_validator.validate_password(
+            user_id=user_id,
+            password_input=password_input,
+            path=pending_path
+        )
+
+        if is_valid:
+            # FIX: Double-check pending_path is still valid (defense in depth)
+            if not pending_path:
+                await update.message.reply_text(
+                    "❌ **Session Expired**\n\nPlease restart with /train.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Password correct - add directory to dynamic whitelist
+            from pathlib import Path
+            from src.utils.path_validator import get_file_size_mb
+
+            parent_dir = str(Path(pending_path).parent)
+            self.state_manager.add_dynamic_directory(session, parent_dir)
+
+            # Clear pending auth
+            session.pending_auth_path = None
+            session.password_attempts = 0
+
+            # Store file path and get size
+            session.file_path = pending_path
+            size_mb = get_file_size_mb(Path(pending_path))
+
+            # Transition to load options
+            session.save_state_snapshot()
+            await self.state_manager.transition_state(
+                session,
+                MLTrainingState.CHOOSING_LOAD_OPTION.value
+            )
+
+            await update.message.reply_text(
+                LocalPathMessages.password_success(parent_dir),
+                parse_mode="Markdown"
+            )
+
+            # Show load options
+            keyboard = [
+                [InlineKeyboardButton("🔄 Load Now", callback_data="load_option:immediate")],
+                [InlineKeyboardButton("⏳ Defer Loading", callback_data="load_option:defer")]
+            ]
+            add_back_button(keyboard)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                LocalPathMessages.load_option_prompt(pending_path, size_mb),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+            raise ApplicationHandlerStop
+
+        else:
+            # Password incorrect or rate limited
+            session.password_attempts += 1
+
+            if "locked" in error_msg.lower() or "maximum attempts" in error_msg.lower():
+                # Rate limit exceeded - reset to file path input
+                session.pending_auth_path = None
+                session.password_attempts = 0
+
+                await self.state_manager.transition_state(
+                    session,
+                    MLTrainingState.AWAITING_FILE_PATH.value
+                )
+
+                await update.message.reply_text(
+                    f"❌ {error_msg}\n\nPlease try again or choose a different path.",
+                    parse_mode="Markdown"
+                )
+            else:
+                # Failed attempt, allow retry
+                await update.message.reply_text(
+                    LocalPathMessages.password_failure(error_msg),
+                    parse_mode="Markdown"
+                )
+
+    async def handle_password_cancel(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle password cancel callback."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_password_cancel: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        # Clear pending auth
+        session.pending_auth_path = None
+        session.password_attempts = 0
+
+        # Reset password validator attempts
+        self.password_validator.reset_attempts(user_id)
+
+        # Go back to file path input
+        session.save_state_snapshot()
+        await self.state_manager.transition_state(
+            session,
+            MLTrainingState.AWAITING_FILE_PATH.value
+        )
+
+        allowed_dirs = self.data_loader.allowed_directories
+        await query.edit_message_text(
+            LocalPathMessages.file_path_input_prompt(allowed_dirs),
+            parse_mode="Markdown"
+        )
 
     async def handle_load_option_selection(
         self,

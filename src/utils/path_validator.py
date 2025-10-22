@@ -60,7 +60,7 @@ def validate_local_path(
             return (
                 False,
                 f"Path not in allowed directories.\n\nAllowed:\n{dirs_list}",
-                None
+                resolved_path  # FIX: Return resolved path for password flow
             )
 
         # Layer 4: File existence and type checks (before extension to give better error messages)

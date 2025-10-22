@@ -66,6 +66,7 @@ local_data:
   allowed_directories:              # Whitelist of allowed directories
     - /Users/gkratka/Documents/datasets
     - /Users/gkratka/Documents/statistical-modeling-agent/data
+    - /Users/gkratka/Downloads      # User Downloads directory
     - ./data                        # Relative paths will be resolved
     - ./tests/fixtures/test_datasets
     - /tmp                          # For testing
@@ -76,6 +77,14 @@ local_data:
     - .xls
     - .parquet
   require_explicit_approval: false  # Future: Ask user before accessing file
+
+  # NEW: Password-based access control
+  password_protection:
+    enabled: true                    # Feature flag: enable/disable password prompts
+    password: ${FILE_PATH_PASSWORD}  # Environment variable for password (default: 'senha123')
+    max_attempts: 3                  # Maximum password attempts per session
+    lockout_duration_seconds: 60     # Lockout duration after max attempts
+    session_timeout_seconds: 300     # Password prompt expires after 5 minutes
 
 # Logging Configuration
 logging:

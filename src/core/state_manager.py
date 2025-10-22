@@ -34,6 +34,7 @@ class MLTrainingState(Enum):
     # NEW (Phase 4): Local file path training states
     CHOOSING_DATA_SOURCE = "choosing_data_source"  # Choose: Telegram upload or local path
     AWAITING_FILE_PATH = "awaiting_file_path"      # User provides local file path
+    AWAITING_PASSWORD = "awaiting_password"        # NEW: Password entry for non-whitelisted path
     CONFIRMING_SCHEMA = "confirming_schema"        # User confirms auto-detected schema
 
     # NEW (Phase 5): Deferred loading workflow states
@@ -68,6 +69,7 @@ class MLPredictionState(Enum):
     CHOOSING_DATA_SOURCE = "choosing_data_source"          # Select upload vs local path
     AWAITING_FILE_UPLOAD = "awaiting_file_upload"          # Waiting for Telegram upload
     AWAITING_FILE_PATH = "awaiting_file_path"              # Waiting for local path input
+    AWAITING_PASSWORD = "awaiting_password"                # NEW: Password entry for non-whitelisted path
     CHOOSING_LOAD_OPTION = "choosing_load_option"          # Choose: immediate load or defer
     CONFIRMING_SCHEMA = "confirming_schema"                # Show schema for confirmation
     AWAITING_FEATURE_SELECTION = "awaiting_feature_selection"  # User selects features
@@ -126,6 +128,11 @@ class UserSession:
 
     # NEW: Prediction workflow - compatible models list for button index lookup
     compatible_models: Optional[List[Dict[str, Any]]] = None  # Stores models for index-based button selection
+
+    # NEW: Password-protected path access
+    dynamic_allowed_directories: List[str] = field(default_factory=list)  # Session-scoped whitelist expansion
+    pending_auth_path: Optional[str] = None  # Path waiting for password authentication
+    password_attempts: int = 0  # Track attempts for rate limiting
 
     def __post_init__(self) -> None:
         if self.user_id <= 0:
@@ -286,7 +293,12 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
         MLTrainingState.LOADING_TEMPLATE.value       # User chose "Use Template"
     },
     MLTrainingState.AWAITING_FILE_PATH.value: {
+        MLTrainingState.AWAITING_PASSWORD.value,     # NEW: Path not in whitelist
         MLTrainingState.CHOOSING_LOAD_OPTION.value   # Path valid, choose load strategy
+    },
+    MLTrainingState.AWAITING_PASSWORD.value: {
+        MLTrainingState.CHOOSING_LOAD_OPTION.value,  # NEW: Password correct
+        MLTrainingState.AWAITING_FILE_PATH.value      # NEW: Password incorrect, retry
     },
 
     # NEW: Deferred loading workflow
@@ -364,7 +376,14 @@ ML_PREDICTION_TRANSITIONS: Dict[Optional[str], Set[str]] = {
         MLPredictionState.LOADING_PRED_TEMPLATE.value    # User chose "Use Template"
     },
     MLPredictionState.AWAITING_FILE_UPLOAD.value: {MLPredictionState.CONFIRMING_SCHEMA.value},
-    MLPredictionState.AWAITING_FILE_PATH.value: {MLPredictionState.CHOOSING_LOAD_OPTION.value},  # NEW: Choose load strategy
+    MLPredictionState.AWAITING_FILE_PATH.value: {
+        MLPredictionState.AWAITING_PASSWORD.value,       # NEW: Path not in whitelist
+        MLPredictionState.CHOOSING_LOAD_OPTION.value     # Path valid, choose load strategy
+    },
+    MLPredictionState.AWAITING_PASSWORD.value: {
+        MLPredictionState.CHOOSING_LOAD_OPTION.value,    # NEW: Password correct
+        MLPredictionState.AWAITING_FILE_PATH.value        # NEW: Password incorrect, retry
+    },
 
     # NEW: Defer loading workflow
     MLPredictionState.CHOOSING_LOAD_OPTION.value: {
@@ -838,8 +857,12 @@ class StateManager:
             "manual_schema": session.manual_schema,
             "state_history": session.state_history.to_dict(),  # NEW: Serialize state history
             "last_back_action": session.last_back_action,  # NEW: Serialize debounce timestamp
+            "pending_auth_path": session.pending_auth_path,  # FIX: Persist for password workflow
         }
         # Note: uploaded_data (DataFrame) is NOT persisted due to size
+        # NOTE: Password fields NOT persisted (security):
+        #   - dynamic_allowed_directories (session-scoped only)
+        #   - password_attempts (rate limiting reset on reload)
         return data
 
     def _dict_to_session(self, data: Dict[str, Any]) -> UserSession:
@@ -865,6 +888,7 @@ class StateManager:
         if "state_history" in data:
             session.state_history = StateHistory.from_dict(data["state_history"])
         session.last_back_action = data.get("last_back_action")
+        session.pending_auth_path = data.get("pending_auth_path")  # FIX: Restore for password workflow
 
         # uploaded_data remains None - must be reloaded if needed
         return session
@@ -938,3 +962,47 @@ class StateManager:
         session_file = self._get_session_file_path(user_id)
         if session_file.exists():
             session_file.unlink()
+
+    # =========================================================================
+    # Password-Protected Path Access Methods (Phase 2: Password Implementation)
+    # =========================================================================
+
+    def add_dynamic_directory(self, session: UserSession, directory: str) -> None:
+        """Add directory to session-scoped whitelist.
+
+        This allows temporary expansion of allowed directories after
+        password authentication, without modifying the global config.
+
+        Args:
+            session: User session to modify
+            directory: Directory path to add
+
+        Security Notes:
+            - Directory is added ONLY to this specific session
+            - NOT persisted to disk (session-scoped only)
+            - Cleared when workflow completes
+        """
+        if directory not in session.dynamic_allowed_directories:
+            session.dynamic_allowed_directories.append(directory)
+            # Log using auth_logger from password_validator module
+            from src.utils.password_validator import auth_logger
+            auth_logger.info(
+                f"Dynamic whitelist expanded: user={session.user_id}, "
+                f"dir={directory}, session={session.session_key}"
+            )
+
+    def get_effective_allowed_directories(
+        self,
+        session: UserSession,
+        base_allowed: List[str]
+    ) -> List[str]:
+        """Get combined whitelist (base + dynamic).
+
+        Args:
+            session: User session
+            base_allowed: Base allowed directories from config
+
+        Returns:
+            Combined list of allowed directories (duplicates removed)
+        """
+        return list(set(base_allowed + session.dynamic_allowed_directories))

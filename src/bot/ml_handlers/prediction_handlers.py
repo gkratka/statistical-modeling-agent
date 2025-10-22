@@ -16,6 +16,7 @@ from src.core.state_manager import StateManager, MLPredictionState, WorkflowType
 from src.processors.data_loader import DataLoader
 from src.utils.exceptions import PathValidationError, DataError, ValidationError
 from src.utils.path_validator import PathValidator
+from src.utils.password_validator import PasswordValidator
 from src.bot.messages import prediction_messages
 from src.bot.messages.prediction_messages import (
     PredictionMessages,
@@ -26,7 +27,7 @@ from src.bot.messages.prediction_messages import (
     create_model_selection_buttons,
     create_path_error_recovery_buttons
 )
-from src.bot.messages.local_path_messages import add_back_button
+from src.bot.messages.local_path_messages import add_back_button, LocalPathMessages
 from src.bot.utils.markdown_escape import escape_markdown_v1
 from src.engines.ml_engine import MLEngine
 from src.engines.ml_config import MLEngineConfig
@@ -77,6 +78,9 @@ class PredictionHandler:
                 allowed_extensions=self.data_loader.local_extensions
             )
         self.path_validator = path_validator
+
+        # Initialize password validator
+        self.password_validator = PasswordValidator()
 
     # =========================================================================
     # Step 1: Workflow Start
@@ -279,16 +283,25 @@ class PredictionHandler:
 
             if not result['is_valid']:
                 await safe_delete_message(validating_msg)
-                # Add recovery buttons to help user recover from validation error
-                keyboard = create_path_error_recovery_buttons()
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                await update.message.reply_text(
-                    PredictionMessages.file_loading_error(file_path, result['error']),
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-                # Stay in AWAITING_FILE_PATH state to allow retry
-                return
+
+                # Check if error is specifically whitelist failure
+                if "not in allowed directories" in result['error'].lower():
+                    # Whitelist check failed - prompt for password
+                    await self._prompt_for_password(
+                        update, context, session, file_path, result.get('resolved_path')
+                    )
+                    raise ApplicationHandlerStop
+                else:
+                    # Other validation error (path traversal, size, etc.)
+                    keyboard = create_path_error_recovery_buttons()
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await update.message.reply_text(
+                        PredictionMessages.file_loading_error(file_path, result['error']),
+                        reply_markup=reply_markup,
+                        parse_mode="Markdown"
+                    )
+                    # Stay in AWAITING_FILE_PATH state to allow retry
+                    return
 
             # Store path and file size
             resolved_path = result['resolved_path']
@@ -1734,6 +1747,215 @@ class PredictionHandler:
         await self._show_output_options(update, context, session)
 
     # =========================================================================
+    # Password Protection Handlers
+    # =========================================================================
+
+    async def _prompt_for_password(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        session,
+        original_path: str,
+        resolved_path
+    ) -> None:
+        """Prompt user for password to access non-whitelisted path.
+
+        Args:
+            update: Telegram update
+            context: Telegram context
+            session: User session
+            original_path: Original path string from user
+            resolved_path: Resolved absolute path (Path object or str)
+        """
+        from pathlib import Path
+
+        # Store pending path for later validation
+        session.pending_auth_path = str(resolved_path)
+
+        # Transition to password state
+        session.save_state_snapshot()
+        success, error_msg, missing = await self.state_manager.transition_state(
+            session,
+            MLPredictionState.AWAITING_PASSWORD.value
+        )
+
+        if not success:
+            await update.message.reply_text(
+                f"❌ **State Transition Failed**\n\n{error_msg}",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Get parent directory for display
+        parent_dir = str(Path(resolved_path).parent)
+
+        # Show password prompt
+        keyboard = [
+            [InlineKeyboardButton("❌ Cancel", callback_data="pred_password_cancel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            LocalPathMessages.password_prompt(original_path, parent_dir),
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_password_input(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle password input for path access."""
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            password_input = update.message.text.strip()
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_password_input: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        # Validate we're in password state
+        if session.current_state != MLPredictionState.AWAITING_PASSWORD.value:
+            return
+
+        # Get pending path
+        pending_path = session.pending_auth_path
+        if not pending_path:
+            await update.message.reply_text(
+                "❌ **Session Error**\n\nNo pending path found. Please try /predict again.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Validate password
+        is_valid, error_msg = self.password_validator.validate_password(
+            user_id=user_id,
+            password_input=password_input,
+            path=pending_path
+        )
+
+        if is_valid:
+            # FIX: Double-check pending_path is still valid (defense in depth)
+            if not pending_path:
+                await update.message.reply_text(
+                    "❌ **Session Expired**\n\nPlease restart with /predict.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Password correct - add directory to dynamic whitelist
+            from pathlib import Path
+            from src.utils.path_validator import get_file_size_mb
+
+            parent_dir = str(Path(pending_path).parent)
+            self.state_manager.add_dynamic_directory(session, parent_dir)
+
+            # Clear pending auth
+            session.pending_auth_path = None
+            if hasattr(session, 'password_attempts'):
+                session.password_attempts = 0
+
+            # Store file path and get size
+            session.file_path = pending_path
+            size_mb = get_file_size_mb(Path(pending_path))
+
+            # Save snapshot and transition to load options
+            session.save_state_snapshot()
+            await self.state_manager.transition_state(
+                session,
+                MLPredictionState.CHOOSING_LOAD_OPTION.value
+            )
+
+            await update.message.reply_text(
+                LocalPathMessages.password_success(parent_dir),
+                parse_mode="Markdown"
+            )
+
+            # Show load options
+            from src.bot.messages.prediction_messages import create_load_option_buttons
+            keyboard = create_load_option_buttons()
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                LocalPathMessages.load_option_prompt(pending_path, size_mb),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+            raise ApplicationHandlerStop
+
+        else:
+            # Password incorrect or rate limited
+            if not hasattr(session, 'password_attempts'):
+                session.password_attempts = 0
+            session.password_attempts += 1
+
+            if "locked" in error_msg.lower() or "maximum attempts" in error_msg.lower():
+                # Rate limit exceeded - reset to file path input
+                session.pending_auth_path = None
+                session.password_attempts = 0
+
+                await self.state_manager.transition_state(
+                    session,
+                    MLPredictionState.AWAITING_FILE_PATH.value
+                )
+
+                await update.message.reply_text(
+                    LocalPathMessages.password_lockout(60),
+                    parse_mode="Markdown"
+                )
+            else:
+                # Show error and allow retry
+                await update.message.reply_text(
+                    LocalPathMessages.password_failure(error_msg),
+                    parse_mode="Markdown"
+                )
+
+            raise ApplicationHandlerStop
+
+    async def handle_password_cancel(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle password cancel callback."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_password_cancel: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        # Clear pending auth
+        session.pending_auth_path = None
+        if hasattr(session, 'password_attempts'):
+            session.password_attempts = 0
+
+        # Reset password validator attempts
+        self.password_validator.reset_attempts(user_id)
+
+        # Go back to file path input
+        session.save_state_snapshot()
+        await self.state_manager.transition_state(
+            session,
+            MLPredictionState.AWAITING_FILE_PATH.value
+        )
+
+        allowed_dirs = self.data_loader.allowed_directories
+        await query.edit_message_text(
+            PredictionMessages.file_path_input_prompt(allowed_dirs),
+            parse_mode="Markdown"
+        )
+
+    # =========================================================================
     # Unified Text Handler
     # =========================================================================
 
@@ -1766,6 +1988,8 @@ class PredictionHandler:
         # Route based on current state
         if current_state == MLPredictionState.AWAITING_FILE_PATH.value:
             await self.handle_file_path_input(update, context)
+        elif current_state == MLPredictionState.AWAITING_PASSWORD.value:
+            await self.handle_password_input(update, context)
         elif current_state == MLPredictionState.AWAITING_FEATURE_SELECTION.value:
             await self.handle_feature_selection_input(update, context)
         elif current_state == MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value:
@@ -1844,6 +2068,14 @@ def register_prediction_handlers(
         CallbackQueryHandler(
             handler.handle_go_back,
             pattern=r"^pred_go_back$"
+        )
+    )
+
+    # Password protection handlers
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_password_cancel,
+            pattern=r"^pred_password_cancel$"
         )
     )
 
