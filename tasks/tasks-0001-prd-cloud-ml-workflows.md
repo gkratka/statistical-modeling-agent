@@ -326,7 +326,7 @@ This document provides actionable sub-tasks for implementing cloud-based ML trai
 
 ### Sub-Tasks
 
-- [ ] **2.1 Create S3Manager class with upload functionality**
+- [x] **2.1 Create S3Manager class with upload functionality**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/s3_manager.py`
   - Implement upload methods:
     ```python
@@ -404,7 +404,7 @@ This document provides actionable sub-tasks for implementing cloud-based ML trai
             return f"{self.config.s3_dataset_prefix}/user_{user_id}/{timestamp}_{filename}"
     ```
 
-- [ ] **2.2 Implement S3 model save/load with versioning**
+- [x] **2.2 Implement S3 model save/load with versioning**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/s3_manager.py`
   - Add model operations to `S3Manager`:
     ```python
@@ -490,7 +490,7 @@ This document provides actionable sub-tasks for implementing cloud-based ML trai
         return local_model_dir
     ```
 
-- [ ] **2.3 Implement S3 path validation and security**
+- [x] **2.3 Implement S3 path validation and security**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/s3_manager.py`
   - Add validation methods:
     ```python
@@ -555,7 +555,7 @@ This document provides actionable sub-tasks for implementing cloud-based ML trai
         pass
     ```
 
-- [ ] **2.4 Implement pre-signed URL generation**
+- [x] **2.4 Implement pre-signed URL generation**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/s3_manager.py`
   - Add pre-signed URL methods:
     ```python
@@ -597,7 +597,7 @@ This document provides actionable sub-tasks for implementing cloud-based ML trai
         pass
     ```
 
-- [ ] **2.5 Implement S3 lifecycle policy setup**
+- [x] **2.5 Implement S3 lifecycle policy setup**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/s3_manager.py`
   - Add lifecycle management:
     ```python
@@ -642,7 +642,7 @@ This document provides actionable sub-tasks for implementing cloud-based ML trai
             raise S3Error(f"Failed to configure lifecycle: {e}")
     ```
 
-- [ ] **2.6 Write unit tests for S3Manager**
+- [x] **2.6 Write unit tests for S3Manager**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_s3_manager.py`
   - Test cases:
     - `test_upload_dataset_small_file` - Upload file <5MB successfully
