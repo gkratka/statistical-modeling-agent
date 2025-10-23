@@ -665,7 +665,7 @@ This document provides actionable sub-tasks for implementing cloud-based ML trai
 
 ### Sub-Tasks
 
-- [ ] **3.1 Create EC2Manager class with instance selection**
+- [x] **3.1 Create EC2Manager class with instance selection**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/ec2_manager.py`
   - Implement instance type selection logic:
     ```python
@@ -724,7 +724,7 @@ This document provides actionable sub-tasks for implementing cloud-based ML trai
             return self.config.ec2_instance_type
     ```
 
-- [ ] **3.2 Implement Spot Instance launch configuration**
+- [x] **3.2 Implement Spot Instance launch configuration**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/ec2_manager.py`
   - Add Spot request methods:
     ```python
@@ -823,7 +823,7 @@ This document provides actionable sub-tasks for implementing cloud-based ML trai
         raise EC2Error(f"Spot request timeout after {timeout_seconds}s")
     ```
 
-- [ ] **3.3 Generate UserData training script**
+- [x] **3.3 Generate UserData training script**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/ec2_manager.py`
   - Add script generation method:
     ```python
@@ -929,7 +929,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         return base64.b64encode(script.encode()).decode()
     ```
 
-- [ ] **3.4 Implement CloudWatch log polling**
+- [x] **3.4 Implement CloudWatch log polling**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/ec2_manager.py`
   - Add log streaming methods:
     ```python
@@ -1007,7 +1007,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         return result if result else None
     ```
 
-- [ ] **3.5 Implement Spot interruption handling**
+- [x] **3.5 Implement Spot interruption handling**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/ec2_manager.py`
   - Add interruption detection and checkpoint logic:
     ```python
@@ -1058,7 +1058,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         pass
     ```
 
-- [ ] **3.6 Implement auto-termination logic**
+- [x] **3.6 Implement auto-termination logic**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/ec2_manager.py`
   - Add instance cleanup methods:
     ```python
@@ -1105,7 +1105,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
                 raise EC2Error("Instance idle timeout")
     ```
 
-- [ ] **3.7 Write unit tests for EC2Manager**
+- [x] **3.7 Write unit tests for EC2Manager**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_ec2_manager.py`
   - Test cases:
     - `test_select_instance_type_small_dataset` - Returns t3.medium

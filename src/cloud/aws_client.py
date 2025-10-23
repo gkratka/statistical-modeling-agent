@@ -62,6 +62,14 @@ class AWSClient:
                 aws_secret_access_key=config.aws_secret_access_key
             )
 
+            # Initialize CloudWatch Logs client
+            self._logs_client = boto3.client(
+                "logs",
+                region_name=config.aws_region,
+                aws_access_key_id=config.aws_access_key_id,
+                aws_secret_access_key=config.aws_secret_access_key
+            )
+
         except BotoCoreError as e:
             raise AWSError(
                 message=f"Failed to initialize AWS clients: {str(e)}",
@@ -101,6 +109,15 @@ class AWSClient:
             boto3 Lambda client instance
         """
         return self._lambda_client
+
+    def get_logs_client(self) -> Any:
+        """
+        Get boto3 CloudWatch Logs client.
+
+        Returns:
+            boto3 CloudWatch Logs client instance
+        """
+        return self._logs_client
 
     def health_check(self) -> Dict[str, Any]:
         """

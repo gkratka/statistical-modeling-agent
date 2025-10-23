@@ -56,6 +56,7 @@ class TestAWSClientInitialization:
         mock_s3 = Mock()
         mock_ec2 = Mock()
         mock_lambda = Mock()
+        mock_logs = Mock()
 
         # Configure boto3.client to return appropriate mocks
         def client_factory(service_name, **kwargs):
@@ -65,6 +66,8 @@ class TestAWSClientInitialization:
                 return mock_ec2
             elif service_name == "lambda":
                 return mock_lambda
+            elif service_name == "logs":
+                return mock_logs
             raise ValueError(f"Unexpected service: {service_name}")
 
         mock_boto_client.side_effect = client_factory
@@ -72,13 +75,14 @@ class TestAWSClientInitialization:
         # Initialize client
         aws_client = AWSClient(mock_config)
 
-        # Verify boto3.client was called for each service
-        assert mock_boto_client.call_count == 3
+        # Verify boto3.client was called for each service (4 services now)
+        assert mock_boto_client.call_count == 4
 
         # Verify clients are accessible
         assert aws_client.get_s3_client() == mock_s3
         assert aws_client.get_ec2_client() == mock_ec2
         assert aws_client.get_lambda_client() == mock_lambda
+        assert aws_client.get_logs_client() == mock_logs
 
     @patch("boto3.client")
     def test_initialization_with_credentials(self, mock_boto_client, mock_config):
