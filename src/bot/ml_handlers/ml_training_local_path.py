@@ -1147,7 +1147,9 @@ class LocalPathMLTrainingHandler:
                 ("Lasso Regression (L1)", "lasso"),
                 ("ElasticNet (L1+L2)", "elasticnet"),
                 ("Polynomial Regression", "polynomial"),
-                ("XGBoost Regression", "xgboost_regression")
+                ("XGBoost Regression", "xgboost_regression"),
+                ("LightGBM Regression", "lightgbm_regression"),
+                ("CatBoost Regression", "catboost_regression")
             ],
             "classification": [
                 ("Logistic Regression", "logistic"),
@@ -1155,6 +1157,8 @@ class LocalPathMLTrainingHandler:
                 ("Random Forest", "random_forest"),
                 ("Gradient Boosting (sklearn)", "gradient_boosting"),
                 ("XGBoost Classification", "xgboost_binary_classification"),
+                ("LightGBM Classification", "lightgbm_binary_classification"),
+                ("CatBoost Classification", "catboost_binary_classification"),
                 ("Support Vector Machine", "svm"),
                 ("Naive Bayes", "naive_bayes")
             ],
@@ -1233,9 +1237,9 @@ class LocalPathMLTrainingHandler:
         session.selections['model_type'] = model_type
 
         # Determine task type based on model
-        if model_type in ['linear', 'ridge', 'lasso', 'elasticnet', 'polynomial', 'mlp_regression', 'keras_regression', 'xgboost_regression']:
+        if model_type in ['linear', 'ridge', 'lasso', 'elasticnet', 'polynomial', 'mlp_regression', 'keras_regression', 'xgboost_regression', 'lightgbm_regression', 'catboost_regression']:
             session.selections['task_type'] = 'regression'
-        elif model_type in ['logistic', 'decision_tree', 'random_forest', 'gradient_boosting', 'svm', 'naive_bayes', 'mlp_classification', 'keras_binary_classification', 'keras_multiclass_classification', 'xgboost_binary_classification', 'xgboost_multiclass_classification']:
+        elif model_type in ['logistic', 'decision_tree', 'random_forest', 'gradient_boosting', 'svm', 'naive_bayes', 'mlp_classification', 'keras_binary_classification', 'keras_multiclass_classification', 'xgboost_binary_classification', 'xgboost_multiclass_classification', 'lightgbm_binary_classification', 'lightgbm_multiclass_classification', 'catboost_binary_classification', 'catboost_multiclass_classification']:
             session.selections['task_type'] = 'classification'
         else:
             session.selections['task_type'] = 'neural_network'
@@ -1250,6 +1254,14 @@ class LocalPathMLTrainingHandler:
         elif model_type.startswith('xgboost_'):
             print(f"🚀 DEBUG: XGBoost model selected, starting parameter configuration")
             await self._start_xgboost_config(query, session, model_type)
+        # Check if this is a LightGBM model - needs parameter configuration
+        elif model_type.startswith('lightgbm_'):
+            print(f"⚡ DEBUG: LightGBM model selected, starting parameter configuration")
+            await self._start_lightgbm_config(query, session, model_type)
+        # Check if this is a CatBoost model - needs parameter configuration
+        elif model_type.startswith('catboost_'):
+            print(f"🐈 DEBUG: CatBoost model selected, starting parameter configuration")
+            await self._start_catboost_config(query, session, model_type)
         else:
             # sklearn models - start training immediately
             # Escape underscores in model_type for Markdown
@@ -1327,6 +1339,76 @@ class LocalPathMLTrainingHandler:
             parse_mode="Markdown"
         )
 
+    async def _start_lightgbm_config(
+        self,
+        query,
+        session,
+        model_type: str
+    ) -> None:
+        """Start LightGBM parameter configuration workflow."""
+        # Initialize LightGBM config dict with defaults from template
+        from src.engines.trainers.lightgbm_templates import get_template
+        default_config = get_template(model_type)
+
+        session.selections['lightgbm_config'] = default_config
+        session.selections['lightgbm_model_type'] = model_type  # Store for later
+        await self.state_manager.update_session(session)
+
+        # Start with num_leaves configuration (LightGBM uses leaves not depth)
+        keyboard = [
+            [InlineKeyboardButton("15 leaves (fast)", callback_data="lightgbm_num_leaves:15")],
+            [InlineKeyboardButton("31 leaves (recommended)", callback_data="lightgbm_num_leaves:31")],
+            [InlineKeyboardButton("63 leaves (complex)", callback_data="lightgbm_num_leaves:63")],
+            [InlineKeyboardButton("Use Defaults", callback_data="lightgbm_use_defaults")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "⚡ **LightGBM Configuration**\n\n"
+            "**Step 1: Number of Leaves**\n\n"
+            "LightGBM uses leaf-wise growth (faster than XGBoost).\n"
+            "How many leaves per tree?\n\n"
+            "💡 **Tip**: 15 = fast, 31 = balanced, 63 = complex",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def _start_catboost_config(
+        self,
+        query,
+        session,
+        model_type: str
+    ) -> None:
+        """Start CatBoost parameter configuration workflow."""
+        # Initialize CatBoost config dict with defaults from template
+        from src.engines.trainers.catboost_templates import get_template
+        default_config = get_template(model_type)
+
+        session.selections['catboost_config'] = default_config
+        session.selections['catboost_model_type'] = model_type  # Store for later
+        await self.state_manager.update_session(session)
+
+        # Start with iterations configuration
+        keyboard = [
+            [InlineKeyboardButton("100 iterations (fast)", callback_data="catboost_iterations:100")],
+            [InlineKeyboardButton("500 iterations", callback_data="catboost_iterations:500")],
+            [InlineKeyboardButton("1000 iterations (recommended)", callback_data="catboost_iterations:1000")],
+            [InlineKeyboardButton("2000 iterations (thorough)", callback_data="catboost_iterations:2000")],
+            [InlineKeyboardButton("Custom", callback_data="catboost_iterations:custom")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "🐈 **CatBoost Configuration**\n\n"
+            "**Step 1/4: Number of Boosting Rounds**\n\n"
+            "How many iterations (trees) to build?\n"
+            "(More iterations = better fit, but slower training)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
     async def _execute_sklearn_training(
         self,
         update: Update,
@@ -1387,6 +1469,18 @@ class LocalPathMLTrainingHandler:
                     from src.engines.trainers.xgboost_templates import get_template
                     hyperparameters = get_template(model_type)
                     print(f"🚀 DEBUG: Using XGBoost template hyperparameters: {hyperparameters}")
+            elif model_type.startswith('lightgbm_'):
+                # Check if user configured parameters or use defaults
+                lightgbm_config = session.selections.get('lightgbm_config')
+                if lightgbm_config:
+                    # User selected custom parameters
+                    hyperparameters = lightgbm_config
+                    print(f"⚡ DEBUG: Using user-configured LightGBM parameters: {hyperparameters}")
+                else:
+                    # Use LightGBM template defaults
+                    from src.engines.trainers.lightgbm_templates import get_template
+                    hyperparameters = get_template(model_type)
+                    print(f"⚡ DEBUG: Using LightGBM template hyperparameters: {hyperparameters}")
 
             # Call ML Engine to train (wrapped in executor to prevent blocking event loop)
             import asyncio
@@ -2468,6 +2562,407 @@ class LocalPathMLTrainingHandler:
         # Execute training with XGBoost config
         await self._execute_sklearn_training(update, context, session, model_type)
 
+    async def handle_lightgbm_num_leaves(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle LightGBM num_leaves selection."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        num_leaves_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        num_leaves = int(num_leaves_value)
+        session.selections['lightgbm_config']['num_leaves'] = num_leaves
+        await self.state_manager.update_session(session)
+
+        print(f"⚡ DEBUG: LightGBM num_leaves set to {num_leaves}")
+
+        # Move to n_estimators selection
+        keyboard = [
+            [InlineKeyboardButton("50 trees (fast)", callback_data="lightgbm_n_estimators:50")],
+            [InlineKeyboardButton("100 trees (recommended)", callback_data="lightgbm_n_estimators:100")],
+            [InlineKeyboardButton("200 trees (accurate)", callback_data="lightgbm_n_estimators:200")],
+            [InlineKeyboardButton("Use Defaults", callback_data="lightgbm_use_defaults")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "⚡ **LightGBM Configuration**\n\n"
+            f"✅ Num Leaves: {num_leaves}\n\n"
+            "**Step 2/3: Number of Trees**\n\n"
+            "How many boosting rounds?\n"
+            "(More trees = better fit, but slower training)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_lightgbm_n_estimators(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle LightGBM n_estimators selection."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        n_estimators_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        n_estimators = int(n_estimators_value)
+        session.selections['lightgbm_config']['n_estimators'] = n_estimators
+        await self.state_manager.update_session(session)
+
+        print(f"⚡ DEBUG: LightGBM n_estimators set to {n_estimators}")
+
+        # Get previous values for display
+        num_leaves = session.selections['lightgbm_config'].get('num_leaves', 31)
+
+        # Move to learning_rate selection
+        keyboard = [
+            [InlineKeyboardButton("0.01 (conservative)", callback_data="lightgbm_learning_rate:0.01")],
+            [InlineKeyboardButton("0.05 (balanced)", callback_data="lightgbm_learning_rate:0.05")],
+            [InlineKeyboardButton("0.1 (recommended)", callback_data="lightgbm_learning_rate:0.1")],
+            [InlineKeyboardButton("0.2 (aggressive)", callback_data="lightgbm_learning_rate:0.2")],
+            [InlineKeyboardButton("Use Defaults", callback_data="lightgbm_use_defaults")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "⚡ **LightGBM Configuration**\n\n"
+            f"✅ Num Leaves: {num_leaves}\n"
+            f"✅ N Estimators: {n_estimators}\n\n"
+            "**Step 3/3: Learning Rate**\n\n"
+            "How fast should the model learn?\n"
+            "(Lower = more stable, Higher = faster but risky)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_lightgbm_learning_rate(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle LightGBM learning_rate selection and start training."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        learning_rate_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        learning_rate = float(learning_rate_value)
+        session.selections['lightgbm_config']['learning_rate'] = learning_rate
+        await self.state_manager.update_session(session)
+
+        print(f"⚡ DEBUG: LightGBM learning_rate set to {learning_rate}")
+
+        # Configuration complete - start training
+        model_type = session.selections.get('lightgbm_model_type')
+        lightgbm_config = session.selections.get('lightgbm_config')
+
+        # Escape underscores for Markdown
+        model_display = model_type.replace('_', '\\_')
+
+        await query.edit_message_text(
+            f"✅ **LightGBM Configuration Complete**\n\n"
+            f"🎯 **Model**: {model_display}\n"
+            f"⚙️ **Parameters**:\n"
+            f"• num\\_leaves: {lightgbm_config['num_leaves']}\n"
+            f"• n\\_estimators: {lightgbm_config['n_estimators']}\n"
+            f"• learning\\_rate: {lightgbm_config['learning_rate']}\n"
+            f"• feature\\_fraction: {lightgbm_config.get('feature_fraction', 0.8)}\n"
+            f"• bagging\\_fraction: {lightgbm_config.get('bagging_fraction', 0.8)}\n\n"
+            f"🚀 Starting training...\n\n"
+            f"This may take a few moments.",
+            parse_mode="Markdown"
+        )
+
+        # Execute training with LightGBM config
+        await self._execute_sklearn_training(update, context, session, model_type)
+
+    async def handle_lightgbm_use_defaults(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle 'Use Defaults' button - skip configuration and start training."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Use the default config that was already loaded
+        model_type = session.selections.get('lightgbm_model_type')
+        lightgbm_config = session.selections.get('lightgbm_config')
+
+        print(f"⚡ DEBUG: Using LightGBM defaults: {lightgbm_config}")
+
+        # Escape underscores for Markdown
+        model_display = model_type.replace('_', '\\_')
+
+        await query.edit_message_text(
+            f"✅ **Using Default LightGBM Configuration**\n\n"
+            f"🎯 **Model**: {model_display}\n"
+            f"⚙️ **Parameters** (defaults):\n"
+            f"• num\\_leaves: {lightgbm_config['num_leaves']}\n"
+            f"• n\\_estimators: {lightgbm_config['n_estimators']}\n"
+            f"• learning\\_rate: {lightgbm_config['learning_rate']}\n"
+            f"• feature\\_fraction: {lightgbm_config.get('feature_fraction', 0.8)}\n"
+            f"• bagging\\_fraction: {lightgbm_config.get('bagging_fraction', 0.8)}\n\n"
+            f"🚀 Starting training...\n\n"
+            f"This may take a few moments.",
+            parse_mode="Markdown"
+        )
+
+        # Execute training with default LightGBM config
+        await self._execute_sklearn_training(update, context, session, model_type)
+
+    async def handle_catboost_iterations(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle CatBoost iterations selection."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        iterations_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Handle custom input (default to 1000 for now - Phase 2 enhancement)
+        if iterations_value == "custom":
+            iterations = 1000
+        else:
+            iterations = int(iterations_value)
+
+        session.selections['catboost_config']['iterations'] = iterations
+        await self.state_manager.update_session(session)
+
+        # Move to depth selection
+        keyboard = [
+            [InlineKeyboardButton("4 levels (fast)", callback_data="catboost_depth:4")],
+            [InlineKeyboardButton("6 levels (recommended)", callback_data="catboost_depth:6")],
+            [InlineKeyboardButton("8 levels (complex)", callback_data="catboost_depth:8")],
+            [InlineKeyboardButton("Custom", callback_data="catboost_depth:custom")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "🐈 **CatBoost Configuration**\n\n"
+            "**Step 2/4: Maximum Tree Depth**\n\n"
+            "How deep should each tree be?\n"
+            "(Deeper = more complex patterns, risk of overfitting)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_catboost_depth(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle CatBoost depth selection."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        depth_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        if depth_value == "custom":
+            depth = 6
+        else:
+            depth = int(depth_value)
+
+        session.selections['catboost_config']['depth'] = depth
+        await self.state_manager.update_session(session)
+
+        # Move to learning_rate selection
+        keyboard = [
+            [InlineKeyboardButton("0.01 (conservative)", callback_data="catboost_learning_rate:0.01")],
+            [InlineKeyboardButton("0.03 (recommended)", callback_data="catboost_learning_rate:0.03")],
+            [InlineKeyboardButton("0.1 (aggressive)", callback_data="catboost_learning_rate:0.1")],
+            [InlineKeyboardButton("Custom", callback_data="catboost_learning_rate:custom")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "🐈 **CatBoost Configuration**\n\n"
+            "**Step 3/4: Learning Rate**\n\n"
+            "How fast should the model learn?\n"
+            "(Lower = more stable, but needs more iterations)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_catboost_learning_rate(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle CatBoost learning_rate selection."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        learning_rate_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        if learning_rate_value == "custom":
+            learning_rate = 0.03
+        else:
+            learning_rate = float(learning_rate_value)
+
+        session.selections['catboost_config']['learning_rate'] = learning_rate
+        await self.state_manager.update_session(session)
+
+        # Move to l2_leaf_reg selection
+        keyboard = [
+            [InlineKeyboardButton("1 (low regularization)", callback_data="catboost_l2:1")],
+            [InlineKeyboardButton("3 (recommended)", callback_data="catboost_l2:3")],
+            [InlineKeyboardButton("5 (high regularization)", callback_data="catboost_l2:5")],
+            [InlineKeyboardButton("Custom", callback_data="catboost_l2:custom")]
+        ]
+        add_back_button(keyboard)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "🐈 **CatBoost Configuration**\n\n"
+            "**Step 4/4: L2 Regularization**\n\n"
+            "How much regularization to prevent overfitting?\n"
+            "(Higher = simpler model, lower risk of overfitting)",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_catboost_l2_leaf_reg(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle CatBoost l2_leaf_reg selection and start training."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        l2_value = query.data.split(":")[-1]
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session is None:
+            await query.edit_message_text(
+                "❌ **Session Expired**\n\nPlease start over with /train",
+                parse_mode="Markdown"
+            )
+            return
+
+        if l2_value == "custom":
+            l2_leaf_reg = 3
+        else:
+            l2_leaf_reg = int(l2_value)
+
+        session.selections['catboost_config']['l2_leaf_reg'] = l2_leaf_reg
+        await self.state_manager.update_session(session)
+
+        # Configuration complete - start training
+        model_type = session.selections.get('catboost_model_type')
+        catboost_config = session.selections.get('catboost_config')
+
+        # Escape underscores for Markdown
+        model_display = model_type.replace('_', '\\_')
+
+        await query.edit_message_text(
+            f"✅ **CatBoost Configuration Complete**\n\n"
+            f"🎯 **Model**: {model_display}\n"
+            f"⚙️ **Parameters**:\n"
+            f"• iterations: {catboost_config['iterations']}\n"
+            f"• depth: {catboost_config['depth']}\n"
+            f"• learning\\_rate: {catboost_config['learning_rate']}\n"
+            f"• l2\\_leaf\\_reg: {catboost_config['l2_leaf_reg']}\n\n"
+            f"🚀 Starting training...\n\n"
+            f"This may take a few moments.",
+            parse_mode="Markdown"
+        )
+
+        # Execute training with CatBoost config
+        await self._execute_sklearn_training(update, context, session, model_type)
+
     async def handle_training_execution(
         self,
         update: Update,
@@ -3134,6 +3629,66 @@ def register_local_path_handlers(
         CallbackQueryHandler(
             handler.handle_xgboost_colsample,
             pattern=r"^xgboost_colsample:"
+        )
+    )
+
+    # LightGBM configuration callback handlers
+    print("  ✓ Registering LightGBM parameter handlers")
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_lightgbm_num_leaves,
+            pattern=r"^lightgbm_num_leaves:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_lightgbm_n_estimators,
+            pattern=r"^lightgbm_n_estimators:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_lightgbm_learning_rate,
+            pattern=r"^lightgbm_learning_rate:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_lightgbm_use_defaults,
+            pattern=r"^lightgbm_use_defaults$"
+        )
+    )
+
+    # CatBoost configuration callback handlers
+    print("  ✓ Registering CatBoost parameter handlers")
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_catboost_iterations,
+            pattern=r"^catboost_iterations:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_catboost_depth,
+            pattern=r"^catboost_depth:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_catboost_learning_rate,
+            pattern=r"^catboost_learning_rate:"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_catboost_l2_leaf_reg,
+            pattern=r"^catboost_l2:"
         )
     )
 

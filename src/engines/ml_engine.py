@@ -55,7 +55,7 @@ class MLEngine:
 
         Args:
             task_type: Task type (regression, classification, neural_network)
-            model_type: Model type (optional, used for XGBoost/Keras routing)
+            model_type: Model type (optional, used for LightGBM/XGBoost/Keras routing)
 
         Returns:
             Trainer instance
@@ -63,6 +63,16 @@ class MLEngine:
         Raises:
             ValidationError: If task_type is unknown
         """
+        # Check if CatBoost model (prefix-based detection)
+        if model_type and model_type.startswith("catboost_"):
+            from src.engines.trainers.catboost_trainer import CatBoostTrainer
+            return CatBoostTrainer(self.config)
+
+        # Check if LightGBM model (prefix-based detection)
+        if model_type and model_type.startswith("lightgbm_"):
+            from src.engines.trainers.lightgbm_trainer import LightGBMTrainer
+            return LightGBMTrainer(self.config)
+
         # Check if XGBoost model (prefix-based detection)
         if model_type and model_type.startswith("xgboost_"):
             from src.engines.trainers.xgboost_trainer import XGBoostTrainer

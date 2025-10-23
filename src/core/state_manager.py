@@ -62,6 +62,19 @@ class MLTrainingState(Enum):
     LOADING_TEMPLATE = "loading_template"          # User browsing templates
     CONFIRMING_TEMPLATE = "confirming_template"    # User confirming template selection
 
+    # CatBoost configuration states
+    CONFIGURING_CATBOOST_ITERATIONS = "configuring_catboost_iterations"
+    AWAITING_CATBOOST_ITERATIONS_INPUT = "awaiting_catboost_iterations_input"
+    CONFIGURING_CATBOOST_DEPTH = "configuring_catboost_depth"
+    AWAITING_CATBOOST_DEPTH_INPUT = "awaiting_catboost_depth_input"
+    CONFIGURING_CATBOOST_LEARNING_RATE = "configuring_catboost_learning_rate"
+    AWAITING_CATBOOST_LR_INPUT = "awaiting_catboost_lr_input"
+    CONFIGURING_CATBOOST_L2_LEAF_REG = "configuring_catboost_l2_leaf_reg"
+    AWAITING_CATBOOST_L2_INPUT = "awaiting_catboost_l2_input"
+    CONFIGURING_CATBOOST_CATEGORICAL = "configuring_catboost_categorical"
+    SELECTING_CATBOOST_CATEGORICAL = "selecting_catboost_categorical"
+    CONFIRMING_CATBOOST_CONFIG = "confirming_catboost_config"
+
 
 class MLPredictionState(Enum):
     """States for ML prediction workflow."""
