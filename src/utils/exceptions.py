@@ -584,3 +584,62 @@ class PathValidationError(ValidationError):
         super().__init__(message, "file_path", path)
         self.path = path
         self.reason = reason
+
+
+# ============================================================================
+# Cloud Infrastructure Exceptions
+# ============================================================================
+
+# Import cloud-specific exceptions for centralized access
+from src.cloud.exceptions import (  # noqa: E402
+    CloudError,
+    AWSError,
+    S3Error,
+    EC2Error,
+    LambdaError,
+    CostTrackingError,
+    CloudConfigurationError,
+)
+
+__all__ = [
+    # Base exceptions
+    "AgentError",
+    "ValidationError",
+    "ParseError",
+    "ExecutionError",
+    "DataError",
+    "BotError",
+    "ConfigurationError",
+    "ScriptGenerationError",
+    "SecurityViolationError",
+    "ResourceLimitError",
+    "TemplateError",
+    # ML exceptions
+    "MLError",
+    "DataValidationError",
+    "ModelNotFoundError",
+    "TrainingError",
+    "PredictionError",
+    "FeatureMismatchError",
+    "ConvergenceError",
+    "HyperparameterError",
+    "ModelSerializationError",
+    # State management
+    "StateError",
+    "SessionNotFoundError",
+    "SessionExpiredError",
+    "InvalidStateTransitionError",
+    "PrerequisiteNotMetError",
+    "DataSizeLimitError",
+    "SessionLimitError",
+    # Path validation
+    "PathValidationError",
+    # Cloud exceptions
+    "CloudError",
+    "AWSError",
+    "S3Error",
+    "EC2Error",
+    "LambdaError",
+    "CostTrackingError",
+    "CloudConfigurationError",
+]

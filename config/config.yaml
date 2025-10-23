@@ -113,3 +113,41 @@ templates:
   max_templates_per_user: 50        # Maximum templates per user
   allowed_name_pattern: "^[a-zA-Z0-9_]{1,32}$"  # Template name validation regex
   name_max_length: 32               # Maximum template name length
+
+# Cloud ML Configuration (AWS)
+cloud:
+  enabled: false  # Set to true when AWS is configured
+
+  aws:
+    region: "us-east-1"
+    # Credentials loaded from environment variables:
+    # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+
+  s3:
+    bucket: ""  # Set during AWS setup (e.g., ml-agent-data-{account_id})
+    data_prefix: "datasets"
+    models_prefix: "models"
+    results_prefix: "results"
+    lifecycle_days: 90  # Auto-delete objects after 90 days
+
+  ec2:
+    instance_type: "m5.xlarge"  # 4 vCPU, 16GB RAM
+    spot_max_price: 0.5  # Max $/hour for Spot instances
+    ami_id: ""  # Set during AWS setup (Deep Learning AMI)
+    key_name: "ml-agent-key"
+    security_group: ""  # Set during AWS setup
+
+  lambda:
+    function_name: "ml-agent-prediction"
+    memory_mb: 3008  # Max Lambda memory
+    timeout_seconds: 900  # 15 minutes
+    layer_arn: ""  # Set during deployment
+
+  cost_limits:
+    max_training_cost_dollars: 10.0
+    max_prediction_cost_dollars: 1.0
+    cost_warning_threshold: 0.8  # Warn at 80%
+
+  security:
+    kms_key_id: ""  # Optional: KMS key for encryption
+    iam_role_arn: ""  # Set during AWS setup
