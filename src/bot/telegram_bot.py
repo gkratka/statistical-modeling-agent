@@ -34,6 +34,7 @@ from src.bot import handlers
 from src.bot.ml_handlers.ml_training_local_path import register_local_path_handlers
 from src.bot.ml_handlers.prediction_handlers import register_prediction_handlers
 from src.bot.ml_handlers.prediction_template_handlers import PredictionTemplateHandlers
+from src.bot.ml_handlers.models_browser_handler import ModelsBrowserHandler
 
 # Import handler functions from handlers.py file
 start_handler = handlers.start_handler
@@ -321,6 +322,25 @@ class StatisticalModelingBot:
             CallbackQueryHandler(score_callback_wrapper, pattern="^score_(confirm|cancel)$")
         )
         self.application.bot_data['score_handler'] = score_handler
+
+        # Register models browser handler (NEW - /models command)
+        models_handler = ModelsBrowserHandler(state_manager)
+        self.application.add_handler(CommandHandler("models", models_handler.handle_models_command))
+
+        # Add callback query handlers for models browser navigation
+        self.application.add_handler(
+            CallbackQueryHandler(models_handler.handle_model_selection, pattern="^model:")
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(models_handler.handle_pagination, pattern="^page:")
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(models_handler.handle_back_to_list, pattern="^back_to_list:")
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(models_handler.handle_cancel, pattern="^cancel_models$")
+        )
+        self.application.bot_data['models_handler'] = models_handler
 
         # Script command handler
         from src.bot.script_handler import script_command_handler

@@ -27,6 +27,7 @@ class WorkflowType(Enum):
     STATS_ANALYSIS = "stats_analysis"
     DATA_EXPLORATION = "data_exploration"
     SCORE_WORKFLOW = "score_workflow"  # NEW: Combined train + predict workflow
+    MODELS_BROWSER = "models_browser"  # NEW: /models command - interactive model catalog
 
 
 class MLTrainingState(Enum):
@@ -110,6 +111,12 @@ class ScoreWorkflowState(Enum):
     TRAINING_MODEL = "training_model"              # Training ML model
     RUNNING_PREDICTION = "running_prediction"      # Generating predictions
     COMPLETE = "complete"                          # Workflow finished
+
+
+class ModelsBrowserState(Enum):
+    """States for models browser workflow (/models command)."""
+    VIEWING_MODEL_LIST = "viewing_model_list"      # User browsing paginated model list
+    VIEWING_MODEL_DETAILS = "viewing_model_details"  # User viewing single model details
 
 
 @dataclass
@@ -490,10 +497,26 @@ SCORE_WORKFLOW_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     ScoreWorkflowState.COMPLETE.value: set()
 }
 
+MODELS_BROWSER_TRANSITIONS: Dict[Optional[str], Set[str]] = {
+    # Start: /models command initiates workflow
+    None: {ModelsBrowserState.VIEWING_MODEL_LIST.value},
+
+    # Step 1: Viewing model list (paginated)
+    ModelsBrowserState.VIEWING_MODEL_LIST.value: {
+        ModelsBrowserState.VIEWING_MODEL_DETAILS.value  # User selects a model
+    },
+
+    # Step 2: Viewing model details
+    ModelsBrowserState.VIEWING_MODEL_DETAILS.value: {
+        ModelsBrowserState.VIEWING_MODEL_LIST.value  # Back button to list
+    }
+}
+
 WORKFLOW_TRANSITIONS: Dict[WorkflowType, Dict[Optional[str], Set[str]]] = {
     WorkflowType.ML_TRAINING: ML_TRAINING_TRANSITIONS,
     WorkflowType.ML_PREDICTION: ML_PREDICTION_TRANSITIONS,
     WorkflowType.SCORE_WORKFLOW: SCORE_WORKFLOW_TRANSITIONS,
+    WorkflowType.MODELS_BROWSER: MODELS_BROWSER_TRANSITIONS,
 }
 
 ML_TRAINING_PREREQUISITES: Dict[str, PrerequisiteChecker] = {
