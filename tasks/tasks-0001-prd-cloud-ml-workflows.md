@@ -1129,7 +1129,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
 
 ### Sub-Tasks
 
-- [ ] **4.1 Create Lambda prediction handler function**
+- [x] **4.1 Create Lambda prediction handler function**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/lambda/prediction_handler.py`
   - Implement Lambda entry point:
     ```python
@@ -1237,7 +1237,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         return parts[0], parts[1]
     ```
 
-- [ ] **4.2 Create Lambda requirements.txt**
+- [x] **4.2 Create Lambda requirements.txt**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/lambda/requirements.txt`
   - List Lambda dependencies:
     ```
@@ -1248,7 +1248,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
     boto3==1.28.25
     ```
 
-- [ ] **4.3 Create Lambda packaging script**
+- [x] **4.3 Create Lambda packaging script**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/scripts/cloud/package_lambda.sh`
   - Bash script to package Lambda deployment:
     ```bash
@@ -1298,7 +1298,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
     ```
   - Make script executable: `chmod +x scripts/cloud/package_lambda.sh`
 
-- [ ] **4.4 Create LambdaManager class with invocation**
+- [x] **4.4 Create LambdaManager class with invocation**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/lambda_manager.py`
   - Implement Lambda operations:
     ```python
@@ -1398,7 +1398,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
                 raise LambdaError(f"Failed to invoke Lambda async: {e}")
     ```
 
-- [ ] **4.5 Implement Lambda deployment method**
+- [x] **4.5 Implement Lambda deployment method**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/lambda_manager.py`
   - Add deployment methods:
     ```python
@@ -1488,7 +1488,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
             raise LambdaError(f"Failed to create Lambda layer: {e}")
     ```
 
-- [ ] **4.6 Implement batch processing for large datasets**
+- [x] **4.6 Implement batch processing for large datasets**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/lambda_manager.py`
   - Add batch prediction logic:
     ```python
