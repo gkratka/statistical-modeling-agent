@@ -1581,7 +1581,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         }
     ```
 
-- [ ] **4.7 Write unit tests for LambdaManager**
+- [x] **4.7 Write unit tests for LambdaManager**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_lambda_manager.py`
   - Test cases:
     - `test_invoke_prediction_success` - Returns prediction results
@@ -2519,7 +2519,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
 
 ### Sub-Tasks
 
-- [ ] **7.1 Create S3 bucket policy JSON templates**
+- [x] **7.1 Create S3 bucket policy JSON templates**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/security.py`
   - Define bucket policies:
     ```python
@@ -2587,7 +2587,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
             }
     ```
 
-- [ ] **7.2 Create IAM role policy JSON templates**
+- [x] **7.2 Create IAM role policy JSON templates**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/security.py`
   - Define IAM policies:
     ```python
@@ -2706,7 +2706,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         }
     ```
 
-- [ ] **7.3 Implement encryption configuration**
+- [x] **7.3 Implement encryption configuration**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/security.py`
   - Add encryption methods:
     ```python
@@ -2760,7 +2760,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
             raise CloudConfigurationError(f"Failed to enable versioning: {e}")
     ```
 
-- [ ] **7.4 Implement user path isolation validation**
+- [x] **7.4 Implement user path isolation validation**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/security.py`
   - Add isolation validation:
     ```python
@@ -2817,7 +2817,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         return True
     ```
 
-- [ ] **7.5 Implement audit logging setup**
+- [x] **7.5 Implement audit logging setup**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/security.py`
   - Add audit logging:
     ```python
@@ -2888,7 +2888,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
             json.dump(logs, f, indent=2)
     ```
 
-- [ ] **7.6 Create AWS setup automation script**
+- [x] **7.6 Create AWS setup automation script**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/scripts/cloud/setup_aws.py`
   - Python script to automate AWS infrastructure setup:
     ```python
@@ -3055,7 +3055,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
     ```
   - Make script executable: `chmod +x scripts/cloud/setup_aws.py`
 
-- [ ] **7.7 Write security tests**
+- [x] **7.7 Write security tests**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_security.py`
   - Test cases:
     - `test_generate_s3_bucket_policy_denies_unencrypted` - Policy blocks unencrypted
