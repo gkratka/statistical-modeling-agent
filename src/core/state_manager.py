@@ -28,6 +28,8 @@ class WorkflowType(Enum):
     DATA_EXPLORATION = "data_exploration"
     SCORE_WORKFLOW = "score_workflow"  # NEW: Combined train + predict workflow
     MODELS_BROWSER = "models_browser"  # NEW: /models command - interactive model catalog
+    CLOUD_TRAINING = "cloud_training"  # NEW: Cloud-based ML training workflow
+    CLOUD_PREDICTION = "cloud_prediction"  # NEW: Cloud-based prediction workflow
 
 
 class MLTrainingState(Enum):
@@ -117,6 +119,31 @@ class ModelsBrowserState(Enum):
     """States for models browser workflow (/models command)."""
     VIEWING_MODEL_LIST = "viewing_model_list"      # User browsing paginated model list
     VIEWING_MODEL_DETAILS = "viewing_model_details"  # User viewing single model details
+
+
+class CloudTrainingState(Enum):
+    """States for cloud-based ML training workflow (AWS)."""
+    CHOOSING_CLOUD_LOCAL = "choosing_cloud_local"       # Choose: cloud vs local training
+    AWAITING_S3_DATASET = "awaiting_s3_dataset"         # User provides S3 URI or uploads
+    SELECTING_TARGET = "selecting_target"               # Select target column
+    SELECTING_FEATURES = "selecting_features"           # Select feature columns
+    CONFIRMING_MODEL = "confirming_model"               # Confirm model type
+    CONFIRMING_INSTANCE_TYPE = "confirming_instance_type"  # Review EC2 instance selection
+    LAUNCHING_TRAINING = "launching_training"           # EC2 instance launching
+    MONITORING_TRAINING = "monitoring_training"         # Streaming CloudWatch logs
+    TRAINING_COMPLETE = "training_complete"             # Training finished
+    COMPLETE = "complete"                               # Workflow complete
+
+
+class CloudPredictionState(Enum):
+    """States for cloud-based prediction workflow (AWS Lambda)."""
+    CHOOSING_CLOUD_LOCAL = "choosing_cloud_local"       # Choose: cloud vs local prediction
+    AWAITING_S3_DATASET = "awaiting_s3_dataset"         # User provides S3 URI
+    SELECTING_MODEL = "selecting_model"                 # Choose model (local or S3)
+    CONFIRMING_PREDICTION_COLUMN = "confirming_prediction_column"  # Confirm output column name
+    LAUNCHING_PREDICTION = "launching_prediction"       # Lambda invoking
+    PREDICTION_COMPLETE = "prediction_complete"         # Results ready
+    COMPLETE = "complete"                               # Workflow complete
 
 
 @dataclass
@@ -512,11 +539,104 @@ MODELS_BROWSER_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     }
 }
 
+CLOUD_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
+    # Start: Choose cloud vs local training
+    None: {CloudTrainingState.CHOOSING_CLOUD_LOCAL.value},
+
+    # Step 1: Cloud vs local choice
+    CloudTrainingState.CHOOSING_CLOUD_LOCAL.value: {
+        CloudTrainingState.AWAITING_S3_DATASET.value,   # User chose cloud training
+        MLTrainingState.CHOOSING_DATA_SOURCE.value      # User chose local training (fallback)
+    },
+
+    # Step 2: Dataset input (S3 URI or upload)
+    CloudTrainingState.AWAITING_S3_DATASET.value: {
+        CloudTrainingState.SELECTING_TARGET.value       # Dataset loaded, proceed to target selection
+    },
+
+    # Step 3-5: Same as local workflow (target, features, model)
+    CloudTrainingState.SELECTING_TARGET.value: {
+        CloudTrainingState.SELECTING_FEATURES.value
+    },
+    CloudTrainingState.SELECTING_FEATURES.value: {
+        CloudTrainingState.CONFIRMING_MODEL.value
+    },
+    CloudTrainingState.CONFIRMING_MODEL.value: {
+        CloudTrainingState.CONFIRMING_INSTANCE_TYPE.value  # Review instance type and cost
+    },
+
+    # Step 6: Instance type confirmation
+    CloudTrainingState.CONFIRMING_INSTANCE_TYPE.value: {
+        CloudTrainingState.LAUNCHING_TRAINING.value,    # User confirmed, launch EC2
+        CloudTrainingState.CONFIRMING_MODEL.value       # User goes back to change model
+    },
+
+    # Step 7: Launch training on EC2
+    CloudTrainingState.LAUNCHING_TRAINING.value: {
+        CloudTrainingState.MONITORING_TRAINING.value    # Instance launched, start monitoring
+    },
+
+    # Step 8: Monitor training progress
+    CloudTrainingState.MONITORING_TRAINING.value: {
+        CloudTrainingState.TRAINING_COMPLETE.value      # Training finished
+    },
+
+    # Step 9: Training complete
+    CloudTrainingState.TRAINING_COMPLETE.value: {
+        CloudTrainingState.COMPLETE.value               # Workflow done
+    },
+
+    # Terminal state
+    CloudTrainingState.COMPLETE.value: set()
+}
+
+CLOUD_PREDICTION_TRANSITIONS: Dict[Optional[str], Set[str]] = {
+    # Start: Choose cloud vs local prediction
+    None: {CloudPredictionState.CHOOSING_CLOUD_LOCAL.value},
+
+    # Step 1: Cloud vs local choice
+    CloudPredictionState.CHOOSING_CLOUD_LOCAL.value: {
+        CloudPredictionState.AWAITING_S3_DATASET.value,  # User chose cloud prediction
+        MLPredictionState.STARTED.value                  # User chose local prediction (fallback)
+    },
+
+    # Step 2: Dataset input (S3 URI)
+    CloudPredictionState.AWAITING_S3_DATASET.value: {
+        CloudPredictionState.SELECTING_MODEL.value       # Dataset ready, choose model
+    },
+
+    # Step 3: Model selection
+    CloudPredictionState.SELECTING_MODEL.value: {
+        CloudPredictionState.CONFIRMING_PREDICTION_COLUMN.value  # Model selected
+    },
+
+    # Step 4: Prediction column name confirmation
+    CloudPredictionState.CONFIRMING_PREDICTION_COLUMN.value: {
+        CloudPredictionState.LAUNCHING_PREDICTION.value, # Column confirmed, launch Lambda
+        CloudPredictionState.SELECTING_MODEL.value       # User goes back to change model
+    },
+
+    # Step 5: Launch Lambda prediction
+    CloudPredictionState.LAUNCHING_PREDICTION.value: {
+        CloudPredictionState.PREDICTION_COMPLETE.value   # Lambda finished
+    },
+
+    # Step 6: Prediction complete
+    CloudPredictionState.PREDICTION_COMPLETE.value: {
+        CloudPredictionState.COMPLETE.value              # Workflow done
+    },
+
+    # Terminal state
+    CloudPredictionState.COMPLETE.value: set()
+}
+
 WORKFLOW_TRANSITIONS: Dict[WorkflowType, Dict[Optional[str], Set[str]]] = {
     WorkflowType.ML_TRAINING: ML_TRAINING_TRANSITIONS,
     WorkflowType.ML_PREDICTION: ML_PREDICTION_TRANSITIONS,
     WorkflowType.SCORE_WORKFLOW: SCORE_WORKFLOW_TRANSITIONS,
     WorkflowType.MODELS_BROWSER: MODELS_BROWSER_TRANSITIONS,
+    WorkflowType.CLOUD_TRAINING: CLOUD_TRAINING_TRANSITIONS,
+    WorkflowType.CLOUD_PREDICTION: CLOUD_PREDICTION_TRANSITIONS,
 }
 
 ML_TRAINING_PREREQUISITES: Dict[str, PrerequisiteChecker] = {

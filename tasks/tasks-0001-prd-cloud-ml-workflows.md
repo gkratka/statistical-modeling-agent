@@ -1602,7 +1602,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
 
 ### Sub-Tasks
 
-- [ ] **5.1 Add cloud workflow states to StateManager**
+- [x] **5.1 Add cloud workflow states to StateManager**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/core/state_manager.py`
   - Add new workflow enum:
     ```python
@@ -1644,7 +1644,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
     }
     ```
 
-- [ ] **5.2 Create cloud training message templates**
+- [x] **5.2 Create cloud training message templates**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/bot/messages/cloud_messages.py`
   - Define message templates:
     ```python
@@ -1790,7 +1790,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
     """
     ```
 
-- [ ] **5.3 Create cloud training handlers**
+- [x] **5.3 Create cloud training handlers**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/bot/handlers/cloud_training_handlers.py`
   - Implement workflow handlers:
     ```python
@@ -2050,11 +2050,11 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         await state_manager.complete_workflow(session.user_id)
     ```
 
-- [ ] **5.4 Create cloud prediction handlers**
+- [x] **5.4 Create cloud prediction handlers**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/bot/handlers/cloud_prediction_handlers.py`
   - Implement prediction workflow handlers (similar structure to training)
 
-- [ ] **5.5 Register cloud handlers in telegram_bot.py**
+- [x] **5.5 Register cloud handlers in telegram_bot.py**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/bot/telegram_bot.py`
   - Add handler registrations:
     ```python
@@ -2073,7 +2073,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
     application.add_handler(CallbackQueryHandler(handle_cloud_training_confirmed, pattern="^confirm_cloud_launch$"))
     ```
 
-- [ ] **5.6 Update requirements.txt with boto3**
+- [x] **5.6 Update requirements.txt with boto3**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/requirements.txt`
   - Add cloud dependencies:
     ```
@@ -2091,7 +2091,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
 
 ### Sub-Tasks
 
-- [ ] **6.1 Create CostTracker class with pricing lookups**
+- [x] **6.1 Create CostTracker class with pricing lookups**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Implement cost calculation logic:
     ```python
@@ -2231,7 +2231,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
             return total_cost
     ```
 
-- [ ] **6.2 Implement S3 storage cost calculation**
+- [x] **6.2 Implement S3 storage cost calculation**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Add S3 cost methods:
     ```python
@@ -2272,7 +2272,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         }
     ```
 
-- [ ] **6.3 Implement cost logging and persistence**
+- [x] **6.3 Implement cost logging and persistence**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Add logging methods:
     ```python
@@ -2350,7 +2350,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         return filtered
     ```
 
-- [ ] **6.4 Implement monthly cost summary generation**
+- [x] **6.4 Implement monthly cost summary generation**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Add summary methods:
     ```python
@@ -2446,7 +2446,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
     """
     ```
 
-- [ ] **6.5 Implement cost limit validation**
+- [x] **6.5 Implement cost limit validation**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Add validation methods:
     ```python
@@ -2495,7 +2495,7 @@ aws ec2 terminate-instances --instance-ids $INSTANCE_ID
         return True, None
     ```
 
-- [ ] **6.6 Write unit tests for CostTracker**
+- [x] **6.6 Write unit tests for CostTracker**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_cost_tracker.py`
   - Test cases:
     - `test_estimate_training_cost_t3_medium` - Calculates correct cost
