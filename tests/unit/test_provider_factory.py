@@ -19,7 +19,9 @@ from src.cloud.provider_interface import (
 from src.cloud.s3_manager import S3Manager
 from src.cloud.ec2_manager import EC2Manager
 from src.cloud.lambda_manager import LambdaManager
+from src.cloud.runpod_storage_manager import RunPodStorageManager
 from src.cloud.aws_config import CloudConfig
+from src.cloud.runpod_config import RunPodConfig
 from src.cloud.aws_client import AWSClient
 
 
@@ -39,6 +41,20 @@ class TestCloudProviderFactory:
     def mock_config(self):
         """Create mock CloudConfig."""
         return Mock(spec=CloudConfig)
+
+    @pytest.fixture
+    def mock_runpod_config(self):
+        """Create mock RunPodConfig."""
+        config = Mock(spec=RunPodConfig)
+        config.runpod_api_key = "test-api-key"
+        config.storage_endpoint = "https://storage.runpod.io"
+        config.network_volume_id = "vol-123"
+        config.storage_access_key = "AKIAIOSFODNN7EXAMPLE"
+        config.storage_secret_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        config.data_prefix = "datasets"
+        config.models_prefix = "models"
+        config.results_prefix = "results"
+        return config
 
     def test_create_aws_storage_provider(self, mock_aws_client, mock_config):
         """Test creating AWS storage provider returns S3Manager instance."""
@@ -79,19 +95,44 @@ class TestCloudProviderFactory:
         assert isinstance(provider, LambdaManager)
         assert isinstance(provider, CloudPredictionProvider)
 
-    def test_create_runpod_storage_provider_raises_not_implemented(
-        self, mock_aws_client, mock_config
-    ):
-        """Test creating RunPod storage provider raises NotImplementedError."""
+    def test_create_runpod_storage_provider(self, mock_runpod_config):
+        """Test creating RunPod storage provider returns RunPodStorageManager instance."""
+        # Mock boto3 client creation
+        from unittest.mock import patch
+        with patch('boto3.client') as mock_boto3:
+            mock_boto3.return_value = Mock()
+
+            # Act
+            provider = CloudProviderFactory.create_storage_provider(
+                provider="runpod",
+                config=mock_runpod_config
+            )
+
+            # Assert
+            assert isinstance(provider, RunPodStorageManager)
+            assert isinstance(provider, CloudStorageProvider)
+
+    def test_create_runpod_storage_provider_requires_runpod_config(self, mock_config):
+        """Test creating RunPod storage with CloudConfig raises ValueError."""
         # Act & Assert
-        with pytest.raises(NotImplementedError) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             CloudProviderFactory.create_storage_provider(
                 provider="runpod",
-                aws_client=mock_aws_client,
                 config=mock_config
             )
 
-        assert "RunPod storage provider not implemented yet" in str(exc_info.value)
+        assert "RunPodConfig is required" in str(exc_info.value)
+
+    def test_create_aws_storage_provider_requires_aws_client(self, mock_config):
+        """Test creating AWS storage without aws_client raises ValueError."""
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            CloudProviderFactory.create_storage_provider(
+                provider="aws",
+                config=mock_config
+            )
+
+        assert "aws_client is required" in str(exc_info.value)
 
     def test_create_runpod_training_provider_raises_not_implemented(
         self, mock_aws_client, mock_config

@@ -209,7 +209,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
 
 ### Sub-Tasks
 
-- [ ] **2.1 Create RunPodStorageManager**
+- [x] **2.1 Create RunPodStorageManager**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/runpod_storage_manager.py`
   - Extend S3Manager with RunPod-specific endpoint:
     ```python

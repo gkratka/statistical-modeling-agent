@@ -9,7 +9,7 @@ Author: Statistical Modeling Agent
 Created: 2025-10-24 (Task 1.2: Provider Factory Implementation)
 """
 
-from typing import Literal
+from typing import Literal, Optional, Union
 
 from src.cloud.provider_interface import (
     CloudStorageProvider,
@@ -21,6 +21,8 @@ from src.cloud.ec2_manager import EC2Manager
 from src.cloud.lambda_manager import LambdaManager
 from src.cloud.aws_client import AWSClient
 from src.cloud.aws_config import CloudConfig
+from src.cloud.runpod_config import RunPodConfig
+from src.cloud.runpod_storage_manager import RunPodStorageManager
 
 
 class CloudProviderFactory:
@@ -35,45 +37,54 @@ class CloudProviderFactory:
     @staticmethod
     def create_storage_provider(
         provider: Literal["aws", "runpod"],
-        aws_client: AWSClient,
-        config: CloudConfig
+        config: Union[CloudConfig, RunPodConfig],
+        aws_client: Optional[AWSClient] = None
     ) -> CloudStorageProvider:
         """
         Create cloud storage provider instance.
 
         Factory method for creating storage providers that implement the
-        CloudStorageProvider interface. Currently supports AWS S3Manager,
-        with RunPod storage support planned.
+        CloudStorageProvider interface. Supports AWS S3Manager and
+        RunPod storage manager.
 
         Args:
             provider: Provider name ("aws" or "runpod")
-            aws_client: AWSClient instance for AWS service access
-            config: CloudConfig with provider configuration
+            config: CloudConfig for AWS or RunPodConfig for RunPod
+            aws_client: AWSClient instance (required for AWS, unused for RunPod)
 
         Returns:
-            CloudStorageProvider: Storage provider instance (S3Manager for AWS)
+            CloudStorageProvider: Storage provider instance
 
         Raises:
-            ValueError: If provider is not supported
-            NotImplementedError: If RunPod provider requested (not yet implemented)
+            ValueError: If provider is not supported or required arguments missing
 
         Example:
-            >>> aws_client = AWSClient(config)
+            >>> # AWS
+            >>> aws_client = AWSClient(aws_config)
             >>> storage = CloudProviderFactory.create_storage_provider(
             ...     provider="aws",
-            ...     aws_client=aws_client,
-            ...     config=config
+            ...     config=aws_config,
+            ...     aws_client=aws_client
             ... )
             >>> isinstance(storage, S3Manager)
             True
+
+            >>> # RunPod
+            >>> storage = CloudProviderFactory.create_storage_provider(
+            ...     provider="runpod",
+            ...     config=runpod_config
+            ... )
+            >>> isinstance(storage, RunPodStorageManager)
+            True
         """
         if provider == "aws":
+            if aws_client is None:
+                raise ValueError("aws_client is required for AWS storage provider")
             return S3Manager(aws_client=aws_client, config=config)
         elif provider == "runpod":
-            raise NotImplementedError(
-                "RunPod storage provider not implemented yet. "
-                "AWS S3Manager is currently the only supported storage provider."
-            )
+            if not isinstance(config, RunPodConfig):
+                raise ValueError("RunPodConfig is required for RunPod storage provider")
+            return RunPodStorageManager(config=config)
         else:
             raise ValueError(
                 f"Unsupported storage provider: {provider}. "
