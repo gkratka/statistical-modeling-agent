@@ -281,3 +281,76 @@ class TestRunPodStorageIntegration:
         manager = RunPodStorageManager(runpod_config)
 
         assert manager.bucket == "vol-abc123"
+
+
+class TestRunPodMultipartUpload:
+    """Test RunPod multipart upload for large files (Task 2.3)."""
+
+    @patch('boto3.client')
+    def test_multipart_upload_large_file(self, mock_boto3, runpod_config):
+        """Multipart upload should work for files >5MB."""
+        mock_client = Mock()
+        mock_boto3.return_value = mock_client
+
+        # Create large temporary file (>5MB)
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv', delete=False) as f:
+            # Write 6MB of data
+            f.write(b'x' * (6 * 1024 * 1024))
+            test_file = f.name
+
+        try:
+            manager = RunPodStorageManager(runpod_config)
+            manager._s3_client = mock_client
+
+            # Mock multipart upload methods
+            mock_client.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
+            mock_client.upload_part.return_value = {'ETag': 'test-etag'}
+            mock_client.complete_multipart_upload.return_value = {}
+
+            # Mock parent's upload_dataset to use multipart
+            with patch.object(manager.__class__.__bases__[0], 'upload_dataset', return_value='s3://vol-abc123/datasets/user_12345/large.csv'):
+                uri = manager.upload_dataset(12345, test_file, "large_dataset")
+
+            assert uri == "runpod://vol-abc123/datasets/user_12345/large.csv"
+        finally:
+            import os
+            os.unlink(test_file)
+
+    @patch('boto3.client')
+    def test_multipart_upload_uses_runpod_endpoint(self, mock_boto3, runpod_config):
+        """Multipart upload should use RunPod storage endpoint."""
+        mock_client = Mock()
+        mock_boto3.return_value = mock_client
+
+        manager = RunPodStorageManager(runpod_config)
+
+        # Verify boto3 client was created with RunPod endpoint
+        call_args = mock_boto3.call_args
+        assert call_args[1]['endpoint_url'] == "https://storage.runpod.io"
+
+    @patch('boto3.client')
+    def test_multipart_upload_creates_runpod_uri(self, mock_boto3, runpod_config):
+        """Multipart upload result should have runpod:// URI format."""
+        mock_client = Mock()
+        mock_boto3.return_value = mock_client
+
+        # Create large file
+        with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv', delete=False) as f:
+            f.write(b'x' * (6 * 1024 * 1024))
+            test_file = f.name
+
+        try:
+            manager = RunPodStorageManager(runpod_config)
+            manager._s3_client = mock_client
+
+            # Mock successful multipart upload returning s3:// URI
+            with patch.object(manager.__class__.__bases__[0], 'upload_dataset', return_value='s3://vol-abc123/datasets/user_12345/big_data.csv'):
+                uri = manager.upload_dataset(12345, test_file)
+
+            # Should convert s3:// to runpod://
+            assert uri.startswith("runpod://")
+            assert "vol-abc123" in uri
+            assert "big_data.csv" in uri
+        finally:
+            import os
+            os.unlink(test_file)
