@@ -31,9 +31,10 @@ from botocore.exceptions import ClientError
 from src.cloud.aws_client import AWSClient
 from src.cloud.aws_config import CloudConfig
 from src.cloud.exceptions import S3Error
+from src.cloud.provider_interface import CloudStorageProvider
 
 
-class S3Manager:
+class S3Manager(CloudStorageProvider):
     """
     S3 storage manager for datasets and models.
 

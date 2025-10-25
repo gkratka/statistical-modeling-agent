@@ -114,9 +114,10 @@ templates:
   allowed_name_pattern: "^[a-zA-Z0-9_]{1,32}$"  # Template name validation regex
   name_max_length: 32               # Maximum template name length
 
-# Cloud ML Configuration (AWS)
+# Cloud ML Configuration (AWS/RunPod)
 cloud:
-  enabled: false  # Set to true when AWS is configured
+  provider: "aws"  # "aws" or "runpod"
+  enabled: false  # Set to true when cloud provider is configured
 
   aws:
     region: "us-east-1"

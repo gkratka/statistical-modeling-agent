@@ -21,9 +21,10 @@ from botocore.exceptions import ClientError
 from src.cloud.aws_client import AWSClient
 from src.cloud.aws_config import CloudConfig
 from src.cloud.exceptions import EC2Error
+from src.cloud.provider_interface import CloudTrainingProvider
 
 
-class EC2Manager:
+class EC2Manager(CloudTrainingProvider):
     """
     EC2 instance manager for cloud-based ML training.
 
@@ -109,6 +110,127 @@ class EC2Manager:
 
         # Unknown model type - fallback to config default
         return self._config.ec2_instance_type
+
+    # CloudTrainingProvider interface implementation
+    def select_compute_type(
+        self,
+        dataset_size_mb: float,
+        model_type: str,
+        estimated_training_time_minutes: int = 0
+    ) -> str:
+        """
+        Select optimal compute resource for training (CloudTrainingProvider interface).
+
+        Wrapper for select_instance_type() to implement CloudTrainingProvider interface.
+
+        Args:
+            dataset_size_mb: Dataset size in megabytes
+            model_type: Type of ML model
+            estimated_training_time_minutes: Estimated training duration
+
+        Returns:
+            str: Compute resource identifier (EC2 instance type)
+        """
+        return self.select_instance_type(
+            dataset_size_mb=dataset_size_mb,
+            model_type=model_type,
+            estimated_training_time_minutes=estimated_training_time_minutes
+        )
+
+    def launch_training(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Launch training job on cloud compute (CloudTrainingProvider interface).
+
+        Args:
+            config: Training configuration dict containing:
+                - compute_type: EC2 instance type
+                - dataset_uri: S3 URI for dataset
+                - model_id: Model identifier
+                - user_id: User ID
+                - model_type: ML model type
+                - target_column: Target variable name
+                - feature_columns: List of feature names
+                - hyperparameters: Model hyperparameters
+
+        Returns:
+            dict: Job details with job_id, status, launch_time
+        """
+        # Extract configuration
+        compute_type = config.get("compute_type", self._config.ec2_instance_type)
+        dataset_uri = config["dataset_uri"]
+        model_id = config["model_id"]
+        user_id = config["user_id"]
+        model_type = config["model_type"]
+        target_column = config["target_column"]
+        feature_columns = config["feature_columns"]
+        hyperparameters = config.get("hyperparameters", {})
+
+        # Generate S3 output URI
+        s3_output_uri = f"s3://{self._config.s3_bucket}/{self._config.s3_models_prefix}/user_{user_id}/{model_id}"
+
+        # Generate user data script
+        user_data_script = self.generate_training_userdata(
+            s3_dataset_uri=dataset_uri,
+            model_type=model_type,
+            target_column=target_column,
+            feature_columns=feature_columns,
+            hyperparameters=hyperparameters,
+            s3_output_uri=s3_output_uri
+        )
+
+        # Prepare tags
+        tags = {
+            "Name": f"ml-training-{model_id}",
+            "user_id": str(user_id),
+            "model_id": model_id,
+            "model_type": model_type
+        }
+
+        # Launch Spot instance
+        result = self.launch_spot_instance(
+            instance_type=compute_type,
+            user_data_script=user_data_script,
+            tags=tags
+        )
+
+        # Return in interface format
+        return {
+            "job_id": result["instance_id"],
+            "status": "launching",
+            "launch_time": result["launch_time"].isoformat() if isinstance(result["launch_time"], datetime) else result["launch_time"]
+        }
+
+    def monitor_training(self, job_id: str) -> Dict[str, Any]:
+        """
+        Monitor training job status (CloudTrainingProvider interface).
+
+        Args:
+            job_id: Training job identifier (EC2 instance ID)
+
+        Returns:
+            dict: Status dict with job_id, status, runtime, progress
+        """
+        status = self.get_instance_status(instance_id=job_id)
+
+        return {
+            "job_id": job_id,
+            "status": status["state"],
+            "runtime": None,  # Would need CloudWatch metrics for accurate runtime
+            "progress": None  # Would need log parsing for progress tracking
+        }
+
+    def terminate_training(self, job_id: str) -> str:
+        """
+        Terminate training job (CloudTrainingProvider interface).
+
+        Args:
+            job_id: Training job identifier (EC2 instance ID)
+
+        Returns:
+            str: Job ID of terminated job
+        """
+        self.terminate_instance(instance_id=job_id)
+        return job_id
 
     def launch_spot_instance(
         self,

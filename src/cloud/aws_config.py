@@ -20,34 +20,37 @@ from src.cloud.exceptions import CloudConfigurationError
 
 @dataclass
 class CloudConfig:
-    """Configuration for AWS cloud infrastructure."""
+    """Configuration for cloud infrastructure (AWS/RunPod)."""
 
-    # AWS Credentials (required)
-    aws_region: str
-    aws_access_key_id: str
-    aws_secret_access_key: str
+    # Cloud Provider Selection
+    provider: str = "aws"  # "aws" or "runpod"
 
-    # S3 Configuration (required)
-    s3_bucket: str
-    s3_data_prefix: str
-    s3_models_prefix: str
-    s3_results_prefix: str
+    # AWS Credentials
+    aws_region: str = ""
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
 
-    # EC2 Configuration (required)
-    ec2_instance_type: str
-    ec2_ami_id: str
-    ec2_key_name: str
-    ec2_security_group: str
+    # S3 Configuration
+    s3_bucket: str = ""
+    s3_data_prefix: str = ""
+    s3_models_prefix: str = ""
+    s3_results_prefix: str = ""
 
-    # Lambda Configuration (required)
-    lambda_function_name: str
-    lambda_memory_mb: int
-    lambda_timeout_seconds: int
+    # EC2 Configuration
+    ec2_instance_type: str = ""
+    ec2_ami_id: str = ""
+    ec2_key_name: str = ""
+    ec2_security_group: str = ""
 
-    # Cost Limits (required)
-    max_training_cost_dollars: float
-    max_prediction_cost_dollars: float
-    cost_warning_threshold: float
+    # Lambda Configuration
+    lambda_function_name: str = ""
+    lambda_memory_mb: int = 128
+    lambda_timeout_seconds: int = 300
+
+    # Cost Limits
+    max_training_cost_dollars: float = 0.0
+    max_prediction_cost_dollars: float = 0.0
+    cost_warning_threshold: float = 0.8
 
     # S3 Configuration (optional)
     s3_lifecycle_days: Optional[int] = None
@@ -69,6 +72,14 @@ class CloudConfig:
         Raises:
             CloudConfigurationError: If any configuration value is invalid
         """
+        # Validate provider selection
+        if self.provider not in ("aws", "runpod"):
+            raise CloudConfigurationError(
+                f"Invalid cloud provider: {self.provider}. Must be 'aws' or 'runpod'",
+                config_key="provider",
+                config_value=self.provider
+            )
+
         # Validate AWS credentials
         if not self.aws_region or not self.aws_region.strip():
             raise CloudConfigurationError(
@@ -242,17 +253,32 @@ class CloudConfig:
                 config_key="config_structure"
             )
 
-        # Extract sections
+        # Extract sections (support both nested "cloud" and top-level structure)
         try:
-            aws_config = config_data.get("aws", {})
-            s3_config = config_data.get("s3", {})
-            ec2_config = config_data.get("ec2", {})
-            lambda_config = config_data.get("lambda", {})
-            cost_config = config_data.get("cost_limits", {})
-            security_config = config_data.get("security", {})
+            # Check if using nested cloud structure (config.yaml style)
+            if "cloud" in config_data:
+                cloud_section = config_data["cloud"]
+                provider = cloud_section.get("provider", "aws")
+                aws_config = cloud_section.get("aws", {})
+                s3_config = cloud_section.get("s3", {})
+                ec2_config = cloud_section.get("ec2", {})
+                lambda_config = cloud_section.get("lambda", {})
+                cost_config = cloud_section.get("cost_limits", {})
+                security_config = cloud_section.get("security", {})
+            else:
+                # Top-level structure (test/legacy style)
+                provider = "aws"
+                aws_config = config_data.get("aws", {})
+                s3_config = config_data.get("s3", {})
+                ec2_config = config_data.get("ec2", {})
+                lambda_config = config_data.get("lambda", {})
+                cost_config = config_data.get("cost_limits", {})
+                security_config = config_data.get("security", {})
 
             # Create CloudConfig instance
             config = cls(
+                # Provider
+                provider=provider,
                 # AWS credentials
                 aws_region=aws_config.get("region", ""),
                 aws_access_key_id=aws_config.get("access_key_id", ""),
@@ -310,6 +336,7 @@ class CloudConfig:
         Load configuration from environment variables.
 
         Environment variables:
+            CLOUD_PROVIDER: Cloud provider (aws or runpod), defaults to "aws"
             AWS_REGION: AWS region
             AWS_ACCESS_KEY_ID: AWS access key ID
             AWS_SECRET_ACCESS_KEY: AWS secret access key
@@ -350,6 +377,8 @@ class CloudConfig:
                 ec2_spot_max_price = float(os.getenv("EC2_SPOT_MAX_PRICE"))
 
             config = cls(
+                # Provider
+                provider=os.getenv("CLOUD_PROVIDER", "aws"),
                 # AWS credentials
                 aws_region=os.getenv("AWS_REGION", ""),
                 aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", ""),

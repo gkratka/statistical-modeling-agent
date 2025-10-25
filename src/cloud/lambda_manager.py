@@ -18,9 +18,10 @@ from botocore.exceptions import ClientError
 from src.cloud.aws_client import AWSClient
 from src.cloud.aws_config import CloudConfig
 from src.cloud.exceptions import LambdaError
+from src.cloud.provider_interface import CloudPredictionProvider
 
 
-class LambdaManager:
+class LambdaManager(CloudPredictionProvider):
     """
     AWS Lambda manager for serverless ML prediction orchestration.
 
@@ -212,6 +213,33 @@ class LambdaManager:
                 function_name=self._config.lambda_function_name,
                 invocation_type="Event"
             )
+
+    def check_job_status(self, job_id: str) -> Dict[str, Any]:
+        """
+        Check status of async prediction job (CloudPredictionProvider interface).
+
+        Note: AWS Lambda async invocations (Event type) don't provide built-in
+        status tracking via request ID. This is a limitation - in production,
+        you would need to implement custom status tracking via DynamoDB or
+        check S3 for output file existence.
+
+        Args:
+            job_id: Prediction job identifier (AWS request ID)
+
+        Returns:
+            dict: Status dict with job_id, status, progress, result
+                Status will be "unknown" since Lambda Event invocations
+                don't provide status tracking by default.
+        """
+        # Lambda async invocations don't provide status tracking
+        # This would require custom implementation with DynamoDB or S3 polling
+        return {
+            "job_id": job_id,
+            "status": "unknown",
+            "progress": None,
+            "result": "Lambda async invocations don't provide built-in status tracking. "
+                     "Check S3 output location for results."
+        }
 
     def deploy_function(
         self,
