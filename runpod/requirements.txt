@@ -1,0 +1,24 @@
+# RunPod Serverless Prediction Dependencies
+#
+# These packages are required for the RunPod serverless prediction handler.
+#
+# Author: Statistical Modeling Agent
+# Created: 2025-10-24 (Task 5.3: RunPod Requirements)
+
+# RunPod SDK
+runpod>=1.0.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# ML frameworks
+scikit-learn>=1.3.0
+joblib>=1.3.0
+
+# Cloud storage
+boto3>=1.28.0
+
+# Additional formats
+openpyxl>=3.1.0  # For Excel files
+pyarrow>=14.0.0  # For Parquet files

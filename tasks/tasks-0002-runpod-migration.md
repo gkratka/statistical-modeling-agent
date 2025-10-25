@@ -689,7 +689,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
 
 ### Sub-Tasks
 
-- [ ] **5.1 Create RunPod serverless handler**
+- [x] **5.1 Create RunPod serverless handler**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/runpod/prediction_handler.py`
   - Implement handler:
     ```python
@@ -781,7 +781,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
         runpod.serverless.start({'handler': handler})
     ```
 
-- [ ] **5.2 Create Dockerfile for RunPod serverless**
+- [x] **5.2 Create Dockerfile for RunPod serverless**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/runpod/Dockerfile`
   - Create container:
     ```dockerfile
@@ -805,7 +805,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     CMD ["python", "-u", "prediction_handler.py"]
     ```
 
-- [ ] **5.3 Create RunPod requirements.txt**
+- [x] **5.3 Create RunPod requirements.txt**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/runpod/requirements.txt`
   - List dependencies:
     ```
@@ -817,7 +817,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     boto3>=1.28.0
     ```
 
-- [ ] **5.4 Create RunPodServerlessManager**
+- [x] **5.4 Create RunPodServerlessManager**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/runpod_serverless_manager.py`
   - Implement manager:
     ```python
@@ -968,7 +968,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     ```
   - Test: Endpoint invocation (sync and async)
 
-- [ ] **5.5 Create deployment script for RunPod serverless**
+- [x] **5.5 Create deployment script for RunPod serverless**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/scripts/cloud/package_runpod.sh`
   - Create script:
     ```bash
@@ -1001,7 +1001,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     ```
   - Make executable: `chmod +x scripts/cloud/package_runpod.sh`
 
-- [ ] **5.6 Write tests for RunPod serverless**
+- [x] **5.6 Write tests for RunPod serverless**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_runpod_serverless_manager.py`
   - Test cases:
     - `test_invoke_prediction_sync`

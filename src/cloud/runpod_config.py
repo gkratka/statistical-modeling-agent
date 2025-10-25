@@ -48,6 +48,11 @@ class RunPodConfig:
     docker_registry: Optional[str] = None
     serverless_endpoint_id: Optional[str] = None
 
+    @property
+    def endpoint_id(self) -> Optional[str]:
+        """Alias for serverless_endpoint_id."""
+        return self.serverless_endpoint_id
+
     def validate(self) -> None:
         """
         Validate configuration values.
