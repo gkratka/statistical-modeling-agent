@@ -1,14 +1,27 @@
 """
-Message templates for cloud-based ML workflows (AWS).
+Message templates for cloud-based ML workflows (AWS/RunPod).
 
 This module provides user-facing message templates for cloud training and prediction
-workflows using EC2, Lambda, and S3. Messages follow Telegram Markdown formatting.
+workflows using AWS (EC2, Lambda, S3) and RunPod (GPU Pods, Serverless, Network Volumes).
+Messages follow Telegram Markdown formatting.
 
 Author: Statistical Modeling Agent
 Created: 2025-10-24 (Task 5.0: Cloud Workflow Telegram Integration)
+Updated: 2025-10-24 (Task 7.1: RunPod Message Templates)
 """
 
 from typing import Dict
+
+# =============================================================================
+# GPU Type Descriptions (RunPod)
+# =============================================================================
+
+GPU_TYPE_DESCRIPTIONS = {
+    'NVIDIA RTX A5000': '24GB VRAM - $0.29/hr - Best for small datasets',
+    'NVIDIA RTX A40': '48GB VRAM - $0.39/hr - Good for medium datasets',
+    'NVIDIA A100 PCIe 40GB': '40GB VRAM - $0.79/hr - Best for large datasets & neural networks',
+    'NVIDIA A100 PCIe 80GB': '80GB VRAM - $1.19/hr - Very large models',
+}
 
 # =============================================================================
 # Cloud Training Messages
@@ -25,18 +38,18 @@ Where would you like to train this model?
   • Best for: Small datasets (<1GB), quick experiments
   • No additional costs
 
-☁️ **Cloud Training** (Paid - AWS)
-  • Runs on AWS EC2 Spot Instances
-  • Scalable resources (up to 64GB RAM, GPU available)
+☁️ **Cloud Training** (Paid - RunPod GPU)
+  • Runs on RunPod GPU Pods
+  • Scalable GPU resources (24-80GB VRAM)
   • Best for: Large datasets (>1GB), neural networks, production models
-  • **Cost**: $0.10 - $2.00 per training run
+  • **Cost**: $0.29 - $1.19 per hour (billed per second)
 
 Choose your training environment:
 """
 
 
 def cloud_instance_confirmation_message(
-    instance_type: str,
+    gpu_type: str,
     estimated_cost_usd: float,
     estimated_time_minutes: int,
     dataset_size_mb: float
@@ -45,42 +58,45 @@ def cloud_instance_confirmation_message(
     Generate confirmation message before launching cloud training.
 
     Args:
-        instance_type: EC2 instance type (e.g., "m5.large")
+        gpu_type: GPU type (e.g., "NVIDIA RTX A5000")
         estimated_cost_usd: Estimated training cost in USD
         estimated_time_minutes: Estimated training duration
         dataset_size_mb: Dataset size in megabytes
 
     Returns:
-        str: Formatted message with instance details and cost estimate
+        str: Formatted message with GPU details and cost estimate
     """
+    gpu_description = GPU_TYPE_DESCRIPTIONS.get(gpu_type, "GPU details unavailable")
+
     return f"""
 ☁️ **Cloud Training Configuration**
 
 📊 **Dataset**: {dataset_size_mb:.1f} MB
-🖥️ **Instance Type**: {instance_type}
+🎯 **GPU Type**: {gpu_type}
+💡 **GPU Info**: {gpu_description}
 ⏱️ **Estimated Time**: ~{estimated_time_minutes} minutes
 💰 **Estimated Cost**: ${estimated_cost_usd:.2f}
 
 ⚠️ **Important**:
   • You will be charged for actual usage (billed per second)
   • Training logs will stream in real-time
-  • Instance will auto-terminate when complete
-  • Spot instances may be interrupted (rare, will retry)
+  • Pod will auto-terminate when complete
+  • RunPod may reclaim GPU (rare, will retry)
 
 Ready to launch cloud training?
 """
 
 
 def cloud_training_launched_message(
-    instance_id: str,
-    instance_type: str
+    pod_id: str,
+    gpu_type: str
 ) -> str:
     """
-    Generate message when EC2 instance successfully launched.
+    Generate message when RunPod GPU pod successfully launched.
 
     Args:
-        instance_id: EC2 instance ID (e.g., "i-1234567890abcdef0")
-        instance_type: Instance type (e.g., "m5.large")
+        pod_id: RunPod pod ID (e.g., "pod-xyz123")
+        gpu_type: GPU type (e.g., "NVIDIA RTX A5000")
 
     Returns:
         str: Launch confirmation message
@@ -88,11 +104,11 @@ def cloud_training_launched_message(
     return f"""
 🚀 **Cloud Training Launched**
 
-Instance ID: `{instance_id}`
-Instance Type: {instance_type}
+Pod ID: `{pod_id}`
+GPU Type: {gpu_type}
 Status: Launching...
 
-⏳ Waiting for instance to start (typically 1-2 minutes)...
+⏳ Waiting for pod to start (typically 1-2 minutes)...
 
 I'll stream the training logs here as they become available.
 """
@@ -103,12 +119,43 @@ def cloud_training_log_message(log_line: str) -> str:
     Format a single log line for Telegram.
 
     Args:
-        log_line: Raw log line from CloudWatch
+        log_line: Raw log line from pod logs
 
     Returns:
         str: Formatted log message with icon
     """
     return f"📝 `{log_line}`"
+
+
+def gpu_selection_message(recommended_gpu: str, dataset_size_mb: float) -> str:
+    """
+    Display GPU selection with recommendations.
+
+    Args:
+        recommended_gpu: Recommended GPU type
+        dataset_size_mb: Dataset size in megabytes
+
+    Returns:
+        str: GPU selection message with recommendations
+
+    Example:
+        >>> message = gpu_selection_message('NVIDIA RTX A5000', 512.0)
+        >>> print('NVIDIA RTX A5000' in message)
+        True
+    """
+    gpu_info = GPU_TYPE_DESCRIPTIONS.get(recommended_gpu, "GPU details unavailable")
+
+    return f"""
+🎯 **Recommended GPU**: {recommended_gpu}
+📊 **Dataset Size**: {dataset_size_mb:.1f} MB
+
+💡 **{gpu_info}**
+
+**Available GPU Types:**
+{chr(10).join([f'  • {gpu}: {desc}' for gpu, desc in GPU_TYPE_DESCRIPTIONS.items()])}
+
+Use recommended GPU? (yes to use recommended, or type GPU name to override)
+"""
 
 
 def cloud_training_complete_message(

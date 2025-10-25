@@ -1,19 +1,20 @@
 """
 Telegram bot handlers for cloud-based ML training workflows.
 
-This module implements Telegram bot handlers for cloud training using AWS EC2,
-S3, and CloudWatch. Handles dataset upload, instance selection, training monitoring,
-and completion.
+This module implements Telegram bot handlers for cloud training using AWS EC2
+or RunPod GPU Pods, with S3-compatible storage. Handles dataset upload, GPU/instance
+selection, training monitoring, and completion.
 
 Author: Statistical Modeling Agent
 Created: 2025-10-24 (Task 5.0: Cloud Workflow Telegram Integration)
+Updated: 2025-10-24 (Task 7.2: RunPod Integration)
 """
 
 import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -21,7 +22,11 @@ from telegram.ext import ContextTypes
 
 from src.core.state_manager import StateManager, UserSession, CloudTrainingState, WorkflowType
 from src.cloud.ec2_manager import EC2Manager
+from src.cloud.runpod_pod_manager import RunPodPodManager
 from src.cloud.s3_manager import S3Manager
+from src.cloud.runpod_storage_manager import RunPodStorageManager
+from src.cloud.provider_factory import CloudProviderFactory
+from src.cloud.provider_interface import CloudTrainingProvider, CloudStorageProvider
 from src.cloud.exceptions import EC2Error, S3Error, CloudError
 from src.bot.messages.cloud_messages import (
     CHOOSE_CLOUD_LOCAL_MESSAGE,
@@ -34,6 +39,7 @@ from src.bot.messages.cloud_messages import (
     s3_validation_error_message,
     s3_upload_complete_message,
     telegram_file_upload_progress_message,
+    gpu_selection_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,27 +50,39 @@ class CloudTrainingHandlers:
     Handlers for cloud-based ML training workflows.
 
     This class manages the complete cloud training workflow from dataset upload
-    to training completion, including EC2 instance management and log streaming.
+    to training completion, supporting both AWS EC2 and RunPod GPU Pods through
+    a provider factory pattern.
     """
 
     def __init__(
         self,
         state_manager: StateManager,
-        ec2_manager: EC2Manager,
-        s3_manager: S3Manager
+        training_manager: CloudTrainingProvider,
+        storage_manager: CloudStorageProvider,
+        provider_type: str = "aws"
     ):
         """
         Initialize cloud training handlers.
 
         Args:
             state_manager: State manager for workflow tracking
-            ec2_manager: EC2 manager for instance operations
-            s3_manager: S3 manager for dataset/model storage
+            training_manager: Cloud training provider (EC2Manager or RunPodPodManager)
+            storage_manager: Cloud storage provider (S3Manager or RunPodStorageManager)
+            provider_type: Cloud provider type ("aws" or "runpod")
         """
         self.state_manager = state_manager
-        self.ec2_manager = ec2_manager
-        self.s3_manager = s3_manager
+        self.training_manager = training_manager
+        self.storage_manager = storage_manager
+        self.provider_type = provider_type
         self.logger = logger
+
+        # For backward compatibility - maintain old attribute names
+        if provider_type == "aws":
+            self.ec2_manager = training_manager
+            self.s3_manager = storage_manager
+        elif provider_type == "runpod":
+            self.pod_manager = training_manager
+            self.runpod_storage = storage_manager
 
     async def handle_cloud_local_choice(
         self,
@@ -235,15 +253,15 @@ class CloudTrainingHandlers:
             parse_mode=ParseMode.MARKDOWN
         )
 
-        # Upload to S3
-        s3_uri = self.s3_manager.upload_dataset(
+        # Upload to storage
+        storage_uri = self.storage_manager.upload_dataset(
             user_id=user_id,
             file_path=str(local_path),
             dataset_name=update.message.document.file_name
         )
 
-        # Store S3 URI in session
-        session.selections['s3_dataset_uri'] = s3_uri
+        # Store storage URI in session
+        session.selections['s3_dataset_uri'] = storage_uri  # Keep key name for compatibility
 
         # Load dataset to get schema info
         import pandas as pd
@@ -255,7 +273,7 @@ class CloudTrainingHandlers:
         # Send confirmation
         await update.message.reply_text(
             s3_upload_complete_message(
-                s3_uri,
+                storage_uri,
                 file_size_mb,
                 len(df),
                 len(df.columns)
@@ -288,10 +306,10 @@ class CloudTrainingHandlers:
         user_id = update.effective_user.id
         s3_uri = update.message.text.strip()
 
-        self.logger.info(f"Validating S3 URI for user {user_id}: {s3_uri}")
+        self.logger.info(f"Validating storage URI for user {user_id}: {s3_uri}")
 
-        # Validate S3 path
-        is_valid = self.s3_manager.validate_s3_path(s3_uri, user_id)
+        # Validate storage path
+        is_valid = self.storage_manager.validate_s3_path(s3_uri, user_id)
 
         if not is_valid:
             await update.message.reply_text(
@@ -354,20 +372,26 @@ class CloudTrainingHandlers:
             # Get dataset size
             dataset_size_mb = session.uploaded_data.memory_usage(deep=True).sum() / (1024 * 1024)
 
-            # Select instance type
+            # Select compute type (GPU or instance type)
             model_type = session.selections.get('model_type', 'random_forest')
-            instance_type = self.ec2_manager.select_instance_type(
+            compute_type = self.training_manager.select_compute_type(
                 dataset_size_mb,
                 model_type,
                 estimated_training_time_minutes=10  # TODO: Better estimation
             )
 
-            # Store instance type
-            session.selections['instance_type'] = instance_type
+            # Store compute type (use both keys for compatibility)
+            if self.provider_type == "runpod":
+                session.selections['gpu_type'] = compute_type
+                session.selections['instance_type'] = compute_type  # Fallback
+            else:
+                session.selections['instance_type'] = compute_type
+                session.selections['gpu_type'] = compute_type  # Fallback
+
             await self.state_manager.update_session(session)
 
             # Estimate cost (simplified - would use CostTracker in production)
-            estimated_cost = self._estimate_training_cost(instance_type, 10)
+            estimated_cost = self._estimate_training_cost(compute_type, 10)
             estimated_time = 10  # TODO: Better time estimation
 
             # Create confirmation buttons
@@ -380,7 +404,7 @@ class CloudTrainingHandlers:
             # Send confirmation message
             await update.callback_query.message.reply_text(
                 cloud_instance_confirmation_message(
-                    instance_type,
+                    compute_type,  # Works for both gpu_type and instance_type
                     estimated_cost,
                     estimated_time,
                     dataset_size_mb
@@ -407,10 +431,10 @@ class CloudTrainingHandlers:
         session: UserSession
     ) -> None:
         """
-        Launch EC2 instance for cloud training.
+        Launch cloud training (EC2 instance or RunPod GPU pod).
 
-        Creates EC2 Spot instance with UserData script, uploads training config,
-        and starts log streaming.
+        Creates compute instance with training config and starts log streaming.
+        Supports both AWS EC2 and RunPod through provider abstraction.
 
         Args:
             update: Telegram update object
@@ -424,22 +448,48 @@ class CloudTrainingHandlers:
             model_type = session.selections['model_type']
             model_id = f"model_{user_id}_{model_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-            # Generate UserData script
-            userdata_script = self._generate_training_userdata(session, model_id)
+            # Prepare training configuration
+            training_config = {
+                'gpu_type' if self.provider_type == 'runpod' else 'instance_type':
+                    session.selections.get('gpu_type') or session.selections.get('instance_type'),
+                'dataset_key': session.selections.get('s3_dataset_uri'),
+                'model_id': model_id,
+                'user_id': user_id,
+                'model_type': model_type,
+                'target_column': session.selections.get('target_column'),
+                'feature_columns': session.selections.get('feature_columns'),
+                'hyperparameters': session.selections.get('hyperparameters', {})
+            }
 
-            # Launch EC2 instance
-            instance_info = self.ec2_manager.launch_spot_instance(
-                instance_type=session.selections['instance_type'],
-                user_data_script=userdata_script,
-                tags={
-                    'user_id': str(user_id),
-                    'model_id': model_id,
-                    'workflow': 'cloud_training'
-                }
-            )
+            # Launch training (provider-specific)
+            if self.provider_type == 'runpod':
+                # RunPod GPU Pod launch
+                launch_result = self.training_manager.launch_training(training_config)
+                job_id = launch_result['pod_id']
+                compute_type = launch_result['gpu_type']
 
-            # Store instance info
-            session.selections['instance_id'] = instance_info['instance_id']
+                # Store pod ID
+                session.selections['pod_id'] = job_id
+                session.selections['instance_id'] = job_id  # For compatibility
+            else:
+                # AWS EC2 launch
+                userdata_script = self._generate_training_userdata(session, model_id)
+                launch_result = self.ec2_manager.launch_spot_instance(
+                    instance_type=training_config['instance_type'],
+                    user_data_script=userdata_script,
+                    tags={
+                        'user_id': str(user_id),
+                        'model_id': model_id,
+                        'workflow': 'cloud_training'
+                    }
+                )
+                job_id = launch_result['instance_id']
+                compute_type = launch_result['instance_type']
+
+                # Store instance ID
+                session.selections['instance_id'] = job_id
+                session.selections['pod_id'] = job_id  # For compatibility
+
             session.selections['model_id'] = model_id
             await self.state_manager.update_session(session)
 
@@ -449,23 +499,24 @@ class CloudTrainingHandlers:
             # Send launch message
             await update.callback_query.message.reply_text(
                 cloud_training_launched_message(
-                    instance_info['instance_id'],
-                    instance_info['instance_type']
+                    job_id,
+                    compute_type
                 ),
                 parse_mode=ParseMode.MARKDOWN
             )
 
             # Start log streaming in background
             asyncio.create_task(
-                self.stream_training_logs(update, context, session, instance_info['instance_id'])
+                self.stream_training_logs(update, context, session, job_id)
             )
 
-            self.logger.info(f"Cloud training launched for user {user_id}: {instance_info['instance_id']}")
+            self.logger.info(f"Cloud training launched for user {user_id}: {job_id}")
 
-        except EC2Error as e:
-            self.logger.error(f"EC2 error in launch_cloud_training: {e}", exc_info=True)
+        except (EC2Error, CloudError) as e:
+            error_type = "EC2LaunchError" if self.provider_type == "aws" else "RunPodLaunchError"
+            self.logger.error(f"{error_type} in launch_cloud_training: {e}", exc_info=True)
             await update.callback_query.message.reply_text(
-                cloud_error_message("EC2LaunchError", str(e)),
+                cloud_error_message(error_type, str(e)),
                 parse_mode=ParseMode.MARKDOWN
             )
             raise
@@ -482,19 +533,20 @@ class CloudTrainingHandlers:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
         session: UserSession,
-        instance_id: str
+        job_id: str
     ) -> None:
         """
-        Stream CloudWatch logs to Telegram in real-time.
+        Stream training logs to Telegram in real-time.
 
-        Polls EC2Manager for log lines and sends them to user. Detects
+        Polls training manager for log lines and sends them to user. Detects
         training completion and triggers completion handler.
+        Supports both AWS CloudWatch and RunPod pod logs.
 
         Args:
             update: Telegram update object
             context: Telegram context object
             session: User session
-            instance_id: EC2 instance ID to monitor
+            job_id: Job identifier (EC2 instance ID or RunPod pod ID)
         """
         try:
             user_id = session.user_id
@@ -503,10 +555,10 @@ class CloudTrainingHandlers:
             # Transition to monitoring state
             await self.state_manager.transition_state(session, CloudTrainingState.MONITORING_TRAINING.value)
 
-            self.logger.info(f"Starting log streaming for user {user_id}, instance {instance_id}")
+            self.logger.info(f"Starting log streaming for user {user_id}, job {job_id}")
 
-            # Stream logs
-            async for log_line in self.ec2_manager.poll_training_logs(instance_id):
+            # Stream logs (provider-specific poll method)
+            async for log_line in self.training_manager.poll_training_logs(job_id):
                 # Send log to user
                 await context.bot.send_message(
                     chat_id=chat_id,
@@ -515,7 +567,7 @@ class CloudTrainingHandlers:
                 )
 
                 # Check for completion
-                if "Training complete!" in log_line:
+                if "Training complete!" in log_line or "✅ Model saved successfully!" in log_line:
                     self.logger.info(f"Training complete detected for user {user_id}")
                     await self._handle_training_completion(update, context, session)
                     break

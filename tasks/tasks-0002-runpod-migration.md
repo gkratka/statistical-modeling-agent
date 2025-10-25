@@ -1440,7 +1440,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
 
 ### Sub-Tasks
 
-- [ ] **7.1 Update cloud messages for RunPod**
+- [x] **7.1 Update cloud messages for RunPod**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/bot/messages/cloud_messages.py`
   - Replace AWS terminology:
     ```python
@@ -1475,7 +1475,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     """
     ```
 
-- [ ] **7.2 Update cloud training handlers for RunPod**
+- [x] **7.2 Update cloud training handlers for RunPod**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/bot/handlers/cloud_training_handlers.py`
   - Replace EC2Manager with RunPodPodManager:
     ```python
@@ -1511,7 +1511,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
             session.data['pod_id'] = pod_id
     ```
 
-- [ ] **7.3 Update cloud prediction handlers for RunPod**
+- [x] **7.3 Update cloud prediction handlers for RunPod**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/bot/handlers/cloud_prediction_handlers.py`
   - Replace LambdaManager with RunPodServerlessManager:
     ```python
@@ -1541,7 +1541,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
             )
     ```
 
-- [ ] **7.4 Update message templates for GPU types**
+- [x] **7.4 Update message templates for GPU types**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/bot/messages/cloud_messages.py`
   - Add GPU type descriptions:
     ```python

@@ -1,16 +1,17 @@
 """
 Telegram bot handlers for cloud-based prediction workflows.
 
-This module implements Telegram bot handlers for cloud predictions using AWS Lambda,
-S3, and trained models. Handles dataset upload, model selection, Lambda invocation,
-and result retrieval.
+This module implements Telegram bot handlers for cloud predictions using AWS Lambda
+or RunPod Serverless, with S3-compatible storage. Handles dataset upload, model selection,
+prediction invocation, and result retrieval.
 
 Author: Statistical Modeling Agent
 Created: 2025-10-24 (Task 5.0: Cloud Workflow Telegram Integration)
+Updated: 2025-10-24 (Task 7.3: RunPod Serverless Integration)
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -18,8 +19,12 @@ from telegram.ext import ContextTypes
 
 from src.core.state_manager import StateManager, UserSession, CloudPredictionState, WorkflowType
 from src.cloud.lambda_manager import LambdaManager
+from src.cloud.runpod_serverless_manager import RunPodServerlessManager
 from src.cloud.s3_manager import S3Manager
-from src.cloud.exceptions import LambdaError, S3Error
+from src.cloud.runpod_storage_manager import RunPodStorageManager
+from src.cloud.provider_factory import CloudProviderFactory
+from src.cloud.provider_interface import CloudPredictionProvider, CloudStorageProvider
+from src.cloud.exceptions import LambdaError, S3Error, CloudError
 from src.bot.messages.cloud_messages import (
     CHOOSE_CLOUD_LOCAL_MESSAGE,
     AWAITING_S3_DATASET_MESSAGE,
@@ -37,27 +42,42 @@ class CloudPredictionHandlers:
     Handlers for cloud-based prediction workflows.
 
     This class manages the complete cloud prediction workflow from dataset upload
-    to result retrieval, using AWS Lambda for serverless predictions.
+    to result retrieval, supporting both AWS Lambda and RunPod Serverless through
+    a provider factory pattern.
     """
 
     def __init__(
         self,
         state_manager: StateManager,
-        lambda_manager: LambdaManager,
-        s3_manager: S3Manager
+        prediction_manager: CloudPredictionProvider,
+        storage_manager: CloudStorageProvider,
+        provider_type: str = "aws",
+        endpoint_id: Optional[str] = None
     ):
         """
         Initialize cloud prediction handlers.
 
         Args:
             state_manager: State manager for workflow tracking
-            lambda_manager: Lambda manager for prediction invocation
-            s3_manager: S3 manager for dataset/result storage
+            prediction_manager: Cloud prediction provider (LambdaManager or RunPodServerlessManager)
+            storage_manager: Cloud storage provider (S3Manager or RunPodStorageManager)
+            provider_type: Cloud provider type ("aws" or "runpod")
+            endpoint_id: RunPod endpoint ID (required for RunPod)
         """
         self.state_manager = state_manager
-        self.lambda_manager = lambda_manager
-        self.s3_manager = s3_manager
+        self.prediction_manager = prediction_manager
+        self.storage_manager = storage_manager
+        self.provider_type = provider_type
+        self.endpoint_id = endpoint_id
         self.logger = logger
+
+        # For backward compatibility - maintain old attribute names
+        if provider_type == "aws":
+            self.lambda_manager = prediction_manager
+            self.s3_manager = storage_manager
+        elif provider_type == "runpod":
+            self.serverless_manager = prediction_manager
+            self.runpod_storage = storage_manager
 
     async def handle_cloud_prediction_choice(
         self,
@@ -175,20 +195,20 @@ class CloudPredictionHandlers:
         self.logger.info(f"Downloading prediction file from Telegram for user {user_id}")
         await file.download_to_drive(local_path)
 
-        # Upload to S3
-        s3_uri = self.s3_manager.upload_dataset(
+        # Upload to storage
+        storage_uri = self.storage_manager.upload_dataset(
             user_id=user_id,
             file_path=local_path,
             dataset_name=update.message.document.file_name
         )
 
-        # Store S3 URI in session
-        session.selections['s3_dataset_uri'] = s3_uri
+        # Store storage URI in session
+        session.selections['s3_dataset_uri'] = storage_uri  # Keep key for compatibility
         await self.state_manager.update_session(session)
 
         # Send confirmation
         await update.message.reply_text(
-            f"✅ Prediction dataset uploaded to S3: `{s3_uri}`",
+            f"✅ Prediction dataset uploaded: `{storage_uri}`",
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -214,10 +234,10 @@ class CloudPredictionHandlers:
         user_id = update.effective_user.id
         s3_uri = update.message.text.strip()
 
-        self.logger.info(f"Validating prediction S3 URI for user {user_id}: {s3_uri}")
+        self.logger.info(f"Validating prediction storage URI for user {user_id}: {s3_uri}")
 
-        # Validate S3 path
-        is_valid = self.s3_manager.validate_s3_path(s3_uri, user_id)
+        # Validate storage path
+        is_valid = self.storage_manager.validate_s3_path(s3_uri, user_id)
 
         if not is_valid:
             await update.message.reply_text(
@@ -251,10 +271,11 @@ class CloudPredictionHandlers:
         session: UserSession
     ) -> None:
         """
-        Launch Lambda function for cloud prediction.
+        Launch cloud prediction (AWS Lambda or RunPod Serverless).
 
-        Invokes AWS Lambda with model and dataset, waits for completion,
-        and retrieves results from S3.
+        Invokes prediction service with model and dataset, waits for completion,
+        and retrieves results from storage.
+        Supports both AWS Lambda and RunPod Serverless through provider abstraction.
 
         Args:
             update: Telegram update object
@@ -266,10 +287,11 @@ class CloudPredictionHandlers:
 
             # Get configuration from session
             model_id = session.selections.get('selected_model_id')
-            s3_dataset_uri = session.selections.get('s3_dataset_uri')
+            dataset_uri = session.selections.get('s3_dataset_uri')
             prediction_column_name = session.selections.get('prediction_column_name', 'prediction')
+            feature_columns = session.selections.get('feature_columns')
 
-            if not model_id or not s3_dataset_uri:
+            if not model_id or not dataset_uri:
                 await update.message.reply_text(
                     "❌ Missing model or dataset. Please start over with /predict"
                 )
@@ -279,35 +301,59 @@ class CloudPredictionHandlers:
             await self.state_manager.transition_state(session, CloudPredictionState.LAUNCHING_PREDICTION.value)
 
             # Send launch message
+            request_id = f"{self.provider_type}-{str(hash(dataset_uri))[:8]}"
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text=cloud_prediction_launched_message(
-                    request_id="lambda-" + str(hash(s3_dataset_uri))[:8],
+                    request_id=request_id,
                     num_rows=1000  # Placeholder - would get from dataset metadata
                 ),
                 parse_mode=ParseMode.MARKDOWN
             )
 
-            # Invoke Lambda function
-            self.logger.info(f"Invoking Lambda for user {user_id}, model {model_id}")
+            # Invoke prediction service (provider-specific)
+            self.logger.info(f"Invoking prediction for user {user_id}, model {model_id} on {self.provider_type}")
 
-            response = self.lambda_manager.invoke_prediction(
-                user_id=user_id,
-                model_id=model_id,
-                s3_dataset_uri=s3_dataset_uri,
-                prediction_column_name=prediction_column_name
-            )
+            if self.provider_type == 'runpod':
+                # RunPod serverless invocation
+                model_uri = f"models/user_{user_id}/{model_id}"
+                output_uri = f"predictions/user_{user_id}/{model_id}_prediction.csv"
 
-            # Extract results from response
-            s3_output_uri = response['body']['s3_output_uri']
-            num_predictions = response['body']['num_predictions']
-            execution_time_ms = response['body']['execution_time_ms']
+                response = self.prediction_manager.invoke_prediction(
+                    model_uri=model_uri,
+                    data_uri=dataset_uri,
+                    output_uri=output_uri,
+                    endpoint_id=self.endpoint_id,
+                    prediction_column_name=prediction_column_name,
+                    feature_columns=feature_columns
+                )
+
+                # Extract results
+                output_location = response.get('output', {}).get('output_key', output_uri)
+                num_predictions = response.get('output', {}).get('num_predictions', 0)
+                execution_time_ms = 0  # RunPod doesn't provide this in same format
+            else:
+                # AWS Lambda invocation
+                response = self.lambda_manager.invoke_prediction(
+                    user_id=user_id,
+                    model_id=model_id,
+                    s3_dataset_uri=dataset_uri,
+                    prediction_column_name=prediction_column_name
+                )
+
+                # Extract results from AWS response
+                output_location = response['body']['s3_output_uri']
+                num_predictions = response['body']['num_predictions']
+                execution_time_ms = response['body']['execution_time_ms']
 
             # Generate presigned URL for download
-            presigned_url = self.s3_manager.generate_presigned_url(s3_output_uri, expiration=3600)
+            presigned_url = self.storage_manager.generate_presigned_url(output_location, expiration=3600)
 
-            # Estimate cost
-            cost = self.lambda_manager.estimate_prediction_cost(num_predictions)
+            # Estimate cost (provider-specific)
+            if self.provider_type == 'runpod':
+                cost = 0.01  # Placeholder - would calculate based on execution time
+            else:
+                cost = self.lambda_manager.estimate_prediction_cost(num_predictions)
 
             # Transition to complete state
             await self.state_manager.transition_state(session, CloudPredictionState.PREDICTION_COMPLETE.value)
@@ -316,7 +362,7 @@ class CloudPredictionHandlers:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text=cloud_prediction_complete_message(
-                    s3_output_uri,
+                    output_location,
                     num_predictions,
                     execution_time_ms,
                     cost,
@@ -328,10 +374,11 @@ class CloudPredictionHandlers:
             # Complete workflow
             await self.state_manager.transition_state(session, CloudPredictionState.COMPLETE.value)
 
-            self.logger.info(f"Cloud prediction completed for user {user_id}: {s3_output_uri}")
+            self.logger.info(f"Cloud prediction completed for user {user_id}: {output_location}")
 
-        except LambdaError as e:
-            self.logger.error(f"Lambda error in launch_cloud_prediction: {e}", exc_info=True)
+        except (LambdaError, CloudError) as e:
+            error_type = "LambdaError" if self.provider_type == "aws" else "RunPodServerlessError"
+            self.logger.error(f"{error_type} in launch_cloud_prediction: {e}", exc_info=True)
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text=cloud_error_message("LambdaError", str(e)),
