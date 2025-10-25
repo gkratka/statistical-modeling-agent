@@ -47,6 +47,26 @@ class CostTracker:
     # S3 Pricing Constants
     S3_STORAGE_PRICE_PER_GB_MONTH = 0.023  # Per GB per month
 
+    # RunPod GPU Pricing (Community Cloud - per hour in dollars)
+    RUNPOD_GPU_PRICING = {
+        'NVIDIA RTX A5000': 0.29,
+        'NVIDIA RTX A40': 0.39,
+        'NVIDIA A100 PCIe 40GB': 0.79,
+        'NVIDIA A100 PCIe 80GB': 1.19,
+        'NVIDIA H100 PCIe': 1.99,
+    }
+
+    # RunPod Serverless Pricing (per second during execution)
+    RUNPOD_SERVERLESS_PRICING = {
+        'NVIDIA RTX A5000': 0.29 / 3600,  # Convert hourly to per-second
+        'NVIDIA RTX A40': 0.39 / 3600,
+        'NVIDIA A100 PCIe 40GB': 0.79 / 3600,
+    }
+
+    # RunPod Storage Pricing (per GB per month)
+    RUNPOD_STORAGE_PRICE_PER_GB_MONTH = 0.07  # Network volume (stopped)
+    RUNPOD_STORAGE_PRICE_PER_GB_MONTH_RUNNING = 0.10  # Network volume (running)
+
     def __init__(self, config: CloudConfig) -> None:
         """
         Initialize CostTracker with configuration.
@@ -340,6 +360,151 @@ class CostTracker:
 
         return not would_exceed
 
+    # RunPod Cost Estimation Methods (Task 3.2-3.4)
+
+    def estimate_runpod_training_cost(
+        self,
+        gpu_type: str,
+        estimated_time_seconds: int
+    ) -> float:
+        """
+        Estimate RunPod GPU training cost with per-second billing.
+
+        RunPod bills per-second for GPU usage, unlike AWS EC2 which bills
+        hourly. This provides more accurate cost estimation for shorter jobs.
+
+        Args:
+            gpu_type: GPU type (e.g., 'NVIDIA RTX A5000')
+            estimated_time_seconds: Estimated training time in seconds
+
+        Returns:
+            float: Estimated cost in dollars
+
+        Raises:
+            CostTrackingError: If GPU type is unknown
+
+        Example:
+            >>> cost = tracker.estimate_runpod_training_cost('NVIDIA RTX A5000', 1800)
+            >>> print(cost)
+            0.145
+        """
+        # Validate GPU type
+        if gpu_type not in self.RUNPOD_GPU_PRICING:
+            raise CostTrackingError(
+                f"Unknown GPU type: {gpu_type}. "
+                f"Supported types: {list(self.RUNPOD_GPU_PRICING.keys())}",
+                operation="estimate_runpod_training_cost"
+            )
+
+        # Get hourly rate
+        hourly_rate = self.RUNPOD_GPU_PRICING[gpu_type]
+
+        # Convert seconds to hours
+        hours = estimated_time_seconds / 3600.0
+
+        # Calculate cost
+        cost = hourly_rate * hours
+
+        return cost
+
+    def estimate_runpod_prediction_cost(
+        self,
+        num_rows: int,
+        gpu_type: str = 'NVIDIA RTX A5000',
+        estimated_time_seconds: float = 10
+    ) -> float:
+        """
+        Estimate RunPod serverless prediction cost.
+
+        RunPod serverless bills per-second only during execution (no idle costs).
+        Much cheaper than AWS Lambda for GPU inference.
+
+        Args:
+            num_rows: Number of rows to predict
+            gpu_type: GPU type for serverless endpoint
+            estimated_time_seconds: Estimated execution time in seconds
+
+        Returns:
+            float: Estimated cost in dollars
+
+        Example:
+            >>> cost = tracker.estimate_runpod_prediction_cost(1000, 'NVIDIA RTX A5000', 10)
+            >>> print(cost)
+            0.0008
+        """
+        # Validate GPU type
+        if gpu_type not in self.RUNPOD_SERVERLESS_PRICING:
+            raise CostTrackingError(
+                f"Unknown serverless GPU type: {gpu_type}. "
+                f"Supported types: {list(self.RUNPOD_SERVERLESS_PRICING.keys())}",
+                operation="estimate_runpod_prediction_cost"
+            )
+
+        # Get per-second rate
+        per_second_rate = self.RUNPOD_SERVERLESS_PRICING[gpu_type]
+
+        # Calculate cost: per-second rate * execution time
+        cost = per_second_rate * estimated_time_seconds
+
+        return cost
+
+    def calculate_runpod_storage_cost(
+        self,
+        user_id: int,
+        storage_manager: Any,
+        is_running: bool = False
+    ) -> Dict[str, float]:
+        """
+        Calculate RunPod network volume storage cost.
+
+        RunPod has different rates for stopped vs running volumes.
+        Cheaper than AWS S3 ($0.07/GB vs $0.023/GB) but limited to
+        one volume per region.
+
+        Args:
+            user_id: User ID to calculate storage for
+            storage_manager: RunPodStorageManager instance
+            is_running: Whether volume is attached to running pod
+
+        Returns:
+            dict: Storage breakdown with keys:
+                - total_storage_gb: Total storage in GB
+                - monthly_cost: Monthly cost in dollars
+                - datasets_gb: Dataset storage in GB
+                - models_gb: Model storage in GB
+
+        Example:
+            >>> result = tracker.calculate_runpod_storage_cost(12345, storage_mgr)
+            >>> print(result['monthly_cost'])
+            3.50
+        """
+        # Get storage breakdown from storage manager
+        datasets = storage_manager.list_user_datasets(user_id)
+        models = storage_manager.list_user_models(user_id)
+
+        # Calculate total storage in GB
+        datasets_gb = sum(d.get('size_bytes', 0) for d in datasets) / (1024**3)
+        models_gb = sum(m.get('size_bytes', 0) for m in models) / (1024**3)
+        total_storage_gb = datasets_gb + models_gb
+
+        # Select pricing based on running state
+        price_per_gb = (
+            self.RUNPOD_STORAGE_PRICE_PER_GB_MONTH_RUNNING
+            if is_running
+            else self.RUNPOD_STORAGE_PRICE_PER_GB_MONTH
+        )
+
+        # Calculate monthly cost
+        monthly_cost = total_storage_gb * price_per_gb
+
+        return {
+            'total_storage_gb': total_storage_gb,
+            'monthly_cost': monthly_cost,
+            'datasets_gb': datasets_gb,
+            'models_gb': models_gb,
+            'price_per_gb': price_per_gb
+        }
+
     def _get_instance_runtime(self, instance_id: str) -> float:
         """
         Get EC2 instance runtime in minutes.
@@ -429,9 +594,9 @@ class CostTracker:
         Log cost entry to JSON file.
 
         Args:
-            service: AWS service name (ec2, lambda, s3)
+            service: Cloud service name (ec2, lambda, s3, runpod_gpu, runpod_serverless, runpod_storage)
             operation: Operation performed (training, prediction, storage)
-            **kwargs: Additional fields (user_id, cost, instance_type, etc.)
+            **kwargs: Additional fields (user_id, cost, instance_type, gpu_type, etc.)
 
         Example:
             >>> tracker._log_cost(

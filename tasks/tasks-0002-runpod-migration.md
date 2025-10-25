@@ -265,7 +265,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
 
 ### Sub-Tasks
 
-- [ ] **3.1 Create RunPod pricing constants**
+- [x] **3.1 Create RunPod pricing constants**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Add RunPod pricing:
     ```python
@@ -290,7 +290,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     RUNPOD_STORAGE_PRICE_PER_GB_MONTH_RUNNING = 0.10  # Network volume (running)
     ```
 
-- [ ] **3.2 Implement per-second billing calculations**
+- [x] **3.2 Implement per-second billing calculations**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Add methods:
     ```python
@@ -320,7 +320,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     - `test_estimate_runpod_training_cost_a100`
     - `test_calculate_runpod_training_cost_accuracy`
 
-- [ ] **3.3 Implement RunPod prediction cost estimation**
+- [x] **3.3 Implement RunPod prediction cost estimation**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Add method:
     ```python
@@ -340,7 +340,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     ```
   - Test: Prediction cost calculation
 
-- [ ] **3.4 Implement RunPod storage cost calculation**
+- [x] **3.4 Implement RunPod storage cost calculation**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Add method:
     ```python
@@ -372,7 +372,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     ```
   - Test: Storage cost calculation
 
-- [ ] **3.5 Update cost logging for RunPod**
+- [x] **3.5 Update cost logging for RunPod**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/cost_tracker.py`
   - Update `_log_cost` to support RunPod:
     ```python
@@ -388,8 +388,8 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
         # Same implementation, just different service names
     ```
 
-- [ ] **3.6 Write tests for RunPod cost tracking**
-  - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_cost_tracker.py`
+- [x] **3.6 Write tests for RunPod cost tracking**
+  - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_runpod_cost_tracking.py`
   - Test cases:
     - `test_estimate_runpod_training_cost_per_second`
     - `test_runpod_prediction_cost_no_request_fees`
