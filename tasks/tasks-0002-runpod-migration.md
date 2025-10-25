@@ -1019,7 +1019,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
 
 ### Sub-Tasks
 
-- [ ] **6.1 Create RunPodPodManager**
+- [x] **6.1 Create RunPodPodManager**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/runpod_pod_manager.py`
   - Implement pod manager:
     ```python
@@ -1168,7 +1168,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
                 return int(dataset_size_mb * 2.0)
     ```
 
-- [ ] **6.2 Create training Docker image for RunPod**
+- [x] **6.2 Create training Docker image for RunPod**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/runpod/training/Dockerfile`
   - Create Dockerfile:
     ```dockerfile
@@ -1193,7 +1193,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     CMD ["python", "/workspace/train.py"]
     ```
 
-- [ ] **6.3 Create training script for RunPod pods**
+- [x] **6.3 Create training script for RunPod pods**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/runpod/training/train.py`
   - Implement training:
     ```python
@@ -1324,7 +1324,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
         main()
     ```
 
-- [ ] **6.4 Implement pod monitoring and log streaming**
+- [x] **6.4 Implement pod monitoring and log streaming**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/runpod_pod_manager.py`
   - Add async log streaming:
     ```python
@@ -1367,7 +1367,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
             await asyncio.sleep(poll_interval_seconds)
     ```
 
-- [ ] **6.5 Implement auto-termination logic**
+- [x] **6.5 Implement auto-termination logic**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/runpod_pod_manager.py`
   - Add termination after training:
     ```python
@@ -1419,7 +1419,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
             time.sleep(10)  # Poll every 10 seconds
     ```
 
-- [ ] **6.6 Write tests for RunPod pod manager**
+- [x] **6.6 Write tests for RunPod pod manager**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_runpod_pod_manager.py`
   - Test cases:
     - `test_select_compute_type_small_dataset`
