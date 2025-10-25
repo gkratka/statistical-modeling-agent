@@ -144,6 +144,29 @@ cloud:
     timeout_seconds: 900  # 15 minutes
     layer_arn: ""  # Set during deployment
 
+  # RunPod Configuration
+  runpod:
+    api_key: ${RUNPOD_API_KEY}  # Set in .env file
+    storage_endpoint: "https://storage.runpod.io"
+    network_volume_id: ${RUNPOD_NETWORK_VOLUME_ID}  # Set in .env file
+
+    # GPU Configuration
+    default_gpu_type: "NVIDIA RTX A5000"  # Default GPU for training
+    cloud_type: "COMMUNITY"  # "COMMUNITY" or "SECURE"
+
+    # Storage Configuration
+    storage_access_key: ${RUNPOD_STORAGE_ACCESS_KEY}  # Set in .env file
+    storage_secret_key: ${RUNPOD_STORAGE_SECRET_KEY}  # Set in .env file
+    data_prefix: "datasets"
+    models_prefix: "models"
+    results_prefix: "results"
+
+    # Serverless Endpoint
+    endpoint_id: ${RUNPOD_ENDPOINT_ID}  # Set after creating serverless endpoint
+
+    # Optional: Docker Registry
+    docker_registry: null  # e.g., "username" for Docker Hub
+
   cost_limits:
     max_training_cost_dollars: 10.0
     max_prediction_cost_dollars: 1.0

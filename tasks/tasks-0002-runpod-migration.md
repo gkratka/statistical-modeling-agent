@@ -498,7 +498,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     - `test_runpod_config_from_env`
     - `test_runpod_config_validation`
 
-- [ ] **4.2 Create RunPodClient wrapper**
+- [x] **4.2 Create RunPodClient wrapper**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/runpod_client.py`
   - Implement client:
     ```python
@@ -561,7 +561,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     ```
   - Test: Health check and storage access
 
-- [ ] **4.3 Update config.yaml for RunPod**
+- [x] **4.3 Update config.yaml for RunPod**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/config/config.yaml`
   - Add RunPod section:
     ```yaml
@@ -592,7 +592,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
       docker_registry: null  # e.g., "username" for Docker Hub
     ```
 
-- [ ] **4.4 Update .env.example for RunPod**
+- [x] **4.4 Update .env.example for RunPod**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/.env.example`
   - Add RunPod variables:
     ```bash
@@ -615,7 +615,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     RUNPOD_MAX_PREDICTION_COST=1.0
     ```
 
-- [ ] **4.5 Simplify security for RunPod**
+- [x] **4.5 Simplify security for RunPod**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/security.py`
   - Add RunPod security manager (much simpler - no IAM):
     ```python
@@ -668,8 +668,11 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
     ```
   - No bucket policies, IAM roles, or encryption methods needed (RunPod handles)
 
-- [ ] **4.6 Write tests for RunPod configuration**
-  - File: `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_runpod_config.py`
+- [x] **4.6 Write tests for RunPod configuration**
+  - Files:
+    - `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_runpod_client.py` (18 tests)
+    - `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_runpod_security_manager.py` (13 tests)
+    - `/Users/gkratka/Documents/statistical-modeling-agent/tests/unit/test_runpod_config.py` (17 tests, from Task 4.1)
   - Test cases:
     - `test_runpod_config_from_yaml_valid`
     - `test_runpod_config_validation_missing_api_key`

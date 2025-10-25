@@ -512,3 +512,168 @@ class SecurityManager:
         # Write updated logs
         with open(audit_log_file, 'w') as f:
             json.dump(logs, f, indent=2)
+
+
+class RunPodSecurityManager:
+    """
+    Simplified security manager for RunPod (no IAM policies needed).
+
+    RunPod provides simpler security model:
+    - No IAM roles or policies (API key-based authentication)
+    - No bucket policies (network volumes are private by default)
+    - No encryption configuration (RunPod handles encryption)
+    - Path-based user isolation (similar to AWS but simpler)
+    """
+
+    def __init__(self, config: Any) -> None:
+        """
+        Initialize RunPodSecurityManager.
+
+        Args:
+            config: RunPodConfig instance
+
+        Example:
+            >>> from src.cloud.runpod_config import RunPodConfig
+            >>> config = RunPodConfig.from_yaml("config.yaml")
+            >>> security_manager = RunPodSecurityManager(config)
+        """
+        self.config = config
+
+    def validate_user_storage_access(
+        self,
+        storage_key: str,
+        user_id: int,
+        operation: str
+    ) -> bool:
+        """
+        Validate user can access storage path.
+
+        Enforces user isolation:
+        - Users can only access paths with user_{user_id} prefix
+        - Read operations: can read own data, blocked from other users
+        - Write operations: only allowed for user's own prefix
+
+        Args:
+            storage_key: Storage object key to validate
+            user_id: User ID requesting access
+            operation: 'read' or 'write'
+
+        Returns:
+            bool: True if access allowed
+
+        Raises:
+            ValueError: If access denied
+
+        Example:
+            >>> security_manager.validate_user_storage_access(
+            ...     storage_key="datasets/user_12345/data.csv",
+            ...     user_id=12345,
+            ...     operation="write"
+            ... )
+            True
+        """
+        user_prefix = f"user_{user_id}"
+
+        # Validate write operations
+        if operation == 'write':
+            # Write: must be in user's prefix
+            allowed_prefixes = [
+                f"{self.config.data_prefix}/{user_prefix}/",
+                f"{self.config.models_prefix}/{user_prefix}/",
+                f"predictions/{user_prefix}/",
+                f"{self.config.results_prefix}/{user_prefix}/"
+            ]
+
+            if not any(storage_key.startswith(prefix) for prefix in allowed_prefixes):
+                raise ValueError(
+                    f"Write access denied: {storage_key} does not belong to user {user_id}. "
+                    f"Allowed prefixes: {allowed_prefixes}"
+                )
+
+        # Validate read operations
+        elif operation == 'read':
+            # Read: can read own data, but not other users' data
+            if user_prefix not in storage_key:
+                # Check if trying to read another user's data
+                # Pattern: user_{digits}/
+                other_user_pattern = r'user_(\d+)/'
+                match = re.search(other_user_pattern, storage_key)
+
+                if match:
+                    other_user_id = int(match.group(1))
+                    if other_user_id != user_id:
+                        raise ValueError(
+                            f"Read access denied: {storage_key} belongs to user {other_user_id}, "
+                            f"not user {user_id}"
+                        )
+
+        return True
+
+    def audit_log_operation(
+        self,
+        user_id: int,
+        operation: str,
+        resource: str,
+        success: bool,
+        **metadata: Any
+    ) -> None:
+        """
+        Log security-relevant operation to audit trail.
+
+        Creates structured log entry with:
+        - Timestamp
+        - User ID
+        - Operation type
+        - Resource identifier
+        - Success status
+        - Provider (RunPod)
+        - Additional metadata
+
+        Logs are stored in data/logs/cloud_audit.json
+
+        Args:
+            user_id: User performing operation
+            operation: Operation type (runpod_training, runpod_prediction, storage_upload, etc.)
+            resource: Resource identifier (pod_id, storage_key, endpoint_id, etc.)
+            success: Whether operation succeeded
+            **metadata: Additional context (cost, gpu_type, duration, etc.)
+
+        Example:
+            >>> security_manager.audit_log_operation(
+            ...     user_id=12345,
+            ...     operation="runpod_training",
+            ...     resource="pod-abc123",
+            ...     success=True,
+            ...     gpu_type="NVIDIA RTX A5000",
+            ...     cost=0.145,
+            ...     duration=1800
+            ... )
+        """
+        # Build log entry with provider tag
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'user_id': user_id,
+            'operation': operation,
+            'resource': resource,
+            'success': success,
+            'provider': 'runpod',  # Tag RunPod operations
+            **metadata
+        }
+
+        # Ensure audit log directory exists
+        audit_log_file = Path("data/logs/cloud_audit.json")
+        audit_log_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Load existing logs or create new list
+        if audit_log_file.exists():
+            with open(audit_log_file, 'r') as f:
+                logs = json.load(f)
+        else:
+            logs = []
+
+        # Append new log entry
+        logs.append(log_entry)
+
+        # Write updated logs
+        with open(audit_log_file, 'w') as f:
+            json.dump(logs, f, indent=2)
