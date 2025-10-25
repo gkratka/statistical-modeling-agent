@@ -406,7 +406,7 @@ This document provides actionable sub-tasks for migrating the cloud-based ML tra
 
 ### Sub-Tasks
 
-- [ ] **4.1 Create RunPodConfig dataclass**
+- [x] **4.1 Create RunPodConfig dataclass**
   - File: `/Users/gkratka/Documents/statistical-modeling-agent/src/cloud/runpod_config.py`
   - Define configuration:
     ```python
