@@ -1,0 +1,127 @@
+# English Translations
+# Statistical Modeling Telegram Bot
+
+# Common phrases
+common:
+  suggestions: "💡 Suggestions"
+  language_switched: "✅ Language switched to English"
+
+# Bot commands
+commands:
+  start:
+    welcome: "🤖 Welcome to the Statistical Modeling Agent!"
+    version: "🔧 Version: {version}"
+    features: |
+      I can help you with:
+      📊 Statistical analysis of your data
+      🧠 Machine learning model training
+      📈 Data predictions and insights
+      📁 Local file path support (no size limits)
+    instructions: |
+      **Getting Started:**
+      • Send /help to see available commands
+      • Upload a data file (CSV, Excel, Parquet)
+      • Or use /train to start ML model training
+
+  help:
+    title: "🆘 Statistical Modeling Agent Help"
+    description: "I'm your AI assistant for statistical analysis and machine learning."
+    commands_section: "**Available Commands:**"
+    start_cmd: "/start - Start the bot and see welcome message"
+    help_cmd: "/help - Show this help message"
+    train_cmd: "/train - Start ML model training workflow"
+    models_cmd: "/models - Browse your trained models"
+    predict_cmd: "/predict - Make predictions with a trained model"
+    features_section: |
+
+      **Features:**
+      📊 Statistical Analysis: Descriptive stats, correlation, hypothesis testing
+      🧠 ML Training: 13 model types (regression, classification, neural networks)
+      📈 Predictions: Score new data with trained models
+      📁 Local Paths: Train on large datasets via filesystem paths
+
+    support: "Need help? Just describe what you want to do in natural language!"
+
+# Error messages
+errors:
+  validation:
+    empty_request:
+      title: "Empty Request"
+      details: "Your message appears to be empty. Please describe what you'd like to do."
+      suggestions:
+        upload: "Upload a data file"
+        command: "Use a command like /help or /train"
+
+    invalid_path:
+      title: "Invalid Path"
+      details: "The path '{path}' is not in the allowed directories."
+      suggestions:
+        check: "Verify the path exists and is accessible"
+        whitelist: "Check allowed directories in configuration"
+
+    file_too_large:
+      title: "File Too Large"
+      details: "File size {size}MB exceeds the maximum of {max_size}MB."
+      suggestions:
+        local: "Use local file path feature for large files"
+        compress: "Compress or split the file"
+
+# Success messages
+success:
+  data_loaded: "✅ Data loaded successfully"
+  model_trained: "✅ Model '{model_id}' trained successfully"
+  prediction_complete: "✅ Predictions generated"
+  file_uploaded: "✅ File uploaded: {filename}"
+
+# ML Training Workflow
+workflows:
+  ml_training:
+    data_source_prompt: |
+      🤖 **ML Training Workflow**
+
+      How would you like to provide your training data?
+
+      **📤 Upload File**: Upload CSV/Excel through Telegram
+      • Max size: 10MB | Best for: Quick analysis
+
+      **📂 Use Local Path**: Provide filesystem path
+      • No size limits | Best for: Large datasets
+
+      Choose your data source:
+
+    upload_button: "📤 Upload File"
+    local_path_button: "📂 Use Local Path"
+    template_button: "📋 Use Template"
+
+    awaiting_file: |
+      ✅ **Telegram Upload**
+
+      📤 Please upload your file.
+
+      **Formats:** CSV, Excel, Parquet | **Max:** 10MB
+
+    awaiting_path: |
+      📂 **Local File Path**
+
+      Please provide the absolute path to your data file.
+
+      **Example:** `/home/user/data/housing.csv`
+
+      **Allowed directories:**
+      {allowed_dirs}
+
+    schema_detected: |
+      ✅ **Data Loaded Successfully**
+
+      **Dataset:** {filename}
+      **Rows:** {n_rows} | **Columns:** {n_cols}
+
+      **Suggested Schema:**
+      🎯 **Target:** {target}
+      📊 **Features:** {features}
+      📈 **Task Type:** {task_type}
+
+      Accept this configuration?
+
+    schema_accept_button: "✅ Accept"
+    schema_reject_button: "❌ Modify"

@@ -108,3 +108,18 @@ templates:
   max_templates_per_user: 50        # Maximum templates per user
   allowed_name_pattern: "^[a-zA-Z0-9_]{1,32}$"  # Template name validation regex
   name_max_length: 32               # Maximum template name length
+
+# Internationalization (i18n) Configuration
+i18n:
+  enabled: true                     # Feature flag: enable/disable i18n
+  default_language: en              # Default language (ISO 639-1)
+  supported_languages:              # List of supported languages
+    - en                            # English
+    - pt                            # Portuguese
+  fallback_language: en             # Fallback if translation missing
+  detection:
+    strategy: hybrid                # hybrid, llm_only, library_only
+    library_confidence_threshold: 0.8  # Min confidence for library detection
+    cache_ttl_seconds: 3600         # Cache language preference (1 hour)
+  locales_dir: ./locales            # Path to translation files
+  auto_detect: true                 # Auto-detect language on first message

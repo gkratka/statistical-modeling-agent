@@ -149,6 +149,11 @@ class UserSession:
     # NEW: Prediction workflow - compatible models list for button index lookup
     compatible_models: Optional[List[Dict[str, Any]]] = None  # Stores models for index-based button selection
 
+    # NEW: i18n support - user language preference
+    language: str = "en"  # User's preferred language (ISO 639-1: en, pt)
+    language_detected_at: Optional[datetime] = None  # When language was detected
+    language_detection_confidence: float = 0.0  # Detection confidence (0-1)
+
     # NEW: Password-protected path access
     dynamic_allowed_directories: List[str] = field(default_factory=list)  # Session-scoped whitelist expansion
     pending_auth_path: Optional[str] = None  # Path waiting for password authentication

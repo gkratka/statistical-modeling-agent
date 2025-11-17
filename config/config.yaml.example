@@ -1,0 +1,312 @@
+# Statistical Modeling Agent Configuration Example
+# Copy this file to config.yaml and customize for your environment
+
+# =============================================================================
+# TELEGRAM BOT CONFIGURATION
+# =============================================================================
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}  # Required: Set in .env file
+  webhook_url: ${WEBHOOK_URL}       # Optional: For webhook mode (leave empty for polling)
+  polling_timeout: 10               # Polling timeout in seconds
+  connection_pool_size: 8           # Number of concurrent connections
+
+# =============================================================================
+# LLM INTEGRATION (Natural Language Parsing)
+# =============================================================================
+llm:
+  provider: anthropic               # Options: anthropic, openai
+  api_key: ${ANTHROPIC_API_KEY}    # Required: Set in .env file
+  model: claude-3-5-sonnet-20241022 # Claude model version
+  max_tokens: 4096                  # Maximum tokens per request
+  temperature: 0.3                  # Lower = more deterministic responses
+
+# =============================================================================
+# SCRIPT EXECUTION CONFIGURATION
+# =============================================================================
+execution:
+  timeout: 300                      # Maximum script execution time (seconds)
+  max_memory: 2048                  # Maximum memory usage (MB)
+  sandbox: subprocess               # Options: subprocess, docker
+
+# =============================================================================
+# DATA MANAGEMENT
+# =============================================================================
+data:
+  max_file_size: 104857600          # 100MB in bytes (Telegram upload limit)
+  supported_formats:                # Supported dataset formats
+    - csv
+    - xlsx
+    - xls
+    - json
+    - parquet
+  temp_dir: ./data/temp             # Temporary file storage
+  cache_dir: ./data/cache           # Dataset cache directory
+
+# =============================================================================
+# ML ENGINE CONFIGURATION
+# =============================================================================
+ml_engine:
+  models_dir: ./models              # Directory for saved models
+  max_models_per_user: 50           # Maximum models per user
+  max_model_size_mb: 100            # Maximum individual model size (MB)
+  max_training_time_seconds: 300    # Local training timeout (5 minutes)
+  max_memory_mb: 2048               # Maximum memory for local training
+  min_training_samples: 10          # Minimum rows required for training
+
+  # Preprocessing Defaults
+  default_test_size: 0.2            # Train/test split ratio
+  default_cv_folds: 5               # Cross-validation folds
+  default_missing_strategy: mean    # Options: mean, median, drop, zero
+  default_scaling: standard         # Options: standard, minmax, robust, none
+
+  # Default Hyperparameters (used when not specified)
+  default_hyperparameters:
+    ridge:
+      alpha: 1.0
+    random_forest:
+      n_estimators: 100
+      max_depth: 10
+    gradient_boosting:
+      n_estimators: 100
+      learning_rate: 0.1
+
+# =============================================================================
+# LOCAL FILE PATH TRAINING
+# =============================================================================
+local_data:
+  enabled: true                     # Feature flag: enable/disable local path training
+  allowed_directories:              # Whitelist of allowed directories
+    - /Users/username/datasets      # Replace with your datasets directory
+    - /home/user/data               # Linux example
+    - ./data                        # Relative paths resolved from bot directory
+    - ./tests/fixtures/test_datasets
+  max_file_size_mb: 1000            # 1GB maximum file size for local paths
+  allowed_extensions:               # Allowed file extensions
+    - .csv
+    - .xlsx
+    - .xls
+    - .parquet
+  require_explicit_approval: false  # Future: Ask user before accessing file
+
+  # Password-based Access Control (Optional)
+  password_protection:
+    enabled: false                  # Feature flag: enable/disable password prompts
+    password: ${FILE_PATH_PASSWORD} # Environment variable for password
+    max_attempts: 3                 # Maximum password attempts per session
+    lockout_duration_seconds: 60    # Lockout duration after max attempts
+    session_timeout_seconds: 300    # Password prompt expires after 5 minutes
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+logging:
+  level: INFO                       # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file: ./data/logs/agent.log       # Log file path
+  max_size: 10485760                # 10MB max log file size
+  backup_count: 5                   # Number of backup log files
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# =============================================================================
+# STATISTICS ENGINE CONFIGURATION
+# =============================================================================
+stats_engine:
+  max_correlations: 1000            # Maximum correlation pairs to calculate
+  precision: 4                      # Decimal places for results
+  significance_level: 0.05          # For hypothesis testing
+
+# =============================================================================
+# SESSION MANAGEMENT
+# =============================================================================
+session:
+  timeout_minutes: 30               # Session inactivity timeout
+  max_concurrent_sessions: 100      # Maximum concurrent user sessions
+  cleanup_interval_minutes: 10      # How often to clean up expired sessions
+
+# =============================================================================
+# ML TRAINING TEMPLATES
+# =============================================================================
+templates:
+  enabled: true                     # Feature flag: enable/disable templates
+  templates_dir: ./templates        # Directory for saved templates
+  max_templates_per_user: 50        # Maximum templates per user
+  allowed_name_pattern: "^[a-zA-Z0-9_]{1,32}$"  # Template name validation regex
+  name_max_length: 32               # Maximum template name length
+
+# =============================================================================
+# CLOUD ML CONFIGURATION
+# =============================================================================
+cloud:
+  # Provider Selection
+  provider: "aws"                   # Options: "aws", "runpod"
+  enabled: false                    # Set to true when cloud provider is configured
+
+  # ---------------------------------------------------------------------------
+  # AWS CONFIGURATION
+  # ---------------------------------------------------------------------------
+  aws:
+    # AWS Credentials (loaded from environment variables)
+    # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+    region: "us-east-1"             # AWS region for all services
+
+  # AWS S3 Storage
+  s3:
+    bucket: ""                      # S3 bucket name (e.g., ml-agent-data-123456789012)
+    data_prefix: "datasets"         # S3 prefix for datasets
+    models_prefix: "models"         # S3 prefix for models
+    results_prefix: "results"       # S3 prefix for prediction results
+    lifecycle_days: 90              # Auto-delete objects after N days
+    versioning_enabled: true        # Enable S3 versioning
+    max_versions: 5                 # Maximum versions to keep per object
+
+  # AWS EC2 Training
+  ec2:
+    instance_type: "p3.2xlarge"     # EC2 instance type (1 GPU, 8 vCPU, 61GB RAM)
+    spot_max_price: 0.5             # Maximum $/hour for Spot instances
+    ami_id: ""                      # Deep Learning AMI ID (set during deployment)
+    key_name: "ml-agent-key"        # SSH key pair name
+    security_group: ""              # Security group ID (set during deployment)
+
+  # AWS Lambda Prediction
+  lambda:
+    function_name: "ml-agent-prediction"  # Lambda function name
+    memory_mb: 3008                 # Lambda memory (128-10240 MB)
+    timeout_seconds: 900            # Lambda timeout (max 900 seconds = 15 minutes)
+    layer_arn: ""                   # Lambda layer ARN for ML dependencies
+
+  # ---------------------------------------------------------------------------
+  # RUNPOD CONFIGURATION
+  # ---------------------------------------------------------------------------
+  runpod:
+    # RunPod API Credentials (loaded from environment variables)
+    # RUNPOD_API_KEY, RUNPOD_NETWORK_VOLUME_ID
+    api_key: ${RUNPOD_API_KEY}              # RunPod API key
+    storage_endpoint: "https://storage.runpod.io"  # RunPod storage endpoint
+    network_volume_id: ${RUNPOD_NETWORK_VOLUME_ID}  # Network volume ID
+
+    # GPU Configuration
+    default_gpu_type: "NVIDIA RTX A5000"    # Default GPU for training
+    cloud_type: "COMMUNITY"                 # Options: "COMMUNITY" (spot), "SECURE" (on-demand)
+
+    # Storage Configuration (S3-compatible)
+    storage_access_key: ${RUNPOD_STORAGE_ACCESS_KEY}  # S3-compatible access key
+    storage_secret_key: ${RUNPOD_STORAGE_SECRET_KEY}  # S3-compatible secret key
+    data_prefix: "datasets"                 # Storage prefix for datasets
+    models_prefix: "models"                 # Storage prefix for models
+    results_prefix: "results"               # Storage prefix for results
+
+    # Serverless Endpoint (optional, for predictions)
+    endpoint_id: ${RUNPOD_ENDPOINT_ID}      # RunPod serverless endpoint ID
+
+    # Docker Registry (optional)
+    docker_registry: null                   # Docker Hub username (e.g., "myusername")
+
+  # ---------------------------------------------------------------------------
+  # COST MANAGEMENT
+  # ---------------------------------------------------------------------------
+  cost_limits:
+    max_training_cost_dollars: 10.0         # Maximum cost per training job
+    max_prediction_cost_dollars: 1.0        # Maximum cost per prediction job
+    cost_warning_threshold: 0.8             # Warn at 80% of budget
+
+  # ---------------------------------------------------------------------------
+  # SECURITY (Optional)
+  # ---------------------------------------------------------------------------
+  security:
+    kms_key_id: ""                          # AWS KMS key ID for encryption (optional)
+    iam_role_arn: ""                        # IAM role ARN for EC2 instances (set during deployment)
+
+# =============================================================================
+# CONFIGURATION VALIDATION RULES
+# =============================================================================
+#
+# REQUIRED FIELDS (cannot be empty):
+# - telegram.bot_token
+# - llm.api_key
+#
+# CLOUD REQUIRED FIELDS (if cloud.enabled = true):
+#
+# AWS:
+# - cloud.aws.region
+# - cloud.s3.bucket
+# - cloud.ec2.ami_id
+# - cloud.ec2.security_group
+# - cloud.lambda.layer_arn
+# - Environment: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+#
+# RunPod:
+# - cloud.runpod.api_key
+# - cloud.runpod.network_volume_id
+# - cloud.runpod.storage_access_key
+# - cloud.runpod.storage_secret_key
+# - Environment: RUNPOD_API_KEY, RUNPOD_NETWORK_VOLUME_ID
+#
+# VALIDATION CONSTRAINTS:
+# - execution.timeout: 1-3600 seconds
+# - execution.max_memory: 128-8192 MB
+# - data.max_file_size: 1-104857600 bytes (1 byte - 100MB)
+# - ml_engine.max_training_time_seconds: 1-3600 seconds
+# - ml_engine.min_training_samples: >= 2
+# - cloud.lambda.memory_mb: 128-10240 MB (multiples of 64)
+# - cloud.lambda.timeout_seconds: 1-900 seconds
+# - cloud.cost_limits.max_*_cost_dollars: >= 0.0
+# - cloud.cost_limits.cost_warning_threshold: 0.0-1.0
+#
+# =============================================================================
+# ENVIRONMENT VARIABLES (.env file)
+# =============================================================================
+#
+# Copy .env.example to .env and customize:
+#
+# # Required
+# TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+# ANTHROPIC_API_KEY=your_anthropic_api_key
+#
+# # Optional
+# FILE_PATH_PASSWORD=senha123
+#
+# # Cloud Provider (choose one)
+# CLOUD_PROVIDER=aws  # or runpod
+#
+# # AWS (if CLOUD_PROVIDER=aws)
+# AWS_ACCESS_KEY_ID=your_access_key
+# AWS_SECRET_ACCESS_KEY=your_secret_key
+# AWS_REGION=us-east-1
+# S3_BUCKET=ml-agent-data-123456
+# EC2_AMI_ID=ami-xxxxxxxxx
+# EC2_SECURITY_GROUP=sg-xxxxxxxxx
+# LAMBDA_LAYER_ARN=arn:aws:lambda:...
+#
+# # RunPod (if CLOUD_PROVIDER=runpod)
+# RUNPOD_API_KEY=runpod-api-xxxxxxxxx
+# RUNPOD_NETWORK_VOLUME_ID=v3zskt9gvb
+# RUNPOD_STORAGE_ACCESS_KEY=xxxxxxxxx
+# RUNPOD_STORAGE_SECRET_KEY=xxxxxxxxx
+# RUNPOD_ENDPOINT_ID=abc123xyz
+#
+# =============================================================================
+# DEPLOYMENT NOTES
+# =============================================================================
+#
+# 1. DEVELOPMENT ENVIRONMENT:
+#    - Set cloud.enabled = false
+#    - Use local training only
+#    - No cloud credentials required
+#
+# 2. PRODUCTION ENVIRONMENT (AWS):
+#    - Set cloud.enabled = true
+#    - Set cloud.provider = "aws"
+#    - Configure all AWS credentials in .env
+#    - Run deployment guide: docs/DEPLOYMENT_GUIDE.md (Section 2)
+#
+# 3. PRODUCTION ENVIRONMENT (RunPod):
+#    - Set cloud.enabled = true
+#    - Set cloud.provider = "runpod"
+#    - Configure all RunPod credentials in .env
+#    - Run deployment guide: docs/DEPLOYMENT_GUIDE.md (Section 3)
+#
+# 4. HYBRID ENVIRONMENT:
+#    - Configure both AWS and RunPod credentials
+#    - Use CloudProviderFactory for dynamic selection
+#    - Priority: RunPod > AWS > Local
+#
+# =============================================================================

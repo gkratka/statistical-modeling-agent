@@ -1,0 +1,52 @@
+{
+  "model_type": "linear",
+  "task_type": "regression",
+  "target_column": "target",
+  "feature_columns": [
+    "feature_1",
+    "feature_2",
+    "feature_3",
+    "feature_4",
+    "feature_5"
+  ],
+  "metrics": {
+    "mse": 22.095419598395342,
+    "rmse": 4.700576517661992,
+    "mae": 3.9810754283773173,
+    "r2": -0.19644011650686122,
+    "explained_variance": -0.13350492954730675
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {},
+  "test_size": 0.2,
+  "n_features": 5,
+  "feature_names": [
+    "feature_1",
+    "feature_2",
+    "feature_3",
+    "feature_4",
+    "feature_5"
+  ],
+  "coefficients": {
+    "feature_1": -0.5223199186809029,
+    "feature_2": 0.15372169926452073,
+    "feature_3": 0.6972917991924769,
+    "feature_4": -0.06956058267869006,
+    "feature_5": 0.7264452533497272
+  },
+  "intercept": 10.63064329146756,
+  "feature_importance": {
+    "feature_1": -0.5223199186809029,
+    "feature_2": 0.15372169926452073,
+    "feature_3": 0.6972917991924769,
+    "feature_4": -0.06956058267869006,
+    "feature_5": 0.7264452533497272
+  },
+  "model_format": "sklearn",
+  "model_id": "model_10002_linear_20251108_170309",
+  "user_id": 10002,
+  "created_at": "2025-11-08T17:03:09.717720Z"
+}
