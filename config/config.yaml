@@ -62,7 +62,7 @@ ml_engine:
 
 # Local File Path Training (NEW - Phase 1: Security Foundation)
 local_data:
-  enabled: false                    # Disabled for Railway deployment (security)
+  enabled: true                     # Enabled for Railway deployment with /app/data whitelist
   allowed_directories:              # Whitelist of allowed directories
     - /app/data                     # Railway volume path
   max_file_size_mb: 1000            # 1GB maximum file size for local paths
