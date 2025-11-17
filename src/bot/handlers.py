@@ -23,6 +23,7 @@ sys.path.insert(0, str(project_root))
 from src.utils.exceptions import BotError, AgentError
 from src.utils.logger import get_logger
 from src.utils.decorators import telegram_handler, log_user_action, Messages, safe_get_user_data
+from src.utils.i18n_manager import I18nManager
 
 logger = get_logger(__name__)
 
@@ -33,62 +34,32 @@ BOT_INSTANCE_ID = f"BIH-{FIXED_TIMESTAMP}"
 HANDLERS_VERSION = "v2.0"
 LAST_UPDATED = "2025-01-27"
 
-# Message templates
-MESSAGE_TEMPLATES = {
-    "welcome": f"""🤖 Welcome to the Statistical Modeling Agent!
-🔧 Version: {BOT_VERSION}
-🔧 Instance: {BOT_INSTANCE_ID}
+# Helper function to build localized messages
+def get_welcome_message(locale: str = None) -> str:
+    """Build welcome message with version info."""
+    return (
+        f"{I18nManager.t('commands.start.welcome', locale=locale)}\n"
+        f"{I18nManager.t('commands.start.version', locale=locale, version=BOT_VERSION)}\n"
+        f"🔧 Instance: {BOT_INSTANCE_ID}\n\n"
+        f"{I18nManager.t('commands.start.features', locale=locale)}\n\n"
+        f"{I18nManager.t('commands.start.instructions', locale=locale)}"
+    )
 
-I can help you with:
-📊 Statistical analysis of your data
-🧠 Machine learning model training
-📈 Data predictions and insights
 
-To get started:
-1. Upload a CSV file with your data
-2. Tell me what analysis you'd like
-3. I'll process it and send you results!
-
-Type /help for more information.""",
-
-    "help": """🆘 Statistical Modeling Agent Help
-
-Commands:
-/start - Start using the bot
-/help - Show this help message
-/train - Step-by-step ML training workflow
-/predict - Run predictions with trained model
-/score - Advanced: Train & predict in one step
-/cancel - Cancel active workflow
-
-How to use:
-1. Upload Data: Send a CSV file
-2. Request Analysis: Tell me what you want:
-   • Calculate mean and std for age column
-   • Show correlation matrix
-   • Train a model to predict income
-3. Get Results: I'll analyze and respond
-
-Supported Operations:
-📊 Descriptive statistics
-📈 Correlation analysis
-🧠 Machine learning training
-🔮 Model predictions
-
-ML Workflows:
-/train - Step-by-step model training (beginner-friendly)
-/predict - Generate predictions with existing model
-/score - Power-user: Train + predict in single template
-
-/score Example:
-TRAIN_DATA: /path/to/train.csv
-TARGET: price
-FEATURES: sqft, bedrooms, bathrooms
-MODEL: random_forest
-PREDICT_DATA: /path/to/test.csv
-
-Need more help? Just ask me anything!"""
-}
+def get_help_message(locale: str = None) -> str:
+    """Build help message with all commands."""
+    return (
+        f"{I18nManager.t('commands.help.title', locale=locale)}\n\n"
+        f"{I18nManager.t('commands.help.description', locale=locale)}\n\n"
+        f"{I18nManager.t('commands.help.commands_section', locale=locale)}\n"
+        f"{I18nManager.t('commands.help.start_cmd', locale=locale)}\n"
+        f"{I18nManager.t('commands.help.help_cmd', locale=locale)}\n"
+        f"{I18nManager.t('commands.help.train_cmd', locale=locale)}\n"
+        f"{I18nManager.t('commands.help.models_cmd', locale=locale)}\n"
+        f"{I18nManager.t('commands.help.predict_cmd', locale=locale)}\n\n"
+        f"{I18nManager.t('commands.help.features_section', locale=locale)}\n\n"
+        f"{I18nManager.t('commands.help.support', locale=locale)}"
+    )
 
 
 @telegram_handler
@@ -104,7 +75,9 @@ async def start_handler(
         update: Telegram update object
         context: Bot context
     """
-    await update.message.reply_text(MESSAGE_TEMPLATES["welcome"])
+    # TODO: Get user's locale preference from context/database
+    locale = None  # Default to English for now
+    await update.message.reply_text(get_welcome_message(locale))
 
 
 @telegram_handler
@@ -120,7 +93,9 @@ async def help_handler(
         update: Telegram update object
         context: Bot context
     """
-    await update.message.reply_text(MESSAGE_TEMPLATES["help"])
+    # TODO: Get user's locale preference from context/database
+    locale = None  # Default to English for now
+    await update.message.reply_text(get_help_message(locale))
 
 
 @telegram_handler

@@ -132,3 +132,141 @@ en:
 
       schema_accept_button: "✅ Accept"
       schema_reject_button: "❌ Modify"
+
+      # Local Path Workflow Messages
+      local_file_path_header: "✅ **Local File Path**"
+      allowed_directories: "**Allowed directories:**"
+      formats_label: "**Formats:** CSV, Excel (.xlsx, .xls), Parquet"
+      examples_label: "**Examples:**"
+      example_path_1: "• `/Users/username/datasets/housing.csv`"
+      example_path_2: "• `~/Documents/data/sales.xlsx`"
+      type_path_prompt: "Type or paste your file path:"
+
+      loading_data: "🔄 **Loading data...**"
+      loading_status: "⏳ Validating, loading, and analyzing schema..."
+
+      auto_detected: "**🎯 Auto-Detected:** %{task_type}"
+      target_label: "**Target:** `%{target}`"
+      features_label: "**Features:** %{features}"
+      proceed_question: "**Proceed?**\n• ✅ Accept | ❌ Try Different File"
+
+      schema_accepted: "✅ **Schema Accepted!**"
+      using_target: "🎯 Using: `%{target}`"
+      proceeding_to_selection: "Proceeding to target selection..."
+
+      schema_rejected: "❌ **Schema Rejected**"
+      provide_different_file: "Please provide a different file path."
+
+      # Load Strategy Selection
+      path_validated: "✅ **Path Validated:** `%{file_path}`"
+      size_label: "📊 **Size:** %{size_mb} MB"
+      choose_loading_strategy: "**Choose Loading Strategy:**"
+      load_now_option: "**🔄 Load Now** - Load & analyze data immediately"
+      load_now_features: "• Auto-detect schema | Preview statistics\n• Best for: Small to medium datasets (<100MB)"
+      defer_loading_option: "**⏳ Defer Loading** - Provide schema, load later"
+      defer_loading_features: "• Skip preview | Load at training time only\n• Best for: Large datasets (>100MB)"
+      select_strategy: "**Select your strategy:**"
+
+      # Manual Schema Input
+      manual_schema_header: "📝 **Manual Schema Input**"
+      schema_formats_intro: "Provide target and feature columns. **3 formats supported:**"
+      format_1_label: "**Format 1 - Key-Value (recommended):**"
+      format_1_example: "`target: price`\n`features: sqft, bedrooms, bathrooms`"
+      format_2_label: "**Format 2 - JSON:**"
+      format_2_example: '`{"target": "price", "features": ["sqft", "bedrooms", "bathrooms"]}`'
+      format_3_label: "**Format 3 - Simple List:**"
+      format_3_example: "`price, sqft, bedrooms, bathrooms`\n(first = target, rest = features)"
+      type_schema_prompt: "**Type your schema:**"
+
+      schema_accepted_deferred: "✅ **Schema Accepted**"
+      target_deferred: "🎯 Target: `%{target}`"
+      features_count: "📊 Features: %{n_features} %{features_word}"
+      data_load_later: "⏳ Data will load at training time."
+      proceeding_to_model: "Proceeding to model selection..."
+
+      schema_parse_error: "❌ **Schema Parse Error**"
+      parse_error_details: "%{error_msg}"
+      try_again: "Please try again with correct format."
+
+      # Error Messages
+      file_not_found: "❌ **File Not Found**"
+      check_path: "Check: Path correct? File exists? Readable?"
+
+      access_denied: "🚫 **Access Denied**"
+      allowed_label: "**Allowed:**"
+
+      security_error: "🚫 **Security Error**"
+      suspicious_patterns: "Path contains suspicious patterns: `%{path}`"
+
+      file_too_large_error: "⚠️ **File Too Large**"
+      size_limit: "Size: %{size_mb}MB | Limit: %{max_size_mb}MB"
+      try_smaller: "Try: Smaller file or sample data"
+
+      unsupported_format: "❌ **Unsupported Format**"
+      supported_label: "**Supported:** %{allowed_extensions}"
+
+      empty_file: "❌ **Empty File**"
+      zero_bytes: "`%{path}` (0 bytes)"
+
+      loading_error: "❌ **Loading Error**"
+
+      security_validation_error: "❌ **Validation Error**"
+
+      feature_disabled: "⚠️ **Feature Disabled**"
+      use_telegram_upload: "Use Telegram upload instead."
+
+      unexpected_error: "❌ **Unexpected Error**"
+      try_restart: "Try again or use /train to restart."
+
+      # XGBoost Messages
+      xgboost_header: "🌳 **XGBoost (Gradient Boosting)**"
+      xgboost_best_for: "**Best for:** Tabular/structured data"
+      xgboost_performance: "**Performance:** Often outperforms neural networks on structured datasets"
+      xgboost_advantages: "**Advantages:**"
+      xgboost_adv_accuracy: "✓ High accuracy on structured data"
+      xgboost_adv_importance: "✓ Built-in feature importance"
+      xgboost_adv_missing: "✓ Handles missing values"
+      xgboost_adv_fast: "✓ Fast training"
+      xgboost_when_use: "**When to use:**"
+      xgboost_use_credit: "• Credit scoring, fraud detection"
+      xgboost_use_churn: "• Customer churn prediction"
+      xgboost_use_price: "• Price prediction, sales forecasting"
+      xgboost_use_tabular: "• Any structured/tabular data"
+      xgboost_when_not: "**When NOT to use:**"
+      xgboost_not_image: "• Image data"
+      xgboost_not_text: "• Text/NLP tasks"
+      xgboost_not_timeseries: "• Time series with complex patterns"
+
+      xgboost_hyperparams_header: "🔧 **XGBoost Hyperparameters**"
+      xgboost_n_estimators: "**n_estimators** (100-1000):\nNumber of trees. More = better but slower.\nDefault: 100"
+      xgboost_max_depth: "**max_depth** (3-10):\nMaximum tree depth. Higher = more complex.\nDefault: 6"
+      xgboost_learning_rate: "**learning_rate** (0.01-0.3):\nStep size. Lower = more conservative.\nDefault: 0.1"
+      xgboost_subsample: "**subsample** (0.5-1.0):\nFraction of samples per tree.\nDefault: 0.8"
+      xgboost_colsample: "**colsample_bytree** (0.5-1.0):\nFraction of features per tree.\nDefault: 0.8"
+
+      xgboost_setup_required: "❌ **XGBoost Setup Required**"
+      xgboost_needs_openmp: "XGBoost needs OpenMP runtime to work."
+      xgboost_macos_fix: "**macOS Quick Fix:**"
+      xgboost_brew_install: "```\nbrew install libomp\n```"
+      xgboost_alternative: "**OR** Use **Gradient Boosting (sklearn)** instead"
+      xgboost_alt_note: "_(Works immediately, no setup needed)_"
+      xgboost_docs: "📖 Full guide: `XGBOOST_SETUP.md`"
+
+      # Password Protection Messages
+      password_required: "🔐 **Password Required**"
+      password_not_in_whitelist: "The path you entered is not in the allowed directories:"
+      password_resolved_to: "**Resolved to:** `%{resolved_dir}`"
+      password_enter_prompt: "To access this directory, please enter the password."
+      password_security_note: "⚠️ **Security Note:** This will grant access to ALL files in this directory for the current session only."
+
+      password_access_granted: "✅ **Access Granted**"
+      password_directory_added: "Directory added to allowed paths for this session:"
+      password_can_access: "You can now access any file in this directory."
+
+      password_locked: "🔒 **Access Locked**"
+      password_too_many_attempts: "Too many failed password attempts."
+      password_wait: "Please wait %{wait_seconds} seconds before trying again, or choose a different path from the whitelist."
+
+      password_timeout: "⏱️ **Session Timeout**"
+      password_prompt_expired: "The password prompt has expired (5 minute limit)."
+      password_restart: "Please restart with /train or /predict to try again."

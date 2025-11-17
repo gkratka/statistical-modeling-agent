@@ -132,3 +132,141 @@ pt:
 
       schema_accept_button: "✅ Aceitar"
       schema_reject_button: "❌ Modificar"
+
+      # Mensagens de Fluxo de Caminho Local
+      local_file_path_header: "✅ **Caminho do Arquivo Local**"
+      allowed_directories: "**Diretórios permitidos:**"
+      formats_label: "**Formatos:** CSV, Excel (.xlsx, .xls), Parquet"
+      examples_label: "**Exemplos:**"
+      example_path_1: "• `/Users/username/datasets/housing.csv`"
+      example_path_2: "• `~/Documents/data/sales.xlsx`"
+      type_path_prompt: "Digite ou cole o caminho do seu arquivo:"
+
+      loading_data: "🔄 **Carregando dados...**"
+      loading_status: "⏳ Validando, carregando e analisando esquema..."
+
+      auto_detected: "**🎯 Detectado Automaticamente:** %{task_type}"
+      target_label: "**Alvo:** `%{target}`"
+      features_label: "**Características:** %{features}"
+      proceed_question: "**Prosseguir?**\n• ✅ Aceitar | ❌ Tentar Arquivo Diferente"
+
+      schema_accepted: "✅ **Esquema Aceito!**"
+      using_target: "🎯 Usando: `%{target}`"
+      proceeding_to_selection: "Prosseguindo para seleção de alvo..."
+
+      schema_rejected: "❌ **Esquema Rejeitado**"
+      provide_different_file: "Por favor, forneça um caminho de arquivo diferente."
+
+      # Seleção de Estratégia de Carregamento
+      path_validated: "✅ **Caminho Validado:** `%{file_path}`"
+      size_label: "📊 **Tamanho:** %{size_mb} MB"
+      choose_loading_strategy: "**Escolha a Estratégia de Carregamento:**"
+      load_now_option: "**🔄 Carregar Agora** - Carregar e analisar dados imediatamente"
+      load_now_features: "• Detectar esquema automaticamente | Visualizar estatísticas\n• Melhor para: Conjuntos de dados pequenos a médios (<100MB)"
+      defer_loading_option: "**⏳ Adiar Carregamento** - Fornecer esquema, carregar depois"
+      defer_loading_features: "• Pular visualização | Carregar apenas no momento do treinamento\n• Melhor para: Conjuntos de dados grandes (>100MB)"
+      select_strategy: "**Selecione sua estratégia:**"
+
+      # Entrada Manual de Esquema
+      manual_schema_header: "📝 **Entrada Manual de Esquema**"
+      schema_formats_intro: "Forneça colunas de alvo e características. **3 formatos suportados:**"
+      format_1_label: "**Formato 1 - Chave-Valor (recomendado):**"
+      format_1_example: "`target: price`\n`features: sqft, bedrooms, bathrooms`"
+      format_2_label: "**Formato 2 - JSON:**"
+      format_2_example: '`{"target": "price", "features": ["sqft", "bedrooms", "bathrooms"]}`'
+      format_3_label: "**Formato 3 - Lista Simples:**"
+      format_3_example: "`price, sqft, bedrooms, bathrooms`\n(primeiro = alvo, resto = características)"
+      type_schema_prompt: "**Digite seu esquema:**"
+
+      schema_accepted_deferred: "✅ **Esquema Aceito**"
+      target_deferred: "🎯 Alvo: `%{target}`"
+      features_count: "📊 Características: %{n_features} %{features_word}"
+      data_load_later: "⏳ Os dados serão carregados no momento do treinamento."
+      proceeding_to_model: "Prosseguindo para seleção de modelo..."
+
+      schema_parse_error: "❌ **Erro de Análise de Esquema**"
+      parse_error_details: "%{error_msg}"
+      try_again: "Por favor, tente novamente com o formato correto."
+
+      # Mensagens de Erro
+      file_not_found: "❌ **Arquivo Não Encontrado**"
+      check_path: "Verifique: Caminho correto? Arquivo existe? Legível?"
+
+      access_denied: "🚫 **Acesso Negado**"
+      allowed_label: "**Permitido:**"
+
+      security_error: "🚫 **Erro de Segurança**"
+      suspicious_patterns: "Caminho contém padrões suspeitos: `%{path}`"
+
+      file_too_large_error: "⚠️ **Arquivo Muito Grande**"
+      size_limit: "Tamanho: %{size_mb}MB | Limite: %{max_size_mb}MB"
+      try_smaller: "Tente: Arquivo menor ou dados de amostra"
+
+      unsupported_format: "❌ **Formato Não Suportado**"
+      supported_label: "**Suportado:** %{allowed_extensions}"
+
+      empty_file: "❌ **Arquivo Vazio**"
+      zero_bytes: "`%{path}` (0 bytes)"
+
+      loading_error: "❌ **Erro de Carregamento**"
+
+      security_validation_error: "❌ **Erro de Validação**"
+
+      feature_disabled: "⚠️ **Recurso Desativado**"
+      use_telegram_upload: "Use o upload do Telegram em vez disso."
+
+      unexpected_error: "❌ **Erro Inesperado**"
+      try_restart: "Tente novamente ou use /train para reiniciar."
+
+      # Mensagens XGBoost
+      xgboost_header: "🌳 **XGBoost (Gradient Boosting)**"
+      xgboost_best_for: "**Melhor para:** Dados tabulares/estruturados"
+      xgboost_performance: "**Desempenho:** Frequentemente supera redes neurais em conjuntos de dados estruturados"
+      xgboost_advantages: "**Vantagens:**"
+      xgboost_adv_accuracy: "✓ Alta precisão em dados estruturados"
+      xgboost_adv_importance: "✓ Importância de características integrada"
+      xgboost_adv_missing: "✓ Lida com valores ausentes"
+      xgboost_adv_fast: "✓ Treinamento rápido"
+      xgboost_when_use: "**Quando usar:**"
+      xgboost_use_credit: "• Pontuação de crédito, detecção de fraude"
+      xgboost_use_churn: "• Previsão de churn de clientes"
+      xgboost_use_price: "• Previsão de preço, previsão de vendas"
+      xgboost_use_tabular: "• Quaisquer dados estruturados/tabulares"
+      xgboost_when_not: "**Quando NÃO usar:**"
+      xgboost_not_image: "• Dados de imagem"
+      xgboost_not_text: "• Tarefas de texto/NLP"
+      xgboost_not_timeseries: "• Séries temporais com padrões complexos"
+
+      xgboost_hyperparams_header: "🔧 **Hiperparâmetros do XGBoost**"
+      xgboost_n_estimators: "**n_estimators** (100-1000):\nNúmero de árvores. Mais = melhor mas mais lento.\nPadrão: 100"
+      xgboost_max_depth: "**max_depth** (3-10):\nProfundidade máxima da árvore. Maior = mais complexo.\nPadrão: 6"
+      xgboost_learning_rate: "**learning_rate** (0.01-0.3):\nTamanho do passo. Menor = mais conservador.\nPadrão: 0.1"
+      xgboost_subsample: "**subsample** (0.5-1.0):\nFração de amostras por árvore.\nPadrão: 0.8"
+      xgboost_colsample: "**colsample_bytree** (0.5-1.0):\nFração de características por árvore.\nPadrão: 0.8"
+
+      xgboost_setup_required: "❌ **Configuração do XGBoost Necessária**"
+      xgboost_needs_openmp: "XGBoost precisa do runtime OpenMP para funcionar."
+      xgboost_macos_fix: "**Correção Rápida para macOS:**"
+      xgboost_brew_install: "```\nbrew install libomp\n```"
+      xgboost_alternative: "**OU** Use **Gradient Boosting (sklearn)** em vez disso"
+      xgboost_alt_note: "_(Funciona imediatamente, sem configuração necessária)_"
+      xgboost_docs: "📖 Guia completo: `XGBOOST_SETUP.md`"
+
+      # Mensagens de Proteção por Senha
+      password_required: "🔐 **Senha Necessária**"
+      password_not_in_whitelist: "O caminho que você digitou não está nos diretórios permitidos:"
+      password_resolved_to: "**Resolvido para:** `%{resolved_dir}`"
+      password_enter_prompt: "Para acessar este diretório, por favor digite a senha."
+      password_security_note: "⚠️ **Nota de Segurança:** Isso concederá acesso a TODOS os arquivos neste diretório apenas para a sessão atual."
+
+      password_access_granted: "✅ **Acesso Concedido**"
+      password_directory_added: "Diretório adicionado aos caminhos permitidos para esta sessão:"
+      password_can_access: "Você agora pode acessar qualquer arquivo neste diretório."
+
+      password_locked: "🔒 **Acesso Bloqueado**"
+      password_too_many_attempts: "Muitas tentativas de senha falhadas."
+      password_wait: "Por favor, aguarde %{wait_seconds} segundos antes de tentar novamente, ou escolha um caminho diferente da lista de permissões."
+
+      password_timeout: "⏱️ **Tempo Esgotado da Sessão**"
+      password_prompt_expired: "O prompt de senha expirou (limite de 5 minutos)."
+      password_restart: "Por favor, reinicie com /train ou /predict para tentar novamente."
