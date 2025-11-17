@@ -1,127 +1,134 @@
 # Traduções em Português
 # Bot Telegram de Modelagem Estatística
 
-# Frases comuns
-common:
-  suggestions: "💡 Sugestões"
-  language_switched: "✅ Idioma alterado para Português"
+pt:
+  # Frases comuns
+  common:
+    suggestions: "💡 Sugestões"
+    language_switched: "✅ Idioma alterado para Português"
+    summary: "📊 Resumo"
+    metrics: "📈 Métricas"
+    next_steps: "💡 Próximos Passos"
+    phase: "Fase %{current}/%{total}"
+    elapsed: "⏱️ Decorrido: %{seconds}s"
+    and_more: "... e mais %{count}"
 
-# Comandos do bot
-commands:
-  start:
-    welcome: "🤖 Bem-vindo ao Agente de Modelagem Estatística!"
-    version: "🔧 Versão: {version}"
-    features: |
-      Posso ajudá-lo com:
-      📊 Análise estatística dos seus dados
-      🧠 Treinamento de modelos de machine learning
-      📈 Previsões e insights de dados
-      📁 Suporte a caminhos de arquivos locais (sem limites de tamanho)
-    instructions: |
-      **Primeiros Passos:**
-      • Envie /help para ver os comandos disponíveis
-      • Faça upload de um arquivo de dados (CSV, Excel, Parquet)
-      • Ou use /train para iniciar o treinamento de modelo ML
+  # Comandos do bot
+  commands:
+    start:
+      welcome: "🤖 Bem-vindo ao Agente de Modelagem Estatística!"
+      version: "🔧 Versão: %{version}"
+      features: |
+        Posso ajudá-lo com:
+        📊 Análise estatística dos seus dados
+        🧠 Treinamento de modelos de machine learning
+        📈 Previsões e insights de dados
+        📁 Suporte a caminhos de arquivos locais (sem limites de tamanho)
+      instructions: |
+        **Primeiros Passos:**
+        • Envie /help para ver os comandos disponíveis
+        • Faça upload de um arquivo de dados (CSV, Excel, Parquet)
+        • Ou use /train para iniciar o treinamento de modelo ML
 
-  help:
-    title: "🆘 Ajuda do Agente de Modelagem Estatística"
-    description: "Sou seu assistente de IA para análise estatística e machine learning."
-    commands_section: "**Comandos Disponíveis:**"
-    start_cmd: "/start - Iniciar o bot e ver mensagem de boas-vindas"
-    help_cmd: "/help - Mostrar esta mensagem de ajuda"
-    train_cmd: "/train - Iniciar fluxo de treinamento de modelo ML"
-    models_cmd: "/models - Navegar pelos seus modelos treinados"
-    predict_cmd: "/predict - Fazer previsões com um modelo treinado"
-    features_section: |
+    help:
+      title: "🆘 Ajuda do Agente de Modelagem Estatística"
+      description: "Sou seu assistente de IA para análise estatística e machine learning."
+      commands_section: "**Comandos Disponíveis:**"
+      start_cmd: "/start - Iniciar o bot e ver mensagem de boas-vindas"
+      help_cmd: "/help - Mostrar esta mensagem de ajuda"
+      train_cmd: "/train - Iniciar fluxo de treinamento de modelo ML"
+      models_cmd: "/models - Navegar pelos seus modelos treinados"
+      predict_cmd: "/predict - Fazer previsões com um modelo treinado"
+      features_section: |
 
-      **Recursos:**
-      📊 Análise Estatística: Estatísticas descritivas, correlação, testes de hipóteses
-      🧠 Treinamento ML: 13 tipos de modelos (regressão, classificação, redes neurais)
-      📈 Previsões: Pontuar novos dados com modelos treinados
-      📁 Caminhos Locais: Treinar em grandes conjuntos de dados via caminhos do sistema de arquivos
+        **Recursos:**
+        📊 Análise Estatística: Estatísticas descritivas, correlação, testes de hipóteses
+        🧠 Treinamento ML: 13 tipos de modelos (regressão, classificação, redes neurais)
+        📈 Previsões: Pontuar novos dados com modelos treinados
+        📁 Caminhos Locais: Treinar em grandes conjuntos de dados via caminhos do sistema de arquivos
 
-    support: "Precisa de ajuda? Apenas descreva o que você quer fazer em linguagem natural!"
+      support: "Precisa de ajuda? Apenas descreva o que você quer fazer em linguagem natural!"
 
-# Mensagens de erro
-errors:
-  validation:
-    empty_request:
-      title: "Solicitação Vazia"
-      details: "Sua mensagem parece estar vazia. Por favor, descreva o que você gostaria de fazer."
-      suggestions:
-        upload: "Fazer upload de um arquivo de dados"
-        command: "Usar um comando como /help ou /train"
+  # Mensagens de erro
+  errors:
+    validation:
+      empty_request:
+        title: "Solicitação Vazia"
+        details: "Sua mensagem parece estar vazia. Por favor, descreva o que você gostaria de fazer."
+        suggestions:
+          upload: "Fazer upload de um arquivo de dados"
+          command: "Usar um comando como /help ou /train"
 
-    invalid_path:
-      title: "Caminho Inválido"
-      details: "O caminho '{path}' não está nos diretórios permitidos."
-      suggestions:
-        check: "Verificar se o caminho existe e está acessível"
-        whitelist: "Verificar os diretórios permitidos na configuração"
+      invalid_path:
+        title: "Caminho Inválido"
+        details: "O caminho '%{path}' não está nos diretórios permitidos."
+        suggestions:
+          check: "Verificar se o caminho existe e está acessível"
+          whitelist: "Verificar os diretórios permitidos na configuração"
 
-    file_too_large:
-      title: "Arquivo Muito Grande"
-      details: "O tamanho do arquivo {size}MB excede o máximo de {max_size}MB."
-      suggestions:
-        local: "Usar o recurso de caminho de arquivo local para arquivos grandes"
-        compress: "Comprimir ou dividir o arquivo"
+      file_too_large:
+        title: "Arquivo Muito Grande"
+        details: "O tamanho do arquivo %{size}MB excede o máximo de %{max_size}MB."
+        suggestions:
+          local: "Usar o recurso de caminho de arquivo local para arquivos grandes"
+          compress: "Comprimir ou dividir o arquivo"
 
-# Mensagens de sucesso
-success:
-  data_loaded: "✅ Dados carregados com sucesso"
-  model_trained: "✅ Modelo '{model_id}' treinado com sucesso"
-  prediction_complete: "✅ Previsões geradas"
-  file_uploaded: "✅ Arquivo enviado: {filename}"
+  # Mensagens de sucesso
+  success:
+    data_loaded: "✅ Dados carregados com sucesso"
+    model_trained: "✅ Modelo '%{model_id}' treinado com sucesso"
+    prediction_complete: "✅ Previsões geradas"
+    file_uploaded: "✅ Arquivo enviado: %{filename}"
 
-# Fluxo de Treinamento de ML
-workflows:
-  ml_training:
-    data_source_prompt: |
-      🤖 **Fluxo de Treinamento de ML**
+  # Fluxo de Treinamento de ML
+  workflows:
+    ml_training:
+      data_source_prompt: |
+        🤖 **Fluxo de Treinamento de ML**
 
-      Como você gostaria de fornecer seus dados de treinamento?
+        Como você gostaria de fornecer seus dados de treinamento?
 
-      **📤 Fazer Upload**: Enviar CSV/Excel pelo Telegram
-      • Tamanho máx: 10MB | Melhor para: Análise rápida
+        **📤 Fazer Upload**: Enviar CSV/Excel pelo Telegram
+        • Tamanho máx: 10MB | Melhor para: Análise rápida
 
-      **📂 Usar Caminho Local**: Fornecer caminho do sistema de arquivos
-      • Sem limites de tamanho | Melhor para: Conjuntos de dados grandes
+        **📂 Usar Caminho Local**: Fornecer caminho do sistema de arquivos
+        • Sem limites de tamanho | Melhor para: Conjuntos de dados grandes
 
-      Escolha sua fonte de dados:
+        Escolha sua fonte de dados:
 
-    upload_button: "📤 Fazer Upload"
-    local_path_button: "📂 Caminho Local"
-    template_button: "📋 Usar Modelo"
+      upload_button: "📤 Fazer Upload"
+      local_path_button: "📂 Caminho Local"
+      template_button: "📋 Usar Modelo"
 
-    awaiting_file: |
-      ✅ **Upload via Telegram**
+      awaiting_file: |
+        ✅ **Upload via Telegram**
 
-      📤 Por favor, envie seu arquivo.
+        📤 Por favor, envie seu arquivo.
 
-      **Formatos:** CSV, Excel, Parquet | **Máx:** 10MB
+        **Formatos:** CSV, Excel, Parquet | **Máx:** 10MB
 
-    awaiting_path: |
-      📂 **Caminho de Arquivo Local**
+      awaiting_path: |
+        📂 **Caminho de Arquivo Local**
 
-      Por favor, forneça o caminho absoluto para seu arquivo de dados.
+        Por favor, forneça o caminho absoluto para seu arquivo de dados.
 
-      **Exemplo:** `/home/user/data/housing.csv`
+        **Exemplo:** `/home/user/data/housing.csv`
 
-      **Diretórios permitidos:**
-      {allowed_dirs}
+        **Diretórios permitidos:**
+        %{allowed_dirs}
 
-    schema_detected: |
-      ✅ **Dados Carregados com Sucesso**
+      schema_detected: |
+        ✅ **Dados Carregados com Sucesso**
 
-      **Conjunto de Dados:** {filename}
-      **Linhas:** {n_rows} | **Colunas:** {n_cols}
+        **Conjunto de Dados:** %{filename}
+        **Linhas:** %{n_rows} | **Colunas:** %{n_cols}
 
-      **Esquema Sugerido:**
-      🎯 **Alvo:** {target}
-      📊 **Características:** {features}
-      📈 **Tipo de Tarefa:** {task_type}
+        **Esquema Sugerido:**
+        🎯 **Alvo:** %{target}
+        📊 **Características:** %{features}
+        📈 **Tipo de Tarefa:** %{task_type}
 
-      Aceitar esta configuração?
+        Aceitar esta configuração?
 
-    schema_accept_button: "✅ Aceitar"
-    schema_reject_button: "❌ Modificar"
+      schema_accept_button: "✅ Aceitar"
+      schema_reject_button: "❌ Modificar"

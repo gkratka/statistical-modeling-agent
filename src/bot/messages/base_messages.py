@@ -6,6 +6,7 @@ all workflow message classes (score, local_path, prediction, etc.).
 """
 
 from typing import List, Optional, Dict, Any
+from src.utils.i18n_manager import I18nManager
 
 
 class BaseMessages:
@@ -16,7 +17,8 @@ class BaseMessages:
         title: str,
         details: str,
         suggestions: Optional[List[str]] = None,
-        icon: str = "❌"
+        icon: str = "❌",
+        locale: Optional[str] = None
     ) -> str:
         """
         Format error message with consistent structure.
@@ -26,6 +28,7 @@ class BaseMessages:
             details: Detailed error description
             suggestions: Optional list of suggestions for fixing
             icon: Emoji icon (default: ❌)
+            locale: Language code (e.g., 'en', 'pt')
 
         Returns:
             Formatted error message string
@@ -33,7 +36,8 @@ class BaseMessages:
         msg = f"{icon} **{title}**\n\n{details}\n\n"
 
         if suggestions:
-            msg += "**💡 Suggestions:**\n"
+            suggestions_header = I18nManager.t("common.suggestions", locale=locale)
+            msg += f"**{suggestions_header}:**\n"
             msg += "\n".join(f"• {suggestion}" for suggestion in suggestions)
 
         return msg
@@ -107,7 +111,8 @@ class BaseMessages:
         summary: Dict[str, Any],
         metrics: Optional[Dict[str, Any]] = None,
         next_steps: Optional[List[str]] = None,
-        icon: str = "✅"
+        icon: str = "✅",
+        locale: Optional[str] = None
     ) -> str:
         """
         Format success message with consistent structure.
@@ -118,6 +123,7 @@ class BaseMessages:
             metrics: Optional performance metrics
             next_steps: Optional list of suggested next actions
             icon: Emoji icon (default: ✅)
+            locale: Language code (e.g., 'en', 'pt')
 
         Returns:
             Formatted success message string
@@ -126,14 +132,16 @@ class BaseMessages:
 
         # Summary section
         if summary:
-            msg += "**📊 Summary:**\n"
+            summary_header = I18nManager.t("common.summary", locale=locale)
+            msg += f"**{summary_header}:**\n"
             for key, value in summary.items():
                 msg += f"• {key}: {value}\n"
             msg += "\n"
 
         # Metrics section
         if metrics:
-            msg += "**📈 Metrics:**\n"
+            metrics_header = I18nManager.t("common.metrics", locale=locale)
+            msg += f"**{metrics_header}:**\n"
             for key, value in metrics.items():
                 formatted_value = BaseMessages._format_metric_value(value)
                 msg += f"• {key}: {formatted_value}\n"
@@ -141,7 +149,8 @@ class BaseMessages:
 
         # Next steps section
         if next_steps:
-            msg += "**💡 Next Steps:**\n"
+            next_steps_header = I18nManager.t("common.next_steps", locale=locale)
+            msg += f"**{next_steps_header}:**\n"
             msg += "\n".join(f"• {step}" for step in next_steps)
 
         return msg
@@ -159,13 +168,14 @@ class BaseMessages:
             return str(value)
 
     @staticmethod
-    def format_list(items: List[str], max_items: int = 10) -> str:
+    def format_list(items: List[str], max_items: int = 10, locale: Optional[str] = None) -> str:
         """
         Format a list with optional truncation.
 
         Args:
             items: List of items to format
             max_items: Maximum items to show before truncating
+            locale: Language code (e.g., 'en', 'pt')
 
         Returns:
             Formatted list string
@@ -176,7 +186,8 @@ class BaseMessages:
             shown = items[:max_items]
             remaining = len(items) - max_items
             result = "\n".join(f"• {item}" for item in shown)
-            result += f"\n• ... and {remaining} more"
+            and_more_text = I18nManager.t("common.and_more", locale=locale, count=remaining)
+            result += f"\n• {and_more_text}"
             return result
 
     @staticmethod
@@ -185,7 +196,8 @@ class BaseMessages:
         current: int,
         total: int,
         elapsed_seconds: Optional[float] = None,
-        icon: str = "🔄"
+        icon: str = "🔄",
+        locale: Optional[str] = None
     ) -> str:
         """
         Format progress message.
@@ -196,13 +208,16 @@ class BaseMessages:
             total: Total number of steps
             elapsed_seconds: Optional elapsed time
             icon: Emoji icon (default: 🔄)
+            locale: Language code (e.g., 'en', 'pt')
 
         Returns:
             Formatted progress message
         """
-        msg = f"{icon} **Phase {current}/{total}:** {phase}"
+        phase_text = I18nManager.t("common.phase", locale=locale, current=current, total=total)
+        msg = f"{icon} **{phase_text}:** {phase}"
 
         if elapsed_seconds is not None:
-            msg += f"\n⏱️ Elapsed: {elapsed_seconds:.1f}s"
+            elapsed_text = I18nManager.t("common.elapsed", locale=locale, seconds=f"{elapsed_seconds:.1f}")
+            msg += f"\n{elapsed_text}"
 
         return msg
