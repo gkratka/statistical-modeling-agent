@@ -11,7 +11,8 @@ def validate_local_path(
     path: str,
     allowed_dirs: List[str],
     max_size_mb: int,
-    allowed_extensions: List[str]
+    allowed_extensions: List[str],
+    forbidden_dirs: Optional[List[str]] = None
 ) -> Tuple[bool, Optional[str], Optional[Path]]:
     """
     Comprehensive local file path validation with multi-layer security.
@@ -21,6 +22,7 @@ def validate_local_path(
         allowed_dirs: List of allowed directory paths (must be absolute)
         max_size_mb: Maximum allowed file size in megabytes
         allowed_extensions: List of allowed file extensions (e.g., ['.csv', '.xlsx'])
+        forbidden_dirs: Optional list of forbidden directory paths (system directories)
 
     Returns:
         Tuple of (is_valid, error_message, resolved_path)
@@ -53,6 +55,23 @@ def validate_local_path(
                 "Path traversal detected: Path contains suspicious patterns (../, ..\\)",
                 None
             )
+
+        # Layer 2.5: System path blacklist (blocks system directories before whitelist check)
+        forbidden_dirs = forbidden_dirs or []
+        if forbidden_dirs:
+            for forbidden in forbidden_dirs:
+                try:
+                    forbidden_path = Path(forbidden).resolve()
+                    if resolved_path.is_relative_to(forbidden_path):
+                        return (
+                            False,
+                            f"🔒 System path access denied: {resolved_path}\n\n"
+                            f"Access to system directories is not allowed for security reasons.",
+                            None
+                        )
+                except (ValueError, OSError):
+                    # Skip invalid forbidden paths
+                    continue
 
         # Layer 3: Directory whitelist enforcement
         if not is_path_in_allowed_directory(resolved_path, allowed_dirs):
@@ -283,6 +302,15 @@ class PathValidator:
                 'resolved_path': None,
                 'warnings': []
             }
+
+        # Auto-fix missing leading slash for absolute paths
+        # Common user error: "Users/..." instead of "/Users/..."
+        if not directory_path.startswith('/') and not directory_path.startswith('./'):
+            absolute_patterns = ['Users/', 'home/', 'var/', 'tmp/', 'opt/']
+            for pattern in absolute_patterns:
+                if directory_path.startswith(pattern):
+                    directory_path = '/' + directory_path
+                    break
 
         # Validate directory exists
         try:

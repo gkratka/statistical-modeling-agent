@@ -71,13 +71,15 @@ class I18nManager:
         if i18n is None:
             # Fallback if i18n not available
             logger.warning(f"i18n not available, returning key: {key}")
-            return key
+            # Escape underscores to prevent Telegram markdown parse errors
+            return key.replace('_', r'\_')
 
         try:
             return i18n.t(key, locale=locale, **kwargs)
         except Exception as e:
             logger.error(f"Translation failed for key '{key}': {e}")
-            return key
+            # Return safe fallback that won't break Telegram markdown
+            return f"[i18n Error: {key.split('.')[-1]}]"
 
     @staticmethod
     def set_locale(locale: str):

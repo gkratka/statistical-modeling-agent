@@ -39,6 +39,8 @@ from src.bot.ml_handlers.models_browser_handler import ModelsBrowserHandler
 # Import handler functions from handlers.py file
 start_handler = handlers.start_handler
 help_handler = handlers.help_handler
+pt_handler = handlers.pt_handler
+en_handler = handlers.en_handler
 message_handler = handlers.message_handler
 document_handler = handlers.document_handler
 diagnostic_handler = handlers.diagnostic_handler
@@ -192,6 +194,13 @@ class StatisticalModelingBot:
         # Create DataLoader with YAML config for local path support
         data_loader = DataLoader(config=yaml_config)
 
+        # Initialize i18n for translations
+        from src.utils.i18n_manager import I18nManager
+        I18nManager.initialize(
+            locales_dir="./locales",
+            default_locale=yaml_config.get("i18n", {}).get("default_language", "en")
+        )
+
         # Store in bot_data for access by handlers
         self.application.bot_data['script_handler'] = script_handler
         self.application.bot_data['state_manager'] = state_manager
@@ -205,6 +214,8 @@ class StatisticalModelingBot:
         # Command handlers
         self.application.add_handler(CommandHandler("start", start_handler))
         self.application.add_handler(CommandHandler("help", help_handler))
+        self.application.add_handler(CommandHandler("pt", pt_handler))
+        self.application.add_handler(CommandHandler("en", en_handler))
         self.application.add_handler(CommandHandler("version", version_handler))
         self.application.add_handler(CommandHandler("diagnostic", diagnostic_handler))
         self.application.add_handler(CommandHandler("cancel", cancel_handler))

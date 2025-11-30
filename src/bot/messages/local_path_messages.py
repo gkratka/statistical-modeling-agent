@@ -10,7 +10,9 @@ class LocalPathMessages:
 
     @staticmethod
     def data_source_selection_prompt(locale: Optional[str] = None) -> str:
-        return I18nManager.t('workflows.ml_training.data_source_prompt', locale=locale)
+        result = I18nManager.t('workflows.ml_training.data_source_prompt', locale=locale)
+        print(f"🌐 LocalPathMessages.data_source_selection_prompt: locale={locale}, result length={len(result)}")
+        return result
 
     @staticmethod
     def file_path_input_prompt(allowed_dirs: List[str], locale: Optional[str] = None) -> str:
@@ -339,26 +341,45 @@ class LocalPathMessages:
 
 
 # Back Button Utilities (Phase 2: Workflow Back Button)
-def create_back_button() -> InlineKeyboardButton:
+def create_back_button(
+    locale: Optional[str] = None,
+    callback_data: str = "workflow_back"
+) -> InlineKeyboardButton:
     """
     Create standardized back button for workflow navigation.
 
+    Args:
+        locale: Optional language code for i18n
+        callback_data: Callback data for button (default: 'workflow_back')
+                      Use 'pred_back' for prediction workflow
+                      Use 'train_back' for training workflow
+
     Returns:
-        InlineKeyboardButton with callback_data='workflow_back'
+        InlineKeyboardButton with specified callback_data
     """
-    return InlineKeyboardButton("⬅️ Back", callback_data="workflow_back")
+    from src.utils.i18n_manager import I18nManager
+    return InlineKeyboardButton(
+        I18nManager.t('workflows.prediction.buttons.go_back', locale=locale),
+        callback_data=callback_data
+    )
 
 
-def add_back_button(keyboard: List[List[InlineKeyboardButton]]) -> None:
+def add_back_button(
+    keyboard: List[List[InlineKeyboardButton]],
+    locale: Optional[str] = None,
+    callback_data: str = "workflow_back"
+) -> None:
     """
     Add back button to keyboard layout as last row.
 
     Args:
         keyboard: Existing keyboard layout (modified in-place)
+        locale: Optional language code for i18n
+        callback_data: Callback data for button (default: 'workflow_back')
 
     Example:
         >>> keyboard = [[button1, button2]]
-        >>> add_back_button(keyboard)
+        >>> add_back_button(keyboard, callback_data='pred_back')
         >>> # keyboard is now: [[button1, button2], [back_button]]
     """
-    keyboard.append([create_back_button()])
+    keyboard.append([create_back_button(locale=locale, callback_data=callback_data)])

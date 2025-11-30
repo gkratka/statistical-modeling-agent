@@ -17,6 +17,7 @@ from src.bot.messages import prediction_template_messages as pt_messages
 from src.processors.data_loader import DataLoader
 from src.utils.path_validator import PathValidator
 from src.engines.ml_engine import MLEngine
+from src.utils.i18n_manager import I18nManager
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +68,16 @@ class PredictionTemplateHandlers:
         else:  # Message
             chat_id = query_or_message.chat_id
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if not session:
-            error_msg = "❌ Session not found. Please start a new prediction session with /predict"
+            # Try to get locale from context, default to None
+            locale = None
+            error_msg = I18nManager.t(
+                'workflow_state.session_not_found',
+                locale=locale,
+                command='/predict'
+            )
             if isinstance(query_or_message, CallbackQuery):
                 await query_or_message.edit_message_text(error_msg)
             else:
@@ -98,7 +105,13 @@ class PredictionTemplateHandlers:
         """
         success, error_msg, _ = await self.state_manager.transition_state(session, new_state)
         if not success:
-            error_text = f"❌ {error_msg}"
+            locale = session.language if session.language else None
+            error_text = I18nManager.t(
+                'prediction.errors.transition_failed',
+                locale=locale,
+                error=error_msg,
+                missing='N/A'
+            )
             if isinstance(query_or_message, CallbackQuery):
                 await query_or_message.edit_message_text(error_text)
             else:
@@ -120,11 +133,15 @@ class PredictionTemplateHandlers:
         file_path = session.file_path
         validation_result = self.path_validator.validate_path(file_path)
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         if not validation_result["is_valid"]:
             await query.edit_message_text(
-                pt_messages.PRED_TEMPLATE_FILE_PATH_INVALID.format(
+                pt_messages.pred_template_file_path_invalid(
                     path=file_path,
-                    error=validation_result['error']
+                    error=validation_result['error'],
+                    locale=locale
                 ),
                 parse_mode="Markdown"
             )
@@ -137,7 +154,7 @@ class PredictionTemplateHandlers:
         except Exception as e:
             logger.error(f"Error loading prediction template data: {e}", exc_info=True)
             await query.edit_message_text(
-                pt_messages.PRED_TEMPLATE_LOAD_FAILED.format(error=str(e)),
+                pt_messages.pred_template_load_failed(error=str(e), locale=locale),
                 parse_mode="Markdown"
             )
             return None
@@ -151,11 +168,14 @@ class PredictionTemplateHandlers:
         """Show output method selection after template operations."""
         from src.bot.messages.prediction_messages import PredictionMessages, create_output_option_buttons
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         keyboard = create_output_option_buttons()
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.effective_message.reply_text(
-            PredictionMessages.output_options_prompt(),
+            PredictionMessages.output_options_prompt(locale=locale),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -184,9 +204,15 @@ class PredictionTemplateHandlers:
         ):
             return
 
-        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="cancel_pred_template")]]
+        # Extract locale from session
+        locale = session.language if session.language else None
+
+        keyboard = [[InlineKeyboardButton(
+            I18nManager.t('templates.save.cancel_button', locale=locale, default="❌ Cancel"),
+            callback_data="cancel_pred_template"
+        )]]
         await query.edit_message_text(
-            pt_messages.PRED_TEMPLATE_SAVE_PROMPT,
+            pt_messages.pred_template_save_prompt(locale=locale),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -199,10 +225,13 @@ class PredictionTemplateHandlers:
         """Handle template name text input."""
         user_id = update.effective_user.id
         chat_id = update.message.chat_id
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if not session or session.current_state != MLPredictionState.SAVING_PRED_TEMPLATE.value:
             return
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         template_name = update.message.text.strip()
 
@@ -210,7 +239,7 @@ class PredictionTemplateHandlers:
         is_valid, error_msg = self.template_manager.validate_template_name(template_name)
         if not is_valid:
             await update.message.reply_text(
-                pt_messages.PRED_TEMPLATE_INVALID_NAME.format(error=error_msg),
+                pt_messages.pred_template_invalid_name(error=error_msg, locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -218,7 +247,7 @@ class PredictionTemplateHandlers:
         # Check if exists
         if self.template_manager.template_exists(user_id, template_name):
             await update.message.reply_text(
-                pt_messages.PRED_TEMPLATE_EXISTS.format(name=template_name),
+                pt_messages.pred_template_exists(name=template_name, locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -241,8 +270,10 @@ class PredictionTemplateHandlers:
         if not all([template_config["file_path"], template_config["model_id"],
                    template_config["feature_columns"], template_config["output_column_name"]]):
             await update.message.reply_text(
-                "❌ Cannot save template: Missing required configuration. "
-                "Please complete the prediction workflow first."
+                I18nManager.t(
+                    'templates.save.missing_config',
+                    locale=locale
+                )
             )
             return
 
@@ -255,7 +286,7 @@ class PredictionTemplateHandlers:
 
         if success:
             await update.message.reply_text(
-                pt_messages.PRED_TEMPLATE_SAVED_SUCCESS.format(name=template_name),
+                pt_messages.pred_template_saved_success(name=template_name, locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -271,7 +302,7 @@ class PredictionTemplateHandlers:
             await self._show_output_options(update, context, session)
         else:
             await update.message.reply_text(
-                pt_messages.PRED_TEMPLATE_SAVE_FAILED.format(error=message),
+                pt_messages.pred_template_save_failed(error=message, locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -299,13 +330,16 @@ class PredictionTemplateHandlers:
         ):
             return
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         # Get user's templates
         user_id = update.effective_user.id
         templates = self.template_manager.list_templates(user_id)
 
         if not templates:
             await query.edit_message_text(
-                pt_messages.PRED_TEMPLATE_NO_TEMPLATES,
+                pt_messages.pred_template_no_templates(locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -314,10 +348,13 @@ class PredictionTemplateHandlers:
         keyboard = [
             [InlineKeyboardButton(f"📄 {t.template_name}", callback_data=f"load_pred_template:{t.template_name}")]
             for t in templates
-        ] + [[InlineKeyboardButton("🔙 Back", callback_data="back")]]
+        ] + [[InlineKeyboardButton(
+            I18nManager.t('templates.load.back_button', locale=locale, default="🔙 Back"),
+            callback_data="back"
+        )]]
 
         await query.edit_message_text(
-            pt_messages.PRED_TEMPLATE_LOAD_PROMPT.format(count=len(templates)),
+            pt_messages.pred_template_load_prompt(count=len(templates), locale=locale),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -335,6 +372,9 @@ class PredictionTemplateHandlers:
         if not session:
             return
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         user_id = update.effective_user.id
         template_name = query.data.split(":", 1)[1]
 
@@ -342,7 +382,7 @@ class PredictionTemplateHandlers:
         template = self.template_manager.load_template(user_id, template_name)
         if not template:
             await query.edit_message_text(
-                pt_messages.PRED_TEMPLATE_NOT_FOUND.format(name=template_name),
+                pt_messages.pred_template_not_found(name=template_name, locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -351,7 +391,7 @@ class PredictionTemplateHandlers:
         model_info = self.ml_engine.get_model_info(user_id, template.model_id)
         if not model_info:
             await query.edit_message_text(
-                pt_messages.PRED_TEMPLATE_MODEL_INVALID.format(model_id=template.model_id),
+                pt_messages.pred_template_model_invalid(model_id=template.model_id, locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -392,13 +432,20 @@ class PredictionTemplateHandlers:
             features=template.feature_columns,
             output_column=template.output_column_name,
             description=template.description,
-            created_at=template.created_at
+            created_at=template.created_at,
+            locale=locale
         )
 
         # Ask about loading data
         keyboard = [
-            [InlineKeyboardButton("✅ Use This Template", callback_data="confirm_pred_template")],
-            [InlineKeyboardButton("🔙 Back to Templates", callback_data="back_to_pred_templates")]
+            [InlineKeyboardButton(
+                I18nManager.t('templates.load.use_template_button', locale=locale, default="✅ Use This Template"),
+                callback_data="confirm_pred_template"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('templates.load.back_to_list_button', locale=locale, default="🔙 Back to Templates"),
+                callback_data="back_to_pred_templates"
+            )]
         ]
 
         await query.edit_message_text(
@@ -420,15 +467,19 @@ class PredictionTemplateHandlers:
         if not session:
             return
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         # Validate and load data
         df = await self._validate_and_load_template_data(session, query)
         if df is None:
             return
 
         await query.edit_message_text(
-            pt_messages.PRED_TEMPLATE_DATA_LOADED.format(
+            pt_messages.pred_template_data_loaded(
                 rows=len(df),
-                columns=len(df.columns)
+                columns=len(df.columns),
+                locale=locale
             ),
             parse_mode="Markdown"
         )
@@ -436,12 +487,18 @@ class PredictionTemplateHandlers:
         # PHASE 1: Verify data persistence BEFORE transitioning to READY_TO_RUN
         if session.uploaded_data is None or len(session.uploaded_data) == 0:
             await query.message.reply_text(
-                "❌ **Data Persistence Error**\n\n"
-                "Template data failed to persist in session. This indicates a system issue.\n\n"
-                "**Troubleshooting:**\n"
-                "• Try reloading the template\n"
-                "• Use /predict to start a fresh session\n"
-                "• Check if data file is accessible",
+                I18nManager.t(
+                    'templates.errors.data_persistence_error',
+                    locale=locale,
+                    default=(
+                        "❌ **Data Persistence Error**\n\n"
+                        "Template data failed to persist in session. This indicates a system issue.\n\n"
+                        "**Troubleshooting:**\n"
+                        "• Try reloading the template\n"
+                        "• Use /predict to start a fresh session\n"
+                        "• Check if data file is accessible"
+                    )
+                ),
                 parse_mode="Markdown"
             )
             logger.error(
@@ -456,9 +513,12 @@ class PredictionTemplateHandlers:
         ):
             return
 
-        keyboard = [[InlineKeyboardButton("🚀 Run Prediction", callback_data="pred_run")]]
+        keyboard = [[InlineKeyboardButton(
+            I18nManager.t('templates.messages.run_prediction_button', locale=locale, default="🚀 Run Prediction"),
+            callback_data="pred_run"
+        )]]
         await query.message.reply_text(
-            "Ready to run predictions!",
+            I18nManager.t('templates.messages.ready_to_run', locale=locale, default="Ready to run predictions!"),
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -479,13 +539,26 @@ class PredictionTemplateHandlers:
         if not session:
             return
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         if session.restore_previous_state():
-            await query.edit_message_text("❌ Prediction template operation cancelled.")
+            await query.edit_message_text(
+                I18nManager.t(
+                    'templates.cancel.cancelled',
+                    locale=locale
+                )
+            )
 
             # PHASE 5: Show output options after template cancel
             await self._show_output_options(update, context, session)
         else:
-            await query.edit_message_text("❌ Cannot cancel: No previous state available.")
+            await query.edit_message_text(
+                I18nManager.t(
+                    'templates.cancel.no_previous_state',
+                    locale=locale
+                )
+            )
 
     async def handle_back_to_templates(
         self,

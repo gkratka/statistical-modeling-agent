@@ -18,6 +18,7 @@ from src.utils.path_validator import PathValidator
 from src.utils.password_validator import PasswordValidator
 from src.bot.messages import LocalPathMessages
 from src.bot.messages.local_path_messages import add_back_button
+from src.utils.i18n_manager import I18nManager
 from src.bot.utils.markdown_escape import escape_markdown_v1
 from src.bot.ml_handlers.template_handlers import TemplateHandlers
 from src.engines.ml_engine import MLEngine
@@ -95,7 +96,7 @@ class LocalPathMLTrainingHandler:
             logger.error(f"Malformed update object in handle_start_training: {e}")
             if update and update.effective_message:
                 await update.effective_message.reply_text(
-                    "❌ **Invalid Request**\n\nPlease try /train again.",
+                    I18nManager.t('workflows.ml_training_local_path.errors.malformed_update'),
                     parse_mode="Markdown"
                 )
             return
@@ -103,7 +104,7 @@ class LocalPathMLTrainingHandler:
         # Get or create session
         session = await self.state_manager.get_or_create_session(
             user_id=user_id,
-            conversation_id=f"chat_{chat_id}"
+            conversation_id=str(chat_id)
         )
 
         # Check if local path feature is enabled
@@ -126,8 +127,11 @@ class LocalPathMLTrainingHandler:
         session.current_state = MLTrainingState.AWAITING_DATA.value
         await self.state_manager.update_session(session)
 
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
+
         await update.message.reply_text(
-            LocalPathMessages.telegram_upload_prompt(),
+            LocalPathMessages.telegram_upload_prompt(locale=locale),
             parse_mode="Markdown"
         )
 
@@ -143,16 +147,32 @@ class LocalPathMLTrainingHandler:
         session.current_state = MLTrainingState.CHOOSING_DATA_SOURCE.value
         await self.state_manager.update_session(session)
 
-        # Create inline keyboard (no back button - this is the entry point)
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
+        print(f"🌐 ML TRAINING: session.language={session.language}, extracted locale={locale}")
+
+        # Create inline keyboard with i18n button labels
         keyboard = [
-            [InlineKeyboardButton("📤 Upload File", callback_data="data_source:telegram")],
-            [InlineKeyboardButton("📂 Use Local Path", callback_data="data_source:local_path")],
-            [InlineKeyboardButton("📋 Use Template", callback_data="data_source:template")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflows.ml_training.upload_button', locale=locale),
+                callback_data="data_source:telegram"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflows.ml_training.local_path_button', locale=locale),
+                callback_data="data_source:local_path"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflows.ml_training.template_button', locale=locale),
+                callback_data="data_source:template"
+            )]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        message = LocalPathMessages.data_source_selection_prompt(locale=locale)
+        print(f"🌐 ML TRAINING: Generated message (first 100 chars): {message[:100]}")
+
         await update.message.reply_text(
-            LocalPathMessages.data_source_selection_prompt(),
+            message,
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -173,20 +193,25 @@ class LocalPathMLTrainingHandler:
             choice = query.data.split(":")[-1]  # "telegram" or "local_path"
         except AttributeError as e:
             logger.error(f"Malformed update object in handle_data_source_selection: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ Please restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
 
         if choice == "telegram":
             # User chose Telegram upload
@@ -206,7 +231,8 @@ class LocalPathMLTrainingHandler:
             if not success:
                 print(f"❌ DEBUG: State transition FAILED! Error: {error_msg}")
                 await query.edit_message_text(
-                    f"❌ State transition failed: {error_msg}",
+                    I18nManager.t('workflows.ml_training_local_path.errors.state_transition_failed',
+                                 error=error_msg, locale=locale),
                     parse_mode="Markdown"
                 )
                 return
@@ -214,7 +240,7 @@ class LocalPathMLTrainingHandler:
             print(f"🔀 DEBUG: State transition SUCCESS: {old_state} → {session.current_state}")
 
             await query.edit_message_text(
-                LocalPathMessages.telegram_upload_prompt(),
+                LocalPathMessages.telegram_upload_prompt(locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -253,14 +279,14 @@ class LocalPathMLTrainingHandler:
             # Wrap message editing with defensive error handling
             try:
                 await query.edit_message_text(
-                    LocalPathMessages.file_path_input_prompt(allowed_dirs),
+                    LocalPathMessages.file_path_input_prompt(allowed_dirs, locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.BadRequest as e:
                 logger.warning(f"Failed to edit message in handle_data_source_selection: {e}")
                 # Fallback: send new message instead
                 await update.effective_message.reply_text(
-                    LocalPathMessages.file_path_input_prompt(allowed_dirs),
+                    LocalPathMessages.file_path_input_prompt(allowed_dirs, locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception as e:
@@ -295,7 +321,7 @@ class LocalPathMLTrainingHandler:
                 logger.error(f"Malformed update object in handle_text_input: {e}")
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ **Invalid Request**\n\nPlease restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request'),
                         parse_mode="Markdown"
                     )
                 return
@@ -303,7 +329,7 @@ class LocalPathMLTrainingHandler:
             print(f"📥 DEBUG: Unified text handler called with: {text_input[:50]}...")
 
             # Get or create session - prevents false "Session Expired" errors
-            session = await self.state_manager.get_or_create_session(user_id, f"chat_{chat_id}")
+            session = await self.state_manager.get_or_create_session(user_id, str(chat_id))
 
             # WORKFLOW ISOLATION: Only process if in TRAINING workflow
             # Prevents collision with prediction workflow handler (group=2)
@@ -373,9 +399,12 @@ class LocalPathMLTrainingHandler:
         """Process file path input from user. Validates path and shows load options."""
         print(f"🔍 DEBUG: Processing file path: {file_path}")
 
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
+
         # Show validating message
         validating_msg = await update.message.reply_text(
-            "🔍 **Validating path...**"
+            I18nManager.t('workflows.ml_training_local_path.path.validating', locale=locale)
         )
         print("✅ DEBUG: Validating message sent")
 
@@ -388,7 +417,8 @@ class LocalPathMLTrainingHandler:
                 path=file_path,
                 allowed_dirs=self.data_loader.allowed_directories,
                 max_size_mb=self.data_loader.local_max_size_mb,
-                allowed_extensions=self.data_loader.local_extensions
+                allowed_extensions=self.data_loader.local_extensions,
+                forbidden_dirs=self.data_loader.forbidden_directories
             )
 
             if not is_valid:
@@ -406,7 +436,8 @@ class LocalPathMLTrainingHandler:
                     error_display = LocalPathMessages.format_path_error(
                         error_type="security_validation",
                         path=file_path,
-                        error_details=error_msg
+                        error_details=error_msg,
+                        locale=locale
                     )
                     await update.message.reply_text(error_display)
                     return
@@ -434,15 +465,21 @@ class LocalPathMLTrainingHandler:
 
             # Show load option selection
             keyboard = [
-                [InlineKeyboardButton("🔄 Load Now", callback_data="load_option:immediate")],
-                [InlineKeyboardButton("⏳ Defer Loading", callback_data="load_option:defer")]
+                [InlineKeyboardButton(
+                    I18nManager.t('workflows.ml_training.load_now_button', locale=locale),
+                    callback_data="load_option:immediate"
+                )],
+                [InlineKeyboardButton(
+                    I18nManager.t('workflows.ml_training.defer_loading_button', locale=locale),
+                    callback_data="load_option:defer"
+                )]
             ]
             add_back_button(keyboard)  # Phase 2: Workflow Back Button
             reply_markup = InlineKeyboardMarkup(keyboard)
             print("⌨️ DEBUG: Keyboard created with Load Now/Defer Loading buttons")
 
             await update.message.reply_text(
-                LocalPathMessages.load_option_prompt(str(resolved_path), size_mb),
+                LocalPathMessages.load_option_prompt(str(resolved_path), size_mb, locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
@@ -469,7 +506,8 @@ class LocalPathMLTrainingHandler:
                 LocalPathMessages.format_path_error(
                     error_type="unexpected",
                     path=file_path,
-                    error_details=str(e)
+                    error_details=str(e),
+                    locale=locale
                 )
             )
 
@@ -496,6 +534,9 @@ class LocalPathMLTrainingHandler:
         """
         from pathlib import Path
 
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
+
         # Store pending path for later validation
         session.pending_auth_path = str(resolved_path)
 
@@ -508,7 +549,8 @@ class LocalPathMLTrainingHandler:
 
         if not success:
             await update.message.reply_text(
-                f"❌ **State Transition Failed**\n\n{error_msg}",
+                I18nManager.t('workflows.ml_training_local_path.errors.state_transition_failed',
+                             error=error_msg, locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -523,7 +565,7 @@ class LocalPathMLTrainingHandler:
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            LocalPathMessages.password_prompt(original_path, parent_dir),
+            LocalPathMessages.password_prompt(original_path, parent_dir, locale=locale),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -542,7 +584,10 @@ class LocalPathMLTrainingHandler:
             logger.error(f"Malformed update in handle_password_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
 
         # Validate we're in password state
         if session.current_state != MLTrainingState.AWAITING_PASSWORD.value:
@@ -552,7 +597,7 @@ class LocalPathMLTrainingHandler:
         pending_path = session.pending_auth_path
         if not pending_path:
             await update.message.reply_text(
-                "❌ **Session Error**\n\nNo pending path found. Please try /train again.",
+                I18nManager.t('workflows.ml_training_local_path.password.session_error', locale=locale).replace('/predict', '/train'),
                 parse_mode="Markdown"
             )
             return
@@ -568,7 +613,7 @@ class LocalPathMLTrainingHandler:
             # FIX: Double-check pending_path is still valid (defense in depth)
             if not pending_path:
                 await update.message.reply_text(
-                    "❌ **Session Expired**\n\nPlease restart with /train.",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
                 return
@@ -596,20 +641,26 @@ class LocalPathMLTrainingHandler:
             )
 
             await update.message.reply_text(
-                LocalPathMessages.password_success(parent_dir),
+                LocalPathMessages.password_success(parent_dir, locale=locale),
                 parse_mode="Markdown"
             )
 
             # Show load options
             keyboard = [
-                [InlineKeyboardButton("🔄 Load Now", callback_data="load_option:immediate")],
-                [InlineKeyboardButton("⏳ Defer Loading", callback_data="load_option:defer")]
+                [InlineKeyboardButton(
+                    I18nManager.t('workflows.ml_training.load_now_button', locale=locale),
+                    callback_data="load_option:immediate"
+                )],
+                [InlineKeyboardButton(
+                    I18nManager.t('workflows.ml_training.defer_loading_button', locale=locale),
+                    callback_data="load_option:defer"
+                )]
             ]
             add_back_button(keyboard)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await update.message.reply_text(
-                LocalPathMessages.load_option_prompt(pending_path, size_mb),
+                LocalPathMessages.load_option_prompt(pending_path, size_mb, locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
@@ -637,7 +688,7 @@ class LocalPathMLTrainingHandler:
             else:
                 # Failed attempt, allow retry
                 await update.message.reply_text(
-                    LocalPathMessages.password_failure(error_msg),
+                    LocalPathMessages.password_failure(error_msg, locale=locale),
                     parse_mode="Markdown"
                 )
 
@@ -657,7 +708,10 @@ class LocalPathMLTrainingHandler:
             logger.error(f"Malformed update in handle_password_cancel: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
 
         # Clear pending auth
         session.pending_auth_path = None
@@ -675,7 +729,7 @@ class LocalPathMLTrainingHandler:
 
         allowed_dirs = self.data_loader.allowed_directories
         await query.edit_message_text(
-            LocalPathMessages.file_path_input_prompt(allowed_dirs),
+            LocalPathMessages.file_path_input_prompt(allowed_dirs, locale=locale),
             parse_mode="Markdown"
         )
 
@@ -695,20 +749,25 @@ class LocalPathMLTrainingHandler:
             choice = query.data.split(":")[-1]  # "immediate" or "defer"
         except AttributeError as e:
             logger.error(f"Malformed update object in handle_load_option_selection: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ Please restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
 
         if choice == "immediate":
             # Load data immediately
@@ -717,7 +776,7 @@ class LocalPathMLTrainingHandler:
             self.logger.info(f"[LOAD_NOW] File path: {session.file_path}")
 
             loading_msg = await query.edit_message_text(
-                LocalPathMessages.loading_data_message()
+                I18nManager.t('workflows.ml_training_local_path.path.loading', locale=locale)
             )
 
             try:
@@ -887,7 +946,7 @@ class LocalPathMLTrainingHandler:
             )
 
             await query.edit_message_text(
-                LocalPathMessages.schema_input_prompt(),
+                LocalPathMessages.schema_input_prompt(locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -900,6 +959,9 @@ class LocalPathMLTrainingHandler:
     ) -> None:
         """Process manual schema input from user (deferred loading)."""
         print(f"📝 DEBUG: Processing schema input: {schema_text[:50]}...")
+
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
 
         try:
             # Parse schema using schema parser
@@ -957,7 +1019,8 @@ class LocalPathMLTrainingHandler:
                 print(f"❌ DEBUG: State transition to CONFIRMING_MODEL failed: {error_msg}")
                 # Fallback: at least confirm the schema was accepted (use plain text to avoid markdown errors)
                 await update.message.reply_text(
-                    f"⚠️ Schema accepted but workflow transition failed: {error_msg}"
+                    I18nManager.t('workflows.ml_training_local_path.errors.state_transition_failed',
+                                 error=error_msg, locale=locale)
                 )
                 return
 
@@ -967,7 +1030,8 @@ class LocalPathMLTrainingHandler:
             await update.message.reply_text(
                 LocalPathMessages.schema_accepted_deferred(
                     parsed_schema.target,
-                    len(parsed_schema.features)
+                    len(parsed_schema.features),
+                    locale=locale
                 ),
                 parse_mode="Markdown"
             )
@@ -986,7 +1050,7 @@ class LocalPathMLTrainingHandler:
         except ValidationError as e:
             # Schema parsing failed - show error and ask to try again
             await update.message.reply_text(
-                LocalPathMessages.schema_parse_error(str(e)),
+                LocalPathMessages.schema_parse_error(str(e), locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -999,6 +1063,9 @@ class LocalPathMLTrainingHandler:
         schema: Optional[DatasetSchema]
     ) -> None:
         """Show detected schema confirmation (after immediate load)."""
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
+
         # Generate summary with schema info
         summary = self.data_loader.get_local_path_summary(
             session.uploaded_data,
@@ -1021,7 +1088,7 @@ class LocalPathMLTrainingHandler:
 
         await query.edit_message_text(
             LocalPathMessages.schema_confirmation_prompt(
-                summary, suggested_target, suggested_features, task_type
+                summary, suggested_target, suggested_features, task_type, locale=locale
             ),
             reply_markup=reply_markup,
             parse_mode="Markdown"
@@ -1036,6 +1103,9 @@ class LocalPathMLTrainingHandler:
         schema: Optional[DatasetSchema]
     ) -> None:
         """Show detected schema and ask for confirmation."""
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
+
         # Generate summary with schema info
         summary = self.data_loader.get_local_path_summary(
             session.uploaded_data,
@@ -1058,7 +1128,7 @@ class LocalPathMLTrainingHandler:
 
         await update.message.reply_text(
             LocalPathMessages.schema_confirmation_prompt(
-                summary, suggested_target, suggested_features, task_type
+                summary, suggested_target, suggested_features, task_type, locale=locale
             ),
             reply_markup=reply_markup,
             parse_mode="Markdown"
@@ -1073,22 +1143,43 @@ class LocalPathMLTrainingHandler:
         """Show model selection menu with categorized options."""
         print("📊 DEBUG: Showing model selection menu")
 
-        # Create inline keyboard with model categories
+        # Extract locale from session
+        locale = session.language if session.language else None
+        print(f"🌐 MODEL SELECTION: session.language={session.language}, extracted locale={locale}")
+
+        # Create inline keyboard with i18n button labels
         keyboard = [
-            [InlineKeyboardButton("📈 Regression Models", callback_data="model_category:regression")],
-            [InlineKeyboardButton("🎯 Classification Models", callback_data="model_category:classification")],
-            [InlineKeyboardButton("🧠 Neural Networks", callback_data="model_category:neural")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflows.model_selection.regression_label', locale=locale),
+                callback_data="model_category:regression"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflows.model_selection.classification_label', locale=locale),
+                callback_data="model_category:classification"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflows.model_selection.neural_label', locale=locale),
+                callback_data="model_category:neural"
+            )]
         ]
         add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        # Build message using i18n
+        title = I18nManager.t('workflows.model_selection.title', locale=locale)
+        description = I18nManager.t('workflows.model_selection.description', locale=locale)
+        regression_desc = I18nManager.t('workflows.model_selection.regression_desc', locale=locale)
+        classification_desc = I18nManager.t('workflows.model_selection.classification_desc', locale=locale)
+        neural_desc = I18nManager.t('workflows.model_selection.neural_desc', locale=locale)
+        which_category = I18nManager.t('workflows.model_selection.which_category', locale=locale)
+
         await update.message.reply_text(
-            "🤖 **Choose Model Type**\n\n"
-            "Select the type of model for your training:\n\n"
-            "📈 **Regression**: Predict continuous values (prices, temperatures, etc.)\n"
-            "🎯 **Classification**: Categorize data (spam/not spam, approve/reject, etc.)\n"
-            "🧠 **Neural Networks**: Advanced deep learning models\n\n"
-            "Which category fits your task?",
+            f"{title}\n\n"
+            f"{description}\n\n"
+            f"📈 **Regression**: {regression_desc}\n"
+            f"🎯 **Classification**: {classification_desc}\n"
+            f"🧠 **Neural Networks**: {neural_desc}\n\n"
+            f"{which_category}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1109,15 +1200,17 @@ class LocalPathMLTrainingHandler:
             category = query.data.split(":")[-1]
         except AttributeError as e:
             logger.error(f"Malformed update object in handle_model_category_selection: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ Please restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
@@ -1125,7 +1218,11 @@ class LocalPathMLTrainingHandler:
         print(f"📊 DEBUG: User selected model category: {category}")
 
         # Get session to access stored detection from schema processing
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
+        print(f"🌐 CATEGORY SELECTION: session.language={session.language}, extracted locale={locale}")
 
         # Save state snapshot BEFORE showing specific model selection (Phase 2: Back Button Fix)
         session.save_state_snapshot()
@@ -1139,60 +1236,78 @@ class LocalPathMLTrainingHandler:
         else:
             print(f"⚠️ DEBUG: No task type detected")
 
-        # Show ALL models in category (user chooses based on their needs)
-        model_options = {
+        # Model options with i18n keys
+        model_option_keys = {
             "regression": [
-                ("Linear Regression", "linear"),
-                ("Ridge Regression (L2)", "ridge"),
-                ("Lasso Regression (L1)", "lasso"),
-                ("ElasticNet (L1+L2)", "elasticnet"),
-                ("Polynomial Regression", "polynomial"),
-                ("XGBoost Regression", "xgboost_regression"),
-                ("LightGBM Regression", "lightgbm_regression"),
-                ("CatBoost Regression", "catboost_regression")
+                ('workflows.model_types.linear', 'linear'),
+                ('workflows.model_types.ridge', 'ridge'),
+                ('workflows.model_types.lasso', 'lasso'),
+                ('workflows.model_types.elasticnet', 'elasticnet'),
+                ('workflows.model_types.polynomial', 'polynomial'),
+                ('workflows.model_types.xgboost_regression', 'xgboost_regression'),
+                ('workflows.model_types.lightgbm_regression', 'lightgbm_regression'),
+                ('workflows.model_types.catboost_regression', 'catboost_regression')
             ],
             "classification": [
-                ("Logistic Regression", "logistic"),
-                ("Decision Tree", "decision_tree"),
-                ("Random Forest", "random_forest"),
-                ("Gradient Boosting (sklearn)", "gradient_boosting"),
-                ("XGBoost Classification", "xgboost_binary_classification"),
-                ("LightGBM Classification", "lightgbm_binary_classification"),
-                ("CatBoost Classification", "catboost_binary_classification"),
-                ("Support Vector Machine", "svm"),
-                ("Naive Bayes", "naive_bayes")
+                ('workflows.model_types.logistic', 'logistic'),
+                ('workflows.model_types.decision_tree', 'decision_tree'),
+                ('workflows.model_types.random_forest', 'random_forest'),
+                ('workflows.model_types.gradient_boosting', 'gradient_boosting'),
+                ('workflows.model_types.xgboost_binary_classification', 'xgboost_binary_classification'),
+                ('workflows.model_types.lightgbm_binary_classification', 'lightgbm_binary_classification'),
+                ('workflows.model_types.catboost_binary_classification', 'catboost_binary_classification'),
+                ('workflows.model_types.svm', 'svm'),
+                ('workflows.model_types.naive_bayes', 'naive_bayes')
             ],
             "neural": [
-                ("MLP Regression", "mlp_regression"),
-                ("MLP Classification", "mlp_classification"),
-                ("Keras Binary Classification", "keras_binary_classification"),
-                ("Keras Multiclass Classification", "keras_multiclass_classification"),
-                ("Keras Regression", "keras_regression")
+                ('workflows.model_types.mlp_regression', 'mlp_regression'),
+                ('workflows.model_types.mlp_classification', 'mlp_classification'),
+                ('workflows.model_types.keras_binary_classification', 'keras_binary_classification'),
+                ('workflows.model_types.keras_multiclass_classification', 'keras_multiclass_classification'),
+                ('workflows.model_types.keras_regression', 'keras_regression')
             ]
         }
-        models = model_options.get(category, [])
+
+        # Translate model names using i18n
+        model_keys = model_option_keys.get(category, [])
         keyboard = [
-            [InlineKeyboardButton(name, callback_data=f"model_select:{model_type}")]
-            for name, model_type in models
+            [InlineKeyboardButton(
+                I18nManager.t(name_key, locale=locale),
+                callback_data=f"model_select:{model_type}"
+            )]
+            for name_key, model_type in model_keys
         ]
         add_back_button(keyboard)  # Phase 2: Workflow Back Button (replaces manual back button)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        category_names = {
-            "regression": "📈 Regression Models",
-            "classification": "🎯 Classification Models",
-            "neural": "🧠 Neural Networks"
-        }
+        # Translate category header
+        category_header = I18nManager.t(
+            f'workflows.category_headers.{category}',
+            locale=locale
+        )
 
         # Build message with detection info if available
-        message = f"{category_names.get(category, 'Models')}\n\n"
+        message = f"{category_header}\n\n"
 
         if detected_task:
             task_emoji = "📈" if detected_task == "regression" else "🎯"
-            message += f"{task_emoji} **Detected Task**: {detected_task.title()}\n"
-            message += f"_(All models shown - choose what works best for you)_\n\n"
+            detected_msg = I18nManager.t(
+                'workflows.category_headers.detected_task',
+                locale=locale,
+                task_type=detected_task.title()
+            )
+            all_models_note = I18nManager.t(
+                'workflows.category_headers.all_models_note',
+                locale=locale
+            )
+            message += f"{task_emoji} {detected_msg}\n"
+            message += f"{all_models_note}\n\n"
 
-        message += "Select a specific model:"
+        select_msg = I18nManager.t(
+            'workflows.category_headers.select_specific',
+            locale=locale
+        )
+        message += select_msg
 
         await query.edit_message_text(
             message,
@@ -1216,22 +1331,24 @@ class LocalPathMLTrainingHandler:
             model_type = query.data.split(":")[-1]
         except AttributeError as e:
             logger.error(f"Malformed update object in handle_model_selection: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ Please restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
         print(f"📊 DEBUG: User selected model: {model_type}")
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Store model selection
         session.selections['model_type'] = model_type
@@ -1269,7 +1386,7 @@ class LocalPathMLTrainingHandler:
             await query.edit_message_text(
                 f"✅ **Model Selected**: {model_display}\n\n"
                 f"🚀 Starting training...\n\n"
-                f"This may take a few moments.",
+                f"{I18nManager.t('workflow_state.training.patience', locale=locale)}",
                 parse_mode="Markdown"
             )
 
@@ -1286,21 +1403,28 @@ class LocalPathMLTrainingHandler:
         session.selections['keras_config'] = {}
         await self.state_manager.update_session(session)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Start with epochs configuration
         keyboard = [
-            [InlineKeyboardButton("50 epochs", callback_data="keras_epochs:50")],
-            [InlineKeyboardButton("100 epochs (recommended)", callback_data="keras_epochs:100")],
-            [InlineKeyboardButton("200 epochs", callback_data="keras_epochs:200")],
-            [InlineKeyboardButton("Custom", callback_data="keras_epochs:custom")]
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.epochs.btn_50', locale=locale), callback_data="keras_epochs:50")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.epochs.btn_100', locale=locale), callback_data="keras_epochs:100")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.epochs.btn_200', locale=locale), callback_data="keras_epochs:200")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.epochs.btn_custom', locale=locale), callback_data="keras_epochs:custom")]
         ]
         add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        message_text = (
+            f"{I18nManager.t('workflow_state.model_config.keras.header', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.epochs.title', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.epochs.question', locale=locale)}\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.epochs.help', locale=locale)}"
+        )
+
         await query.edit_message_text(
-            "🧠 **Keras Neural Network Configuration**\n\n"
-            "**Step 1/5: Training Epochs**\n\n"
-            "How many training epochs?\n"
-            "(More epochs = longer training, potentially better accuracy)",
+            message_text,
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1320,21 +1444,41 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_model_type'] = model_type  # Store for later
         await self.state_manager.update_session(session)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Start with n_estimators configuration
         keyboard = [
-            [InlineKeyboardButton("50 trees", callback_data="xgboost_n_estimators:50")],
-            [InlineKeyboardButton("100 trees (recommended)", callback_data="xgboost_n_estimators:100")],
-            [InlineKeyboardButton("200 trees", callback_data="xgboost_n_estimators:200")],
-            [InlineKeyboardButton("Custom", callback_data="xgboost_n_estimators:custom")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.n_estimators.btn_50', locale=locale),
+                callback_data="xgboost_n_estimators:50"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.n_estimators.btn_100', locale=locale),
+                callback_data="xgboost_n_estimators:100"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.n_estimators.btn_200', locale=locale),
+                callback_data="xgboost_n_estimators:200"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.n_estimators.btn_custom', locale=locale),
+                callback_data="xgboost_n_estimators:custom"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.xgboost.n_estimators.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.xgboost.n_estimators.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.xgboost.n_estimators.help', locale=locale)
+
         await query.edit_message_text(
-            "🧠 **XGBoost Configuration**\n\n"
-            "**Step 1/5: Number of Boosting Rounds**\n\n"
-            "How many trees to build?\n"
-            "(More trees = better fit, but slower training)",
+            f"{header}\n\n"
+            f"{title}\n\n"
+            f"{question}\n"
+            f"{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1354,22 +1498,43 @@ class LocalPathMLTrainingHandler:
         session.selections['lightgbm_model_type'] = model_type  # Store for later
         await self.state_manager.update_session(session)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Start with num_leaves configuration (LightGBM uses leaves not depth)
         keyboard = [
-            [InlineKeyboardButton("15 leaves (fast)", callback_data="lightgbm_num_leaves:15")],
-            [InlineKeyboardButton("31 leaves (recommended)", callback_data="lightgbm_num_leaves:31")],
-            [InlineKeyboardButton("63 leaves (complex)", callback_data="lightgbm_num_leaves:63")],
-            [InlineKeyboardButton("Use Defaults", callback_data="lightgbm_use_defaults")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.btn_15', locale=locale),
+                callback_data="lightgbm_num_leaves:15"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.btn_31', locale=locale),
+                callback_data="lightgbm_num_leaves:31"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.btn_63', locale=locale),
+                callback_data="lightgbm_num_leaves:63"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.btn_defaults', locale=locale),
+                callback_data="lightgbm_use_defaults"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.lightgbm.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.title', locale=locale)
+        description = I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.description', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.question', locale=locale)
+        tip = I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.tip', locale=locale)
+
         await query.edit_message_text(
-            "⚡ **LightGBM Configuration**\n\n"
-            "**Step 1: Number of Leaves**\n\n"
-            "LightGBM uses leaf-wise growth (faster than XGBoost).\n"
-            "How many leaves per tree?\n\n"
-            "💡 **Tip**: 15 = fast, 31 = balanced, 63 = complex",
+            f"{header}\n\n"
+            f"{title}\n\n"
+            f"{description}\n"
+            f"{question}\n\n"
+            f"{tip}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1389,22 +1554,45 @@ class LocalPathMLTrainingHandler:
         session.selections['catboost_model_type'] = model_type  # Store for later
         await self.state_manager.update_session(session)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Start with iterations configuration
         keyboard = [
-            [InlineKeyboardButton("100 iterations (fast)", callback_data="catboost_iterations:100")],
-            [InlineKeyboardButton("500 iterations", callback_data="catboost_iterations:500")],
-            [InlineKeyboardButton("1000 iterations (recommended)", callback_data="catboost_iterations:1000")],
-            [InlineKeyboardButton("2000 iterations (thorough)", callback_data="catboost_iterations:2000")],
-            [InlineKeyboardButton("Custom", callback_data="catboost_iterations:custom")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_100', locale=locale),
+                callback_data="catboost_iterations:100"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_500', locale=locale),
+                callback_data="catboost_iterations:500"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_1000', locale=locale),
+                callback_data="catboost_iterations:1000"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_2000', locale=locale),
+                callback_data="catboost_iterations:2000"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_custom', locale=locale),
+                callback_data="catboost_iterations:custom"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.catboost.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.catboost.iterations.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.catboost.iterations.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.catboost.iterations.help', locale=locale)
+
         await query.edit_message_text(
-            "🐈 **CatBoost Configuration**\n\n"
-            "**Step 1/4: Number of Boosting Rounds**\n\n"
-            "How many iterations (trees) to build?\n"
-            "(More iterations = better fit, but slower training)",
+            f"{header}\n\n"
+            f"{title}\n\n"
+            f"{question}\n"
+            f"{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1527,13 +1715,22 @@ class LocalPathMLTrainingHandler:
                 session.selections['pending_model_id'] = model_id
                 await self.state_manager.update_session(session)
 
+                # Get locale from session
+                locale = session.language if session.language else None
+
                 # Format metrics based on task type
-                metrics_text = self._format_sklearn_metrics(metrics, task_type)
+                metrics_text = self._format_sklearn_metrics(metrics, task_type, locale)
 
                 # Show naming options with inline keyboard
                 keyboard = [
-                    [InlineKeyboardButton("📝 Name Model", callback_data="name_model")],
-                    [InlineKeyboardButton("⏭️ Skip - Use Default", callback_data="skip_naming")]
+                    [InlineKeyboardButton(
+                        I18nManager.t('workflow_state.training.completion.buttons.name_model', locale=locale),
+                        callback_data="name_model"
+                    )],
+                    [InlineKeyboardButton(
+                        I18nManager.t('workflow_state.training.completion.buttons.skip_naming', locale=locale),
+                        callback_data="skip_naming"
+                    )]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -1541,11 +1738,11 @@ class LocalPathMLTrainingHandler:
                 model_display = model_type.replace('_', '\\_')
 
                 await update.effective_message.reply_text(
-                    f"✅ **Training Complete!**\n\n"
-                    f"🎯 **Model**: {model_display}\n"
-                    f"🆔 **Model ID**: `{model_id}`\n\n"
+                    f"{I18nManager.t('workflow_state.training.completion.header', locale=locale)}\n\n"
+                    f"{I18nManager.t('workflow_state.training.completion.model_label', locale=locale)}: {model_display}\n"
+                    f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)}: `{model_id}`\n\n"
                     f"{metrics_text}\n\n"
-                    f"Would you like to give this model a custom name?",
+                    f"{I18nManager.t('workflow_state.training.completion.naming_prompt', locale=locale)}",
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
@@ -1580,8 +1777,10 @@ class LocalPathMLTrainingHandler:
                 parse_mode="Markdown"
             )
 
-    def _format_sklearn_metrics(self, metrics: dict, task_type: str) -> str:
+    def _format_sklearn_metrics(self, metrics: dict, task_type: str, locale: Optional[str] = None) -> str:
         """Format sklearn/XGBoost metrics for user display."""
+        header = I18nManager.t('workflow_state.training.metrics.performance_header', locale=locale)
+
         if task_type == 'regression':
             # Regression metrics
             mse = metrics.get('mse', 'N/A')
@@ -1596,7 +1795,7 @@ class LocalPathMLTrainingHandler:
             mse_str = f"{mse:.4f}" if isinstance(mse, float) else str(mse)
 
             return (
-                f"📊 **Performance Metrics**:\n"
+                f"{header}\n"
                 f"• R² Score: {r2_str}\n"
                 f"• RMSE: {rmse_str}\n"
                 f"• MAE: {mae_str}\n"
@@ -1616,7 +1815,7 @@ class LocalPathMLTrainingHandler:
             f1_str = f"{f1:.4f}" if isinstance(f1, float) else str(f1)
 
             return (
-                f"📊 **Performance Metrics**:\n"
+                f"{header}\n"
                 f"• Accuracy: {accuracy_str}\n"
                 f"• Precision: {precision_str}\n"
                 f"• Recall: {recall_str}\n"
@@ -1645,37 +1844,39 @@ class LocalPathMLTrainingHandler:
             epochs_value = query.data.split(":")[-1]
         except AttributeError as e:
             logger.error(f"Malformed update object in handle_keras_epochs: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\n"
-                    "This action is no longer valid. Please restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 # Fallback to new message if edit fails
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ **Invalid Request**\n\nPlease restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
         print(f"🧠 DEBUG: handle_keras_epochs - user={user_id}, epochs_value={epochs_value}")
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Defensive check: session exists
         if session is None:
             print(f"❌ ERROR: Session not found for user {user_id}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Session Expired**\n\n"
-                    "Your session has expired. Please start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Session Expired**\n\nPlease start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             return
@@ -1694,6 +1895,9 @@ class LocalPathMLTrainingHandler:
 
         print(f"📦 DEBUG: keras_config after epochs = {session.selections['keras_config']}")
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Save session with error handling
         try:
             await self.state_manager.update_session(session)
@@ -1701,33 +1905,35 @@ class LocalPathMLTrainingHandler:
             print(f"❌ ERROR: Failed to update session: {e}")
             try:
                 await query.edit_message_text(
-                    "❌ **Configuration Save Failed**\n\n"
-                    "Unable to save your selection. Please try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Configuration Save Failed**\n\nPlease try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed_short', locale=locale),
                     parse_mode="Markdown"
                 )
             return
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to batch size configuration
         keyboard = [
-            [InlineKeyboardButton("16 (small)", callback_data="keras_batch:16")],
-            [InlineKeyboardButton("32 (recommended)", callback_data="keras_batch:32")],
-            [InlineKeyboardButton("64 (medium)", callback_data="keras_batch:64")],
-            [InlineKeyboardButton("128 (large)", callback_data="keras_batch:128")]
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.batch_size.btn_16', locale=locale), callback_data="keras_batch:16")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.batch_size.btn_32', locale=locale), callback_data="keras_batch:32")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.batch_size.btn_64', locale=locale), callback_data="keras_batch:64")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.batch_size.btn_128', locale=locale), callback_data="keras_batch:128")]
         ]
         add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message_text = (
-            "🧠 **Keras Neural Network Configuration**\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.header', locale=locale)}\n\n"
             f"✅ Epochs: {session.selections['keras_config']['epochs']}\n\n"
-            "**Step 2/5: Batch Size**\n\n"
-            "Select batch size:\n"
-            "(Smaller = slower but more accurate, Larger = faster but less precise)"
+            f"{I18nManager.t('workflow_state.model_config.keras.batch_size.title', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.batch_size.question', locale=locale)}\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.batch_size.help', locale=locale)}"
         )
 
         # Wrap message editing with error handling
@@ -1748,7 +1954,7 @@ class LocalPathMLTrainingHandler:
         except Exception as e:
             logger.error(f"Telegram API error in handle_keras_epochs: {e}")
             await update.effective_message.reply_text(
-                "❌ **Error Updating Message**\n\nPlease use /train to restart.",
+                I18nManager.t('workflow_state.training.errors.message_update_error', locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -1774,59 +1980,66 @@ class LocalPathMLTrainingHandler:
             batch_size = int(query.data.split(":")[-1])
         except (AttributeError, ValueError) as e:
             logger.error(f"Malformed update object in handle_keras_batch: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\n"
-                    "This action is no longer valid. Please restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 # Fallback to new message if edit fails
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ **Invalid Request**\n\nPlease restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
         print(f"🧠 DEBUG: handle_keras_batch - user={user_id}, batch_size={batch_size}")
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Defensive check: session exists
         if session is None:
             print(f"❌ ERROR: Session not found for user {user_id}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Session Expired**\n\n"
-                    "Your session has expired. Please start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Session Expired**\n\nPlease start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             return
+
+        # Get locale from session
+        locale = session.language if session.language else None
 
         # Defensive check: keras_config exists
         if 'keras_config' not in session.selections:
             print(f"❌ ERROR: keras_config missing in handle_keras_batch for user {user_id}")
             try:
                 await query.edit_message_text(
-                    "❌ **Configuration Error**\n\n"
-                    "Configuration data lost. Please start over with /train",
+                    I18nManager.t('workflow_state.training.errors.config_data_lost', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Configuration Error**\n\nPlease start over with /train",
+                    I18nManager.t('workflow_state.training.errors.config_data_lost_short', locale=locale),
                     parse_mode="Markdown"
                 )
             return
 
         session.selections['keras_config']['batch_size'] = batch_size
         print(f"📦 DEBUG: keras_config after batch = {session.selections['keras_config']}")
+
+        # Get locale from session
+        locale = session.language if session.language else None
 
         # Save session with error handling
         try:
@@ -1835,13 +2048,12 @@ class LocalPathMLTrainingHandler:
             print(f"❌ ERROR: Failed to update session: {e}")
             try:
                 await query.edit_message_text(
-                    "❌ **Configuration Save Failed**\n\n"
-                    "Unable to save your selection. Please try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Configuration Save Failed**\n\nPlease try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed_short', locale=locale),
                     parse_mode="Markdown"
                 )
             return
@@ -1849,23 +2061,26 @@ class LocalPathMLTrainingHandler:
         # Get epochs with default fallback
         epochs = session.selections['keras_config'].get('epochs', 100)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to kernel initializer configuration
         keyboard = [
-            [InlineKeyboardButton("glorot_uniform (recommended)", callback_data="keras_init:glorot_uniform")],
-            [InlineKeyboardButton("random_normal", callback_data="keras_init:random_normal")],
-            [InlineKeyboardButton("random_uniform", callback_data="keras_init:random_uniform")],
-            [InlineKeyboardButton("he_normal", callback_data="keras_init:he_normal")],
-            [InlineKeyboardButton("he_uniform", callback_data="keras_init:he_uniform")]
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.weight_init.btn_glorot', locale=locale), callback_data="keras_init:glorot_uniform")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.weight_init.btn_random_normal', locale=locale), callback_data="keras_init:random_normal")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.weight_init.btn_random_uniform', locale=locale), callback_data="keras_init:random_uniform")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.weight_init.btn_he_normal', locale=locale), callback_data="keras_init:he_normal")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.weight_init.btn_he_uniform', locale=locale), callback_data="keras_init:he_uniform")]
         ]
         add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message_text = (
-            "🧠 **Keras Neural Network Configuration**\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.header', locale=locale)}\n\n"
             f"✅ Epochs: {epochs}\n"
             f"✅ Batch Size: {batch_size}\n\n"
-            "**Step 3/5: Weight Initialization**\n\n"
-            "Select kernel initializer:"
+            f"{I18nManager.t('workflow_state.model_config.keras.weight_init.title', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.weight_init.question', locale=locale)}"
         )
 
         # Wrap message editing with error handling
@@ -1912,37 +2127,39 @@ class LocalPathMLTrainingHandler:
             initializer = query.data.split(":")[-1]
         except AttributeError as e:
             logger.error(f"Malformed update object in handle_keras_initializer: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\n"
-                    "This action is no longer valid. Please restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 # Fallback to new message if edit fails
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ **Invalid Request**\n\nPlease restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
         print(f"🧠 DEBUG: handle_keras_initializer - user={user_id}, initializer={initializer}")
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Defensive check: session exists
         if session is None:
             print(f"❌ ERROR: Session not found for user {user_id}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Session Expired**\n\n"
-                    "Your session has expired. Please start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Session Expired**\n\nPlease start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             return
@@ -1966,6 +2183,9 @@ class LocalPathMLTrainingHandler:
         session.selections['keras_config']['kernel_initializer'] = initializer
         print(f"📦 DEBUG: keras_config after initializer = {session.selections['keras_config']}")
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Save session with error handling
         try:
             await self.state_manager.update_session(session)
@@ -1973,13 +2193,12 @@ class LocalPathMLTrainingHandler:
             print(f"❌ ERROR: Failed to update session: {e}")
             try:
                 await query.edit_message_text(
-                    "❌ **Configuration Save Failed**\n\n"
-                    "Unable to save your selection. Please try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Configuration Save Failed**\n\nPlease try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed_short', locale=locale),
                     parse_mode="Markdown"
                 )
             return
@@ -1988,22 +2207,25 @@ class LocalPathMLTrainingHandler:
         epochs = session.selections['keras_config'].get('epochs', 100)
         batch_size = session.selections['keras_config'].get('batch_size', 32)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to verbose configuration
         keyboard = [
-            [InlineKeyboardButton("0 - Silent", callback_data="keras_verbose:0")],
-            [InlineKeyboardButton("1 - Progress bar (recommended)", callback_data="keras_verbose:1")],
-            [InlineKeyboardButton("2 - One line per epoch", callback_data="keras_verbose:2")]
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.verbosity.btn_0', locale=locale), callback_data="keras_verbose:0")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.verbosity.btn_1', locale=locale), callback_data="keras_verbose:1")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.verbosity.btn_2', locale=locale), callback_data="keras_verbose:2")]
         ]
         add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message_text = (
-            "🧠 **Keras Neural Network Configuration**\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.header', locale=locale)}\n\n"
             f"✅ Epochs: {epochs}\n"
             f"✅ Batch Size: {batch_size}\n"
             f"✅ Initializer: {escape_markdown_v1(initializer)}\n\n"
-            "**Step 4/5: Training Output**\n\n"
-            "Select verbosity level:"
+            f"{I18nManager.t('workflow_state.model_config.keras.verbosity.title', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.verbosity.question', locale=locale)}"
         )
 
         # Wrap message editing with error handling (CRITICAL FIX FOR BUTTON ERROR!)
@@ -2050,37 +2272,39 @@ class LocalPathMLTrainingHandler:
             verbose = int(query.data.split(":")[-1])
         except (AttributeError, ValueError) as e:
             logger.error(f"Malformed update object in handle_keras_verbose: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\n"
-                    "This action is no longer valid. Please restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 # Fallback to new message if edit fails
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ **Invalid Request**\n\nPlease restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
         print(f"🧠 DEBUG: handle_keras_verbose - user={user_id}, verbose={verbose}")
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Defensive check: session exists
         if session is None:
             print(f"❌ ERROR: Session not found for user {user_id}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Session Expired**\n\n"
-                    "Your session has expired. Please start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Session Expired**\n\nPlease start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             return
@@ -2104,6 +2328,9 @@ class LocalPathMLTrainingHandler:
         session.selections['keras_config']['verbose'] = verbose
         print(f"📦 DEBUG: keras_config after verbose = {session.selections['keras_config']}")
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Save session with error handling
         try:
             await self.state_manager.update_session(session)
@@ -2111,13 +2338,12 @@ class LocalPathMLTrainingHandler:
             print(f"❌ ERROR: Failed to update session: {e}")
             try:
                 await query.edit_message_text(
-                    "❌ **Configuration Save Failed**\n\n"
-                    "Unable to save your selection. Please try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Configuration Save Failed**\n\nPlease try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed_short', locale=locale),
                     parse_mode="Markdown"
                 )
             return
@@ -2127,24 +2353,27 @@ class LocalPathMLTrainingHandler:
         batch_size = session.selections['keras_config'].get('batch_size', 32)
         initializer = session.selections['keras_config'].get('kernel_initializer', 'glorot_uniform')
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to validation split configuration
         keyboard = [
-            [InlineKeyboardButton("0% - No validation", callback_data="keras_val:0.0")],
-            [InlineKeyboardButton("10% validation", callback_data="keras_val:0.1")],
-            [InlineKeyboardButton("20% validation (recommended)", callback_data="keras_val:0.2")],
-            [InlineKeyboardButton("30% validation", callback_data="keras_val:0.3")]
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.validation.btn_0', locale=locale), callback_data="keras_val:0.0")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.validation.btn_10', locale=locale), callback_data="keras_val:0.1")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.validation.btn_20', locale=locale), callback_data="keras_val:0.2")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.model_config.keras.validation.btn_30', locale=locale), callback_data="keras_val:0.3")]
         ]
         add_back_button(keyboard)  # Phase 2: Workflow Back Button
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message_text = (
-            "🧠 **Keras Neural Network Configuration**\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.header', locale=locale)}\n\n"
             f"✅ Epochs: {epochs}\n"
             f"✅ Batch Size: {batch_size}\n"
             f"✅ Initializer: {escape_markdown_v1(initializer)}\n"
             f"✅ Verbosity: {verbose}\n\n"
-            "**Step 5/5: Validation Split**\n\n"
-            "Percentage of data to use for validation:"
+            f"{I18nManager.t('workflow_state.model_config.keras.validation.title', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.model_config.keras.validation.question', locale=locale)}"
         )
 
         # Wrap message editing with error handling
@@ -2191,37 +2420,39 @@ class LocalPathMLTrainingHandler:
             validation_split = float(query.data.split(":")[-1])
         except (AttributeError, ValueError) as e:
             logger.error(f"Malformed update object in handle_keras_validation: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\n"
-                    "This action is no longer valid. Please restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 # Fallback to new message if edit fails
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ **Invalid Request**\n\nPlease restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
         print(f"🧠 DEBUG: handle_keras_validation - user={user_id}, validation_split={validation_split}")
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Defensive check: session exists
         if session is None:
             print(f"❌ ERROR: Session not found for user {user_id}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Session Expired**\n\n"
-                    "Your session has expired. Please start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Session Expired**\n\nPlease start over with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
             return
@@ -2245,6 +2476,9 @@ class LocalPathMLTrainingHandler:
         session.selections['keras_config']['validation_split'] = validation_split
         print(f"📦 DEBUG: keras_config final = {session.selections['keras_config']}")
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Save session with error handling
         try:
             await self.state_manager.update_session(session)
@@ -2252,13 +2486,12 @@ class LocalPathMLTrainingHandler:
             print(f"❌ ERROR: Failed to update session: {e}")
             try:
                 await query.edit_message_text(
-                    "❌ **Configuration Save Failed**\n\n"
-                    "Unable to save your selection. Please try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed', locale=locale),
                     parse_mode="Markdown"
                 )
             except telegram.error.TelegramError:
                 await update.effective_message.reply_text(
-                    "❌ **Configuration Save Failed**\n\nPlease try again.",
+                    I18nManager.t('workflow_state.training.errors.config_save_failed_short', locale=locale),
                     parse_mode="Markdown"
                 )
             return
@@ -2270,23 +2503,34 @@ class LocalPathMLTrainingHandler:
         initializer = config.get('kernel_initializer', 'glorot_uniform')
         verbose = config.get('verbose', 1)
 
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
+
+        # Get i18n strings
+        title = I18nManager.t('workflow_state.model_config.keras.configuration_complete.title', locale=locale)
+        settings_header = I18nManager.t('workflow_state.model_config.keras.configuration_complete.settings_header', locale=locale)
+        what_next = I18nManager.t('workflow_state.model_config.keras.configuration_complete.what_next', locale=locale)
+
+        btn_train = I18nManager.t('workflow_state.model_config.keras.configuration_complete.buttons.start_training', locale=locale)
+        btn_save = I18nManager.t('workflow_state.model_config.keras.configuration_complete.buttons.save_template', locale=locale)
+
         # Offer to save as template or start training
         keyboard = [
-            [InlineKeyboardButton("🚀 Start Training", callback_data="start_training")],
-            [InlineKeyboardButton("💾 Save as Template", callback_data="template_save")]
+            [InlineKeyboardButton(btn_train, callback_data="start_training")],
+            [InlineKeyboardButton(btn_save, callback_data="template_save")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message_text = (
-            "✅ **Keras Configuration Complete**\n\n"
-            f"📊 **Settings:**\n"
+            f"{title}\n\n"
+            f"{settings_header}\n"
             f"• Epochs: {epochs}\n"
             f"• Batch Size: {batch_size}\n"
             f"• Initializer: {escape_markdown_v1(initializer)}\n"
             f"• Verbosity: {verbose}\n"
             f"• Validation Split: {validation_split * 100:.0f}%\n\n"
-            f"What would you like to do next?"
+            f"{what_next}"
         )
 
         # Wrap message editing with error handling
@@ -2324,11 +2568,13 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         n_estimators_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -2342,21 +2588,38 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['n_estimators'] = n_estimators
         await self.state_manager.update_session(session)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to max_depth selection
         keyboard = [
-            [InlineKeyboardButton("3 levels", callback_data="xgboost_max_depth:3")],
-            [InlineKeyboardButton("6 levels (recommended)", callback_data="xgboost_max_depth:6")],
-            [InlineKeyboardButton("9 levels", callback_data="xgboost_max_depth:9")],
-            [InlineKeyboardButton("Custom", callback_data="xgboost_max_depth:custom")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.max_depth.btn_3', locale=locale),
+                callback_data="xgboost_max_depth:3"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.max_depth.btn_6', locale=locale),
+                callback_data="xgboost_max_depth:6"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.max_depth.btn_9', locale=locale),
+                callback_data="xgboost_max_depth:9"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.max_depth.btn_custom', locale=locale),
+                callback_data="xgboost_max_depth:custom"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.xgboost.max_depth.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.xgboost.max_depth.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.xgboost.max_depth.help', locale=locale)
+
         await query.edit_message_text(
-            "🧠 **XGBoost Configuration**\n\n"
-            "**Step 2/5: Maximum Tree Depth**\n\n"
-            "How deep should each tree be?\n"
-            "(Deeper = more complex patterns, risk of overfitting)",
+            f"{header}\n\n{title}\n\n{question}\n{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2374,11 +2637,13 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         max_depth_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -2391,21 +2656,38 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['max_depth'] = max_depth
         await self.state_manager.update_session(session)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to learning_rate selection
         keyboard = [
-            [InlineKeyboardButton("0.01 (conservative)", callback_data="xgboost_learning_rate:0.01")],
-            [InlineKeyboardButton("0.1 (recommended)", callback_data="xgboost_learning_rate:0.1")],
-            [InlineKeyboardButton("0.3 (aggressive)", callback_data="xgboost_learning_rate:0.3")],
-            [InlineKeyboardButton("Custom", callback_data="xgboost_learning_rate:custom")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.learning_rate.btn_001', locale=locale),
+                callback_data="xgboost_learning_rate:0.01"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.learning_rate.btn_01', locale=locale),
+                callback_data="xgboost_learning_rate:0.1"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.learning_rate.btn_03', locale=locale),
+                callback_data="xgboost_learning_rate:0.3"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.learning_rate.btn_custom', locale=locale),
+                callback_data="xgboost_learning_rate:custom"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.xgboost.learning_rate.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.xgboost.learning_rate.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.xgboost.learning_rate.help', locale=locale)
+
         await query.edit_message_text(
-            "🧠 **XGBoost Configuration**\n\n"
-            "**Step 3/5: Learning Rate**\n\n"
-            "How fast should the model learn?\n"
-            "(Lower = more stable, but needs more trees)",
+            f"{header}\n\n{title}\n\n{question}\n{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2423,11 +2705,13 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         learning_rate_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -2440,21 +2724,38 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['learning_rate'] = learning_rate
         await self.state_manager.update_session(session)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to subsample selection
         keyboard = [
-            [InlineKeyboardButton("0.6 (60%)", callback_data="xgboost_subsample:0.6")],
-            [InlineKeyboardButton("0.8 (80% - recommended)", callback_data="xgboost_subsample:0.8")],
-            [InlineKeyboardButton("1.0 (100% - all data)", callback_data="xgboost_subsample:1.0")],
-            [InlineKeyboardButton("Custom", callback_data="xgboost_subsample:custom")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.subsample.btn_06', locale=locale),
+                callback_data="xgboost_subsample:0.6"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.subsample.btn_08', locale=locale),
+                callback_data="xgboost_subsample:0.8"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.subsample.btn_10', locale=locale),
+                callback_data="xgboost_subsample:1.0"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.subsample.btn_custom', locale=locale),
+                callback_data="xgboost_subsample:custom"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.xgboost.subsample.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.xgboost.subsample.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.xgboost.subsample.help', locale=locale)
+
         await query.edit_message_text(
-            "🧠 **XGBoost Configuration**\n\n"
-            "**Step 4/5: Subsample Ratio**\n\n"
-            "What fraction of data to use per tree?\n"
-            "(Lower = more diverse trees, prevents overfitting)",
+            f"{header}\n\n{title}\n\n{question}\n{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2472,11 +2773,13 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         subsample_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -2489,21 +2792,38 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['subsample'] = subsample
         await self.state_manager.update_session(session)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to colsample_bytree selection
         keyboard = [
-            [InlineKeyboardButton("0.6 (60%)", callback_data="xgboost_colsample:0.6")],
-            [InlineKeyboardButton("0.8 (80% - recommended)", callback_data="xgboost_colsample:0.8")],
-            [InlineKeyboardButton("1.0 (100% - all features)", callback_data="xgboost_colsample:1.0")],
-            [InlineKeyboardButton("Custom", callback_data="xgboost_colsample:custom")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.colsample.btn_06', locale=locale),
+                callback_data="xgboost_colsample:0.6"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.colsample.btn_08', locale=locale),
+                callback_data="xgboost_colsample:0.8"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.colsample.btn_10', locale=locale),
+                callback_data="xgboost_colsample:1.0"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.xgboost.colsample.btn_custom', locale=locale),
+                callback_data="xgboost_colsample:custom"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.xgboost.colsample.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.xgboost.colsample.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.xgboost.colsample.help', locale=locale)
+
         await query.edit_message_text(
-            "🧠 **XGBoost Configuration**\n\n"
-            "**Step 5/5: Column Subsample Ratio**\n\n"
-            "What fraction of features to use per tree?\n"
-            "(Lower = more diverse trees, prevents overfitting)",
+            f"{header}\n\n{title}\n\n{question}\n{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2521,11 +2841,13 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         colsample_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -2538,6 +2860,9 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['colsample_bytree'] = colsample
         await self.state_manager.update_session(session)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Configuration complete - start training
         model_type = session.selections.get('xgboost_model_type')
         xgboost_config = session.selections.get('xgboost_config')
@@ -2545,17 +2870,48 @@ class LocalPathMLTrainingHandler:
         # Escape underscores for Markdown
         model_display = model_type.replace('_', '\\_')
 
+        title = I18nManager.t('workflow_state.model_config.xgboost.configuration_complete.title', locale=locale)
+        model_label = I18nManager.t('workflow_state.model_config.xgboost.configuration_complete.model_label', locale=locale)
+        parameters_label = I18nManager.t('workflow_state.model_config.xgboost.configuration_complete.parameters_label', locale=locale)
+        param_n_estimators = I18nManager.t(
+            'workflow_state.model_config.xgboost.configuration_complete.param_n_estimators',
+            locale=locale,
+            value=xgboost_config['n_estimators']
+        )
+        param_max_depth = I18nManager.t(
+            'workflow_state.model_config.xgboost.configuration_complete.param_max_depth',
+            locale=locale,
+            value=xgboost_config['max_depth']
+        )
+        param_learning_rate = I18nManager.t(
+            'workflow_state.model_config.xgboost.configuration_complete.param_learning_rate',
+            locale=locale,
+            value=xgboost_config['learning_rate']
+        )
+        param_subsample = I18nManager.t(
+            'workflow_state.model_config.xgboost.configuration_complete.param_subsample',
+            locale=locale,
+            value=xgboost_config['subsample']
+        )
+        param_colsample = I18nManager.t(
+            'workflow_state.model_config.xgboost.configuration_complete.param_colsample_bytree',
+            locale=locale,
+            value=xgboost_config['colsample_bytree']
+        )
+        starting_training = I18nManager.t('workflow_state.model_config.xgboost.configuration_complete.starting_training', locale=locale)
+        patience = I18nManager.t('workflow_state.training.patience', locale=locale)
+
         await query.edit_message_text(
-            f"✅ **XGBoost Configuration Complete**\n\n"
-            f"🎯 **Model**: {model_display}\n"
-            f"⚙️ **Parameters**:\n"
-            f"• n\\_estimators: {xgboost_config['n_estimators']}\n"
-            f"• max\\_depth: {xgboost_config['max_depth']}\n"
-            f"• learning\\_rate: {xgboost_config['learning_rate']}\n"
-            f"• subsample: {xgboost_config['subsample']}\n"
-            f"• colsample\\_bytree: {xgboost_config['colsample_bytree']}\n\n"
-            f"🚀 Starting training...\n\n"
-            f"This may take a few moments.",
+            f"{title}\n\n"
+            f"{model_label} {model_display}\n"
+            f"{parameters_label}\n"
+            f"{param_n_estimators}\n"
+            f"{param_max_depth}\n"
+            f"{param_learning_rate}\n"
+            f"{param_subsample}\n"
+            f"{param_colsample}\n\n"
+            f"{starting_training}\n\n"
+            f"{patience}",
             parse_mode="Markdown"
         )
 
@@ -2575,11 +2931,13 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         num_leaves_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -2590,22 +2948,43 @@ class LocalPathMLTrainingHandler:
 
         print(f"⚡ DEBUG: LightGBM num_leaves set to {num_leaves}")
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to n_estimators selection
         keyboard = [
-            [InlineKeyboardButton("50 trees (fast)", callback_data="lightgbm_n_estimators:50")],
-            [InlineKeyboardButton("100 trees (recommended)", callback_data="lightgbm_n_estimators:100")],
-            [InlineKeyboardButton("200 trees (accurate)", callback_data="lightgbm_n_estimators:200")],
-            [InlineKeyboardButton("Use Defaults", callback_data="lightgbm_use_defaults")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.btn_50', locale=locale),
+                callback_data="lightgbm_n_estimators:50"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.btn_100', locale=locale),
+                callback_data="lightgbm_n_estimators:100"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.btn_200', locale=locale),
+                callback_data="lightgbm_n_estimators:200"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.btn_defaults', locale=locale),
+                callback_data="lightgbm_use_defaults"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.lightgbm.header', locale=locale)
+        status_leaves = I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.status_num_leaves', locale=locale, value=num_leaves)
+        title = I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.help', locale=locale)
+
         await query.edit_message_text(
-            "⚡ **LightGBM Configuration**\n\n"
-            f"✅ Num Leaves: {num_leaves}\n\n"
-            "**Step 2/3: Number of Trees**\n\n"
-            "How many boosting rounds?\n"
-            "(More trees = better fit, but slower training)",
+            f"{header}\n\n"
+            f"{status_leaves}\n\n"
+            f"{title}\n\n"
+            f"{question}\n"
+            f"{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2623,11 +3002,13 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         n_estimators_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -2641,24 +3022,49 @@ class LocalPathMLTrainingHandler:
         # Get previous values for display
         num_leaves = session.selections['lightgbm_config'].get('num_leaves', 31)
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Move to learning_rate selection
         keyboard = [
-            [InlineKeyboardButton("0.01 (conservative)", callback_data="lightgbm_learning_rate:0.01")],
-            [InlineKeyboardButton("0.05 (balanced)", callback_data="lightgbm_learning_rate:0.05")],
-            [InlineKeyboardButton("0.1 (recommended)", callback_data="lightgbm_learning_rate:0.1")],
-            [InlineKeyboardButton("0.2 (aggressive)", callback_data="lightgbm_learning_rate:0.2")],
-            [InlineKeyboardButton("Use Defaults", callback_data="lightgbm_use_defaults")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_001', locale=locale),
+                callback_data="lightgbm_learning_rate:0.01"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_005', locale=locale),
+                callback_data="lightgbm_learning_rate:0.05"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_01', locale=locale),
+                callback_data="lightgbm_learning_rate:0.1"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_02', locale=locale),
+                callback_data="lightgbm_learning_rate:0.2"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_defaults', locale=locale),
+                callback_data="lightgbm_use_defaults"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.lightgbm.header', locale=locale)
+        status_leaves = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.status_num_leaves', locale=locale, value=num_leaves)
+        status_estimators = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.status_n_estimators', locale=locale, value=n_estimators)
+        title = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.help', locale=locale)
+
         await query.edit_message_text(
-            "⚡ **LightGBM Configuration**\n\n"
-            f"✅ Num Leaves: {num_leaves}\n"
-            f"✅ N Estimators: {n_estimators}\n\n"
-            "**Step 3/3: Learning Rate**\n\n"
-            "How fast should the model learn?\n"
-            "(Lower = more stable, Higher = faster but risky)",
+            f"{header}\n\n"
+            f"{status_leaves}\n"
+            f"{status_estimators}\n\n"
+            f"{title}\n\n"
+            f"{question}\n"
+            f"{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2676,11 +3082,13 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         learning_rate_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -2691,6 +3099,9 @@ class LocalPathMLTrainingHandler:
 
         print(f"⚡ DEBUG: LightGBM learning_rate set to {learning_rate}")
 
+        # Get locale from session
+        locale = session.language if session.language else None
+
         # Configuration complete - start training
         model_type = session.selections.get('lightgbm_model_type')
         lightgbm_config = session.selections.get('lightgbm_config')
@@ -2698,17 +3109,28 @@ class LocalPathMLTrainingHandler:
         # Escape underscores for Markdown
         model_display = model_type.replace('_', '\\_')
 
+        title = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.title', locale=locale)
+        model_label = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.model_label', locale=locale)
+        params_label = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.parameters_label', locale=locale)
+        param_num_leaves = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_num_leaves', locale=locale, value=lightgbm_config['num_leaves'])
+        param_n_estimators = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_n_estimators', locale=locale, value=lightgbm_config['n_estimators'])
+        param_learning_rate = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_learning_rate', locale=locale, value=lightgbm_config['learning_rate'])
+        param_feature_fraction = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_feature_fraction', locale=locale, value=lightgbm_config.get('feature_fraction', 0.8))
+        param_bagging_fraction = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_bagging_fraction', locale=locale, value=lightgbm_config.get('bagging_fraction', 0.8))
+        starting_training = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.starting_training', locale=locale)
+        patience = I18nManager.t('workflow_state.training.patience', locale=locale)
+
         await query.edit_message_text(
-            f"✅ **LightGBM Configuration Complete**\n\n"
-            f"🎯 **Model**: {model_display}\n"
-            f"⚙️ **Parameters**:\n"
-            f"• num\\_leaves: {lightgbm_config['num_leaves']}\n"
-            f"• n\\_estimators: {lightgbm_config['n_estimators']}\n"
-            f"• learning\\_rate: {lightgbm_config['learning_rate']}\n"
-            f"• feature\\_fraction: {lightgbm_config.get('feature_fraction', 0.8)}\n"
-            f"• bagging\\_fraction: {lightgbm_config.get('bagging_fraction', 0.8)}\n\n"
-            f"🚀 Starting training...\n\n"
-            f"This may take a few moments.",
+            f"{title}\n\n"
+            f"{model_label} {model_display}\n"
+            f"{params_label}\n"
+            f"{param_num_leaves}\n"
+            f"{param_n_estimators}\n"
+            f"{param_learning_rate}\n"
+            f"{param_feature_fraction}\n"
+            f"{param_bagging_fraction}\n\n"
+            f"{starting_training}\n\n"
+            f"{patience}",
             parse_mode="Markdown"
         )
 
@@ -2727,14 +3149,19 @@ class LocalPathMLTrainingHandler:
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
+
+        # Get locale from session
+        locale = session.language if session.language else None
 
         # Use the default config that was already loaded
         model_type = session.selections.get('lightgbm_model_type')
@@ -2745,17 +3172,28 @@ class LocalPathMLTrainingHandler:
         # Escape underscores for Markdown
         model_display = model_type.replace('_', '\\_')
 
+        title = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.title', locale=locale)
+        model_label = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.model_label', locale=locale)
+        params_label = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.parameters_label', locale=locale)
+        param_num_leaves = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_num_leaves', locale=locale, value=lightgbm_config['num_leaves'])
+        param_n_estimators = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_n_estimators', locale=locale, value=lightgbm_config['n_estimators'])
+        param_learning_rate = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_learning_rate', locale=locale, value=lightgbm_config['learning_rate'])
+        param_feature_fraction = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_feature_fraction', locale=locale, value=lightgbm_config.get('feature_fraction', 0.8))
+        param_bagging_fraction = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_bagging_fraction', locale=locale, value=lightgbm_config.get('bagging_fraction', 0.8))
+        starting_training = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.starting_training', locale=locale)
+        patience = I18nManager.t('workflow_state.training.patience', locale=locale)
+
         await query.edit_message_text(
-            f"✅ **Using Default LightGBM Configuration**\n\n"
-            f"🎯 **Model**: {model_display}\n"
-            f"⚙️ **Parameters** (defaults):\n"
-            f"• num\\_leaves: {lightgbm_config['num_leaves']}\n"
-            f"• n\\_estimators: {lightgbm_config['n_estimators']}\n"
-            f"• learning\\_rate: {lightgbm_config['learning_rate']}\n"
-            f"• feature\\_fraction: {lightgbm_config.get('feature_fraction', 0.8)}\n"
-            f"• bagging\\_fraction: {lightgbm_config.get('bagging_fraction', 0.8)}\n\n"
-            f"🚀 Starting training...\n\n"
-            f"This may take a few moments.",
+            f"{title}\n\n"
+            f"{model_label} {model_display}\n"
+            f"{params_label}\n"
+            f"{param_num_leaves}\n"
+            f"{param_n_estimators}\n"
+            f"{param_learning_rate}\n"
+            f"{param_feature_fraction}\n"
+            f"{param_bagging_fraction}\n\n"
+            f"{starting_training}\n\n"
+            f"{patience}",
             parse_mode="Markdown"
         )
 
@@ -2775,14 +3213,19 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         iterations_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
+
+        # Get locale from session
+        locale = session.language if session.language else None
 
         # Handle custom input (default to 1000 for now - Phase 2 enhancement)
         if iterations_value == "custom":
@@ -2795,19 +3238,36 @@ class LocalPathMLTrainingHandler:
 
         # Move to depth selection
         keyboard = [
-            [InlineKeyboardButton("4 levels (fast)", callback_data="catboost_depth:4")],
-            [InlineKeyboardButton("6 levels (recommended)", callback_data="catboost_depth:6")],
-            [InlineKeyboardButton("8 levels (complex)", callback_data="catboost_depth:8")],
-            [InlineKeyboardButton("Custom", callback_data="catboost_depth:custom")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.depth.btn_4', locale=locale),
+                callback_data="catboost_depth:4"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.depth.btn_6', locale=locale),
+                callback_data="catboost_depth:6"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.depth.btn_8', locale=locale),
+                callback_data="catboost_depth:8"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.depth.btn_custom', locale=locale),
+                callback_data="catboost_depth:custom"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.catboost.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.catboost.depth.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.catboost.depth.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.catboost.depth.help', locale=locale)
+
         await query.edit_message_text(
-            "🐈 **CatBoost Configuration**\n\n"
-            "**Step 2/4: Maximum Tree Depth**\n\n"
-            "How deep should each tree be?\n"
-            "(Deeper = more complex patterns, risk of overfitting)",
+            f"{header}\n\n"
+            f"{title}\n\n"
+            f"{question}\n"
+            f"{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2825,14 +3285,19 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         depth_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
+
+        # Get locale from session
+        locale = session.language if session.language else None
 
         if depth_value == "custom":
             depth = 6
@@ -2844,19 +3309,36 @@ class LocalPathMLTrainingHandler:
 
         # Move to learning_rate selection
         keyboard = [
-            [InlineKeyboardButton("0.01 (conservative)", callback_data="catboost_learning_rate:0.01")],
-            [InlineKeyboardButton("0.03 (recommended)", callback_data="catboost_learning_rate:0.03")],
-            [InlineKeyboardButton("0.1 (aggressive)", callback_data="catboost_learning_rate:0.1")],
-            [InlineKeyboardButton("Custom", callback_data="catboost_learning_rate:custom")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.learning_rate.btn_001', locale=locale),
+                callback_data="catboost_learning_rate:0.01"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.learning_rate.btn_003', locale=locale),
+                callback_data="catboost_learning_rate:0.03"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.learning_rate.btn_01', locale=locale),
+                callback_data="catboost_learning_rate:0.1"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.learning_rate.btn_custom', locale=locale),
+                callback_data="catboost_learning_rate:custom"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.catboost.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.catboost.learning_rate.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.catboost.learning_rate.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.catboost.learning_rate.help', locale=locale)
+
         await query.edit_message_text(
-            "🐈 **CatBoost Configuration**\n\n"
-            "**Step 3/4: Learning Rate**\n\n"
-            "How fast should the model learn?\n"
-            "(Lower = more stable, but needs more iterations)",
+            f"{header}\n\n"
+            f"{title}\n\n"
+            f"{question}\n"
+            f"{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2874,14 +3356,19 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         learning_rate_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
+
+        # Get locale from session
+        locale = session.language if session.language else None
 
         if learning_rate_value == "custom":
             learning_rate = 0.03
@@ -2893,19 +3380,36 @@ class LocalPathMLTrainingHandler:
 
         # Move to l2_leaf_reg selection
         keyboard = [
-            [InlineKeyboardButton("1 (low regularization)", callback_data="catboost_l2:1")],
-            [InlineKeyboardButton("3 (recommended)", callback_data="catboost_l2:3")],
-            [InlineKeyboardButton("5 (high regularization)", callback_data="catboost_l2:5")],
-            [InlineKeyboardButton("Custom", callback_data="catboost_l2:custom")]
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.btn_1', locale=locale),
+                callback_data="catboost_l2:1"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.btn_3', locale=locale),
+                callback_data="catboost_l2:3"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.btn_5', locale=locale),
+                callback_data="catboost_l2:5"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.btn_custom', locale=locale),
+                callback_data="catboost_l2:custom"
+            )]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        header = I18nManager.t('workflow_state.model_config.catboost.header', locale=locale)
+        title = I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.title', locale=locale)
+        question = I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.question', locale=locale)
+        help_text = I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.help', locale=locale)
+
         await query.edit_message_text(
-            "🐈 **CatBoost Configuration**\n\n"
-            "**Step 4/4: L2 Regularization**\n\n"
-            "How much regularization to prevent overfitting?\n"
-            "(Higher = simpler model, lower risk of overfitting)",
+            f"{header}\n\n"
+            f"{title}\n\n"
+            f"{question}\n"
+            f"{help_text}",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2923,14 +3427,19 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         l2_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
+
+        # Get locale from session
+        locale = session.language if session.language else None
 
         if l2_value == "custom":
             l2_leaf_reg = 3
@@ -2947,16 +3456,27 @@ class LocalPathMLTrainingHandler:
         # Escape underscores for Markdown
         model_display = model_type.replace('_', '\\_')
 
+        # Build i18n message
+        title = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.title', locale=locale)
+        model_label = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.model_label', locale=locale)
+        parameters_label = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.parameters_label', locale=locale)
+        param_iterations = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.param_iterations', locale=locale, value=catboost_config['iterations'])
+        param_depth = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.param_depth', locale=locale, value=catboost_config['depth'])
+        param_learning_rate = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.param_learning_rate', locale=locale, value=catboost_config['learning_rate'])
+        param_l2_leaf_reg = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.param_l2_leaf_reg', locale=locale, value=catboost_config['l2_leaf_reg'])
+        starting_training = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.starting_training', locale=locale)
+        patience = I18nManager.t('workflow_state.training.patience', locale=locale)
+
         await query.edit_message_text(
-            f"✅ **CatBoost Configuration Complete**\n\n"
-            f"🎯 **Model**: {model_display}\n"
-            f"⚙️ **Parameters**:\n"
-            f"• iterations: {catboost_config['iterations']}\n"
-            f"• depth: {catboost_config['depth']}\n"
-            f"• learning\\_rate: {catboost_config['learning_rate']}\n"
-            f"• l2\\_leaf\\_reg: {catboost_config['l2_leaf_reg']}\n\n"
-            f"🚀 Starting training...\n\n"
-            f"This may take a few moments.",
+            f"{title}\n\n"
+            f"{model_label} {model_display}\n"
+            f"{parameters_label}\n"
+            f"{param_iterations}\n"
+            f"{param_depth}\n"
+            f"{param_learning_rate}\n"
+            f"{param_l2_leaf_reg}\n\n"
+            f"{starting_training}\n\n"
+            f"{patience}",
             parse_mode="Markdown"
         )
 
@@ -2974,7 +3494,7 @@ class LocalPathMLTrainingHandler:
 
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if not session:
             await query.edit_message_text("❌ Session not found. Please restart with /train")
@@ -2982,12 +3502,13 @@ class LocalPathMLTrainingHandler:
 
         # Wrap message editing with defensive error handling
         try:
-            await query.edit_message_text("🚀 Starting training...\n\nThis may take a few moments.", parse_mode="Markdown")
+            locale = session.language if session.language else None
+            await query.edit_message_text(f"{I18nManager.t('workflow_state.training.starting', locale=locale)}\n\n{I18nManager.t('workflow_state.training.patience', locale=locale)}", parse_mode="Markdown")
         except telegram.error.BadRequest as e:
             logger.warning(f"Failed to edit message in handle_training_execution: {e}")
             # Fallback: send new message instead
             await update.effective_message.reply_text(
-                "🚀 Starting training...\n\nThis may take a few moments.",
+                f"{I18nManager.t('workflow_state.training.starting', locale=locale)}\n\n{I18nManager.t('workflow_state.training.patience', locale=locale)}",
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -3094,20 +3615,29 @@ class LocalPathMLTrainingHandler:
                 session.selections['pending_model_id'] = model_id
                 await self.state_manager.update_session(session)
 
+                # Get locale from session
+                locale = session.language if session.language else None
+
                 # Show naming options with inline keyboard
                 # NOTE: callback_data is short (no model_id) to stay within Telegram's 64-byte limit
                 # model_id is already stored in session.selections['pending_model_id'] at line 1831
                 keyboard = [
-                    [InlineKeyboardButton("📝 Name Model", callback_data="name_model")],
-                    [InlineKeyboardButton("⏭️ Skip - Use Default", callback_data="skip_naming")]
+                    [InlineKeyboardButton(
+                        I18nManager.t('workflow_state.training.completion.buttons.name_model', locale=locale),
+                        callback_data="name_model"
+                    )],
+                    [InlineKeyboardButton(
+                        I18nManager.t('workflow_state.training.completion.buttons.skip_naming', locale=locale),
+                        callback_data="skip_naming"
+                    )]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
                 await update.effective_message.reply_text(
-                    f"✅ **Training Complete!**\n\n"
-                    f"📊 **Metrics:**\n{metrics_text}\n\n"
-                    f"🆔 **Model ID:** `{model_id}`\n\n"
-                    f"Would you like to give this model a custom name?",
+                    f"{I18nManager.t('workflow_state.training.completion.header', locale=locale)}\n\n"
+                    f"{I18nManager.t('workflow_state.training.completion.metrics_label', locale=locale)}\n{metrics_text}\n\n"
+                    f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)}: `{model_id}`\n\n"
+                    f"{I18nManager.t('workflow_state.training.completion.naming_prompt', locale=locale)}",
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
@@ -3151,34 +3681,41 @@ class LocalPathMLTrainingHandler:
             chat_id = update.effective_chat.id
         except AttributeError as e:
             logger.error(f"Malformed update object in handle_name_model_callback: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ Please restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
+
+        # Get locale from session
+        locale = session.language if session.language else None
 
         # Retrieve model_id from session (stored at training completion)
         model_id = session.selections.get('pending_model_id')
         if not model_id:
             logger.error("No pending_model_id found in session")
             await query.edit_message_text(
-                "❌ **Session Error**\n\nModel ID not found. Please restart with /train",
+                I18nManager.t('workflow_state.training.errors.model_id_not_found', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -3194,16 +3731,16 @@ class LocalPathMLTrainingHandler:
 
         # Send prompt for custom name
         await query.edit_message_text(
-            "📝 **Name Your Model**\n\n"
-            "Choose a memorable name for your model.\n\n"
-            "**Rules:**\n"
-            "• 3-100 characters\n"
-            "• Letters, numbers, spaces, hyphens, underscores only\n\n"
-            "**Examples:**\n"
-            "• `Housing Price Predictor`\n"
-            "• `Customer Churn Model v2`\n"
-            "• `Sales Forecast 2025`\n\n"
-            "💬 **Type your custom name:**",
+            f"{I18nManager.t('workflow_state.training.naming.header', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.training.naming.description', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.training.naming.rules_header', locale=locale)}\n"
+            f"{I18nManager.t('workflow_state.training.naming.rules_length', locale=locale)}\n"
+            f"{I18nManager.t('workflow_state.training.naming.rules_chars', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.training.naming.examples_header', locale=locale)}\n"
+            f"{I18nManager.t('workflow_state.training.naming.example1', locale=locale)}\n"
+            f"{I18nManager.t('workflow_state.training.naming.example2', locale=locale)}\n"
+            f"{I18nManager.t('workflow_state.training.naming.example3', locale=locale)}\n\n"
+            f"{I18nManager.t('workflow_state.training.naming.input_prompt', locale=locale)}",
             parse_mode="Markdown"
         )
 
@@ -3221,16 +3758,16 @@ class LocalPathMLTrainingHandler:
             logger.error(f"Malformed update object in handle_model_name_input: {e}")
             if update and update.effective_message:
                 await update.effective_message.reply_text(
-                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request'),
                     parse_mode="Markdown"
                 )
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
             await update.message.reply_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired'),
                 parse_mode="Markdown"
             )
             return
@@ -3242,6 +3779,9 @@ class LocalPathMLTrainingHandler:
 
         # Get pending model_id from session
         model_id = session.selections.get('pending_model_id')
+
+        # Get locale from session for i18n
+        locale = session.language if session.language else None
 
         if not model_id:
             await update.message.reply_text(
@@ -3267,9 +3807,9 @@ class LocalPathMLTrainingHandler:
             await update.message.reply_text(
                 f"✅ **Model Named Successfully!**\n\n"
                 f"📝 **Name:** {escape_markdown_v1(custom_name)}\n"
-                f"🆔 **Model ID:** `{model_id}`\n"
-                f"🎯 **Type:** {model_info.get('model_type', 'N/A')}\n\n"
-                f"💾 Your model is ready for predictions!",
+                f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)}: `{model_id}`\n"
+                f"{I18nManager.t('workflow_state.training.model_type_display', locale=locale)} {model_info.get('model_type', 'N/A')}\n\n"
+                f"{I18nManager.t('workflow_state.training.ready_for_predictions', locale=locale)}",
                 parse_mode="Markdown"
             )
 
@@ -3315,34 +3855,41 @@ class LocalPathMLTrainingHandler:
             chat_id = update.effective_chat.id
         except AttributeError as e:
             logger.error(f"Malformed update object in handle_skip_naming_callback: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ Please restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
+            # Get locale for i18n (best effort)
+            locale = None
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease start over with /train",
+                I18nManager.t('workflows.ml_training_local_path.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
+
+        # Get locale from session
+        locale = session.language if session.language else None
 
         # Retrieve model_id from session (stored at training completion)
         model_id = session.selections.get('pending_model_id')
         if not model_id:
             logger.error("No pending_model_id found in session")
             await query.edit_message_text(
-                "❌ **Session Error**\n\nModel ID not found. Please restart with /train",
+                I18nManager.t('workflow_state.training.errors.model_id_not_found', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -3369,11 +3916,11 @@ class LocalPathMLTrainingHandler:
 
             # Send confirmation
             await query.edit_message_text(
-                f"✅ **Model Ready!**\n\n"
-                f"📝 **Default Name:** {escape_markdown_v1(default_name)}\n"
-                f"🆔 **Model ID:** `{model_id}`\n"
-                f"🎯 **Type:** {model_info.get('model_type', 'N/A')}\n\n"
-                f"💾 Your model is ready for predictions!",
+                f"{I18nManager.t('workflow_state.training.model_ready', locale=locale)}\n\n"
+                f"{I18nManager.t('workflow_state.training.default_name_display', locale=locale)} {escape_markdown_v1(default_name)}\n"
+                f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)} `{model_id}`\n"
+                f"{I18nManager.t('workflow_state.training.model_type_display', locale=locale)} {model_info.get('model_type', 'N/A')}\n\n"
+                f"{I18nManager.t('workflow_state.training.ready_for_predictions', locale=locale)}",
                 parse_mode="Markdown"
             )
 
@@ -3440,20 +3987,25 @@ class LocalPathMLTrainingHandler:
             choice = query.data.split(":")[-1]  # "accept" or "reject"
         except AttributeError as e:
             logger.error(f"Malformed update object in handle_schema_confirmation: {e}")
+            # Get locale for i18n (best effort)
+            locale = None
             try:
                 await query.edit_message_text(
-                    "❌ **Invalid Request**\n\nPlease restart with /train",
+                    I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
             except Exception:
                 if update and update.effective_message:
                     await update.effective_message.reply_text(
-                        "❌ Please restart with /train",
+                        I18nManager.t('workflows.ml_training_local_path.errors.invalid_request', locale=locale),
                         parse_mode="Markdown"
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
 
         if choice == "accept":
             # Transfer detected schema to selections (required for training)
@@ -3476,7 +4028,7 @@ class LocalPathMLTrainingHandler:
             suggested_target = session.detected_schema.get('target') if session.detected_schema else None
 
             await query.edit_message_text(
-                LocalPathMessages.schema_accepted_message(suggested_target),
+                LocalPathMessages.schema_accepted_message(suggested_target, locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -3500,7 +4052,7 @@ class LocalPathMLTrainingHandler:
             session.detected_schema = None
 
             await query.edit_message_text(
-                LocalPathMessages.schema_rejected_message(),
+                LocalPathMessages.schema_rejected_message(locale=locale),
                 parse_mode="Markdown"
             )
 

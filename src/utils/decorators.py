@@ -14,8 +14,13 @@ from telegram.ext import ContextTypes
 
 from src.utils.exceptions import BotError
 from src.utils.logger import get_logger
+from src.utils.language_detector import LanguageDetector
+from src.utils.i18n_manager import I18nManager
 
 logger = get_logger(__name__)
+
+# Initialize language detector (singleton pattern)
+language_detector = LanguageDetector()
 
 
 def validate_telegram_update(func: Callable) -> Callable:
@@ -137,10 +142,121 @@ def log_user_action(action: str) -> Callable:
     return decorator
 
 
-# Message constants to reduce duplication
-class Messages:
-    """Common message templates used across handlers."""
+def detect_and_set_language(func: Callable) -> Callable:
+    """
+    Decorator to auto-detect and set user language before handler execution.
 
+    This decorator integrates language detection with the StateManager session.
+    It detects language from user message text and updates the session language
+    preference for use in I18nManager.t() calls.
+
+    Detection strategy:
+    1. First checks if language is already set in session
+    2. If message text available (>3 chars), detects language
+    3. Updates session with detected language, confidence, and timestamp
+
+    Args:
+        func: Handler function to wrap
+
+    Returns:
+        Wrapped function with language detection
+
+    Example:
+        @telegram_handler
+        @detect_and_set_language
+        @log_user_action("Bot start")
+        async def start_handler(update, context):
+            session = await state_manager.get_session(...)
+            locale = session.language  # Use detected language
+            await update.message.reply_text(I18nManager.t('welcome', locale=locale))
+    """
+    @functools.wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Any:
+        from datetime import datetime
+
+        user_id = update.effective_user.id
+        state_manager = context.bot_data.get('state_manager')
+
+        if state_manager:
+            session = await state_manager.get_or_create_session(
+                user_id=user_id,
+                conversation_id=str(update.effective_chat.id)
+            )
+
+            # Detect language if message text available
+            text = update.message.text if update.message else ""
+            if text and len(text) > 3:
+                # Use cached language if already detected
+                cached_language = session.language if session.language != "en" else None
+
+                detection = await language_detector.detect_language(
+                    text=text,
+                    user_id=user_id,
+                    cached_language=cached_language
+                )
+
+                # Update session with detection results
+                session.language = detection.language
+                session.language_detected_at = datetime.now()
+                session.language_detection_confidence = detection.confidence
+
+                await state_manager.update_session(session)
+
+                # Debug print (temporary)
+                print(f"🌍 LANG DETECTED: {detection.language} (confidence: {detection.confidence:.2f}, method: {detection.method})")
+
+                logger.info(
+                    f"Language detected: user={user_id}, "
+                    f"lang={detection.language}, "
+                    f"confidence={detection.confidence:.2f}, "
+                    f"method={detection.method}"
+                )
+
+        return await func(update, context)
+
+    return wrapper
+
+
+# Message constants with i18n support
+class Messages:
+    """Common message templates used across handlers with i18n support."""
+
+    @staticmethod
+    def upload_data_first(locale: Optional[str] = None) -> str:
+        """Get the upload data first message in the appropriate language."""
+        return I18nManager.t('file_handling.upload_data_first', locale=locale)
+
+    @staticmethod
+    def processing_file(locale: Optional[str] = None) -> str:
+        """Get the processing file message in the appropriate language."""
+        return I18nManager.t('file_handling.processing_file', locale=locale)
+
+    @staticmethod
+    def error_occurred(locale: Optional[str] = None) -> str:
+        """Get the error occurred message in the appropriate language."""
+        return I18nManager.t('file_handling.error_occurred', locale=locale)
+
+    @staticmethod
+    def workflow_active(workflow_type: str, current_state: str, locale: Optional[str] = None) -> str:
+        """Get the workflow active message in the appropriate language."""
+        return I18nManager.t(
+            'file_handling.workflow_active',
+            locale=locale,
+            workflow_type=workflow_type,
+            current_state=current_state
+        )
+
+    @staticmethod
+    def file_already_processed(filename: str, locale: Optional[str] = None) -> str:
+        """Get the file already processed message in the appropriate language."""
+        return I18nManager.t('file_handling.file_already_processed', locale=locale, filename=filename)
+
+    @staticmethod
+    def ready_to_train(locale: Optional[str] = None) -> str:
+        """Get the ready to train message in the appropriate language."""
+        return I18nManager.t('file_handling.ready_to_train', locale=locale)
+
+    # Keep class attributes for backward compatibility (deprecated)
     UPLOAD_DATA_FIRST = (
         "📁 **Upload Data First**\n\n"
         "To get started, please upload a CSV or Excel file with your data.\n\n"

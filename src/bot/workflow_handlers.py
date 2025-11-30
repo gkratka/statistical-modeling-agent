@@ -12,6 +12,7 @@ from src.core.state_manager import (
 )
 from src.core.parser import TaskDefinition
 from src.utils.logger import get_logger
+from src.utils.i18n_manager import I18nManager
 
 
 def is_keras_model(model_type: str) -> bool:
@@ -225,8 +226,9 @@ class WorkflowRouter:
             self.logger.warning(
                 f"⚠️ User {session.user_id} sent message during TRAINING state (non-interactive)"
             )
+            locale = session.language if session.language else None
             await update.message.reply_text(
-                "⏳ Training in progress... Please wait.",
+                I18nManager.t('workflow_state.training_in_progress', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -236,8 +238,9 @@ class WorkflowRouter:
                 f"❌ UNKNOWN STATE: user_id={session.user_id}, state='{current_state}' - clearing workflow"
             )
             await self.state_manager.cancel_workflow(session)
+            locale = session.language if session.language else None
             await update.message.reply_text(
-                "⚠️ Workflow state error. Please start again.",
+                I18nManager.t('workflow_state.workflow_state_error', locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -265,10 +268,12 @@ class WorkflowRouter:
         except ValueError as e:
             # Invalid selection - show error and re-prompt
             self.logger.warning(f"⚠️ Invalid target selection: {str(e)}")
-            error_message = (
-                f"❌ Invalid selection: {str(e)}\n\n"
-                f"Please select a column by number (1-{len(columns)}) or name.\n"
-                f"Example: '5' or 'price'"
+            locale = session.language if session.language else None
+            error_message = I18nManager.t(
+                'workflow_state.target_selection.invalid_selection',
+                locale=locale,
+                error=str(e),
+                max=len(columns)
             )
             await update.message.reply_text(error_message, parse_mode="Markdown")
             return
@@ -276,8 +281,9 @@ class WorkflowRouter:
         # Validate column exists (should always pass after parse, but double-check)
         if selected_column not in columns:
             self.logger.error(f"❌ Column validation failed: '{selected_column}' not in {columns}")
+            locale = session.language if session.language else None
             await update.message.reply_text(
-                f"❌ Column '{selected_column}' not found in dataset.",
+                I18nManager.t('workflow_state.target_selection.column_not_found', locale=locale, column=selected_column),
                 parse_mode="Markdown"
             )
             return
@@ -301,8 +307,9 @@ class WorkflowRouter:
             self.logger.error(
                 f"❌ Transition FAILED: {error_msg}, missing prerequisites: {missing}"
             )
+            locale = session.language if session.language else None
             await update.message.reply_text(
-                f"⚠️ **Workflow Error**\n\n{error_msg}\n\nPlease use /cancel and start again.",
+                I18nManager.t('workflow_state.workflow_error', locale=locale, error=error_msg),
                 parse_mode="Markdown"
             )
             return
@@ -361,13 +368,11 @@ class WorkflowRouter:
             self.logger.info(f"✅ Parsed features ({len(selected_features)}): {selected_features}")
         except ValueError as e:
             self.logger.warning(f"⚠️ Invalid feature selection: {str(e)}")
-            error_message = (
-                f"❌ Invalid selection: {str(e)}\n\n"
-                f"Examples:\n"
-                f"• '1,2,3' - Select columns 1, 2, and 3\n"
-                f"• 'age,income,sqft' - Select by name\n"
-                f"• '1-5' - Select range of columns\n"
-                f"• 'all' - Select all available features"
+            locale = session.language if session.language else None
+            error_message = I18nManager.t(
+                'workflow_state.feature_selection.invalid_selection',
+                locale=locale,
+                error=str(e)
             )
             await update.message.reply_text(error_message, parse_mode="Markdown")
             return
@@ -375,8 +380,9 @@ class WorkflowRouter:
         # Validate at least one feature selected
         if not selected_features:
             self.logger.error("❌ No features selected")
+            locale = session.language if session.language else None
             await update.message.reply_text(
-                "❌ Please select at least one feature column.",
+                I18nManager.t('workflow_state.feature_selection.no_features_selected', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -400,8 +406,9 @@ class WorkflowRouter:
             self.logger.error(
                 f"❌ Transition FAILED: {error_msg}, missing prerequisites: {missing}"
             )
+            locale = session.language if session.language else None
             await update.message.reply_text(
-                f"⚠️ **Workflow Error**\n\n{error_msg}\n\nPlease use /cancel and start again.",
+                I18nManager.t('workflow_state.workflow_error', locale=locale, error=error_msg),
                 parse_mode="Markdown"
             )
             return
@@ -468,16 +475,11 @@ class WorkflowRouter:
 
         if not model_type:
             self.logger.warning(f"⚠️ Invalid model type input: '{user_input}'")
-            error_message = (
-                f"❌ Invalid model type: '{user_input}'\n\n"
-                f"Please select:\n"
-                f"1. Linear Regression\n"
-                f"2. Random Forest\n"
-                f"3. Neural Network (sklearn MLP)\n"
-                f"4. Auto (best model automatically selected)\n"
-                f"5. Keras Binary Classification (NN)\n"
-                f"6. Keras Multiclass Classification (NN)\n"
-                f"7. Keras Regression (NN)"
+            locale = session.language if session.language else None
+            error_message = I18nManager.t(
+                'workflow_state.model_selection.invalid_model_type',
+                locale=locale,
+                model=user_input
             )
             await update.message.reply_text(error_message, parse_mode="Markdown")
             return
@@ -531,23 +533,25 @@ class WorkflowRouter:
                 self.logger.error(
                     f"❌ Transition FAILED: {error_msg}, missing prerequisites: {missing}"
                 )
+                locale = session.language if session.language else None
                 await update.message.reply_text(
-                    f"⚠️ **Workflow Error**\n\n{error_msg}\n\nPlease use /cancel and start again.",
+                    I18nManager.t('workflow_state.workflow_error', locale=locale, error=error_msg),
                     parse_mode="Markdown"
                 )
                 return
 
             self.logger.info(f"✅ Transition successful: now in SPECIFYING_ARCHITECTURE state")
 
-            await update.message.reply_text(
-                f"✅ **Keras Model Selected**: {model_type}\n\n"
-                f"**Architecture Configuration**\n"
-                f"Choose architecture:\n"
-                f"1. Default template (recommended for beginners)\n"
-                f"2. Custom JSON (advanced)\n\n"
-                f"Enter choice:",
-                parse_mode="Markdown"
+            locale = session.language if session.language else None
+            keras_msg = (
+                I18nManager.t('workflow_state.model_selection.keras_selected', locale=locale, model_type=model_type) + "\n\n" +
+                "**" + I18nManager.t('workflow_state.architecture.header', locale=locale).replace('**', '').replace('🏗️ ', '') + "**\n" +
+                I18nManager.t('workflow_state.architecture.choose_prompt', locale=locale) + "\n" +
+                I18nManager.t('workflow_state.architecture.option_1_default', locale=locale) + "\n" +
+                I18nManager.t('workflow_state.architecture.option_2_custom', locale=locale) + "\n\n" +
+                I18nManager.t('workflow_state.architecture.enter_choice', locale=locale)
             )
+            await update.message.reply_text(keras_msg, parse_mode="Markdown")
         else:
             # sklearn models: go directly to training
             self.logger.info(
@@ -562,8 +566,9 @@ class WorkflowRouter:
                 self.logger.error(
                     f"❌ Transition FAILED: {error_msg}, missing prerequisites: {missing}"
                 )
+                locale = session.language if session.language else None
                 await update.message.reply_text(
-                    f"⚠️ **Workflow Error**\n\n{error_msg}\n\nPlease use /cancel and start again.",
+                    I18nManager.t('workflow_state.workflow_error', locale=locale, error=error_msg),
                     parse_mode="Markdown"
                 )
                 return
@@ -571,8 +576,9 @@ class WorkflowRouter:
             self.logger.info(f"✅ Transition successful: now in TRAINING state")
 
             # Show training started message
+            locale = session.language if session.language else None
             await update.message.reply_text(
-                f"🚀 **Training Started**: `{model_type}`\n\nPlease wait while the model is being trained...",
+                I18nManager.t('workflow_state.training_started', locale=locale, model_type=model_type),
                 parse_mode="Markdown"
             )
 
@@ -676,11 +682,8 @@ class WorkflowRouter:
             self.logger.error(f"Training execution failed: {str(e)}", exc_info=True)
 
             # Safe error message without Markdown to avoid parsing errors
-            error_message = (
-                "Training Failed\n\n"
-                f"Error: {str(e)}\n\n"
-                "The workflow has been cancelled. Please try /start to begin again."
-            )
+            locale = session.language if session.language else None
+            error_message = I18nManager.t('workflow_state.training_failed', locale=locale, error=str(e))
 
             await update.message.reply_text(error_message)  # NO parse_mode - plain text only
 
@@ -695,15 +698,18 @@ class WorkflowRouter:
         """Cancel active workflow."""
         workflow_type = session.workflow_type
         current_state = session.current_state
+        locale = session.language if session.language else None
 
         # Clear workflow
         await self.state_manager.cancel_workflow(session)
 
         # Send confirmation
         await update.message.reply_text(
-            f"❌ **Workflow Cancelled**\n\n"
-            f"Your {workflow_type.value if workflow_type else 'workflow'} has been cancelled.\n"
-            f"Send a new request to start over.",
+            I18nManager.t(
+                'workflow_state.workflow_cancelled',
+                locale=locale,
+                workflow_type=workflow_type.value if workflow_type else 'workflow'
+            ),
             parse_mode="Markdown"
         )
 
@@ -764,18 +770,18 @@ class WorkflowRouter:
                 )
 
                 # Show architecture summary
-                await update.message.reply_text(
-                    f"✅ <b>Default Architecture Selected</b>\n\n"
-                    f"• Input: {n_features} features\n"
-                    f"• Hidden: Dense({n_features}, relu)\n"
-                    f"• Output: Dense({architecture['layers'][-1]['units']}, "
-                    f"{architecture['layers'][-1]['activation']})\n"
-                    f"• Loss: {architecture['compile']['loss']}\n"
-                    f"• Optimizer: {architecture['compile']['optimizer']}\n\n"
-                    f"<b>Training Parameters</b>\n"
-                    f"How many epochs? (Recommended: 100-500 for this dataset size)",
-                    parse_mode="HTML"
+                locale = session.language if session.language else None
+                arch_msg = (
+                    I18nManager.t('workflow_state.architecture.default_selected', locale=locale) + "\n\n" +
+                    I18nManager.t('workflow_state.architecture.input_features', locale=locale, count=n_features) + "\n" +
+                    I18nManager.t('workflow_state.architecture.hidden_layer', locale=locale, units=n_features) + "\n" +
+                    I18nManager.t('workflow_state.architecture.output_layer', locale=locale, units=architecture['layers'][-1]['units'], activation=architecture['layers'][-1]['activation']) + "\n" +
+                    I18nManager.t('workflow_state.architecture.loss_label', locale=locale, loss=architecture['compile']['loss']) + "\n" +
+                    I18nManager.t('workflow_state.architecture.optimizer_label', locale=locale, optimizer=architecture['compile']['optimizer']) + "\n\n" +
+                    "<b>" + I18nManager.t('workflow_state.hyperparameters.header', locale=locale).replace('**', '').replace('⚙️ ', '') + "</b>\n" +
+                    I18nManager.t('workflow_state.hyperparameters.epochs_prompt_dataset', locale=locale)
                 )
+                await update.message.reply_text(arch_msg, parse_mode="HTML")
 
                 # Transition to hyperparameter collection
                 self.logger.info(
@@ -788,10 +794,11 @@ class WorkflowRouter:
 
             elif choice == 2:
                 # Custom JSON architecture
-                await update.message.reply_text(
-                    "<b>Custom Architecture Mode</b>\n\n"
-                    "Please send your architecture as JSON.\n\n"
-                    "Example format:\n"
+                locale = session.language if session.language else None
+                custom_msg = (
+                    "<b>" + I18nManager.t('workflow_state.architecture.custom_mode_header', locale=locale).replace('**', '') + "</b>\n\n" +
+                    I18nManager.t('workflow_state.architecture.custom_prompt', locale=locale) + "\n\n" +
+                    I18nManager.t('workflow_state.architecture.custom_example_format', locale=locale) + "\n" +
                     "<pre>"
                     "{\n"
                     '  "layers": [\n'
@@ -804,14 +811,15 @@ class WorkflowRouter:
                     '    "metrics": ["accuracy"]\n'
                     '  }\n'
                     "}"
-                    "</pre>",
-                    parse_mode="HTML"
+                    "</pre>"
                 )
+                await update.message.reply_text(custom_msg, parse_mode="HTML")
                 session.selections['expecting_json'] = True
 
             else:
+                locale = session.language if session.language else None
                 await update.message.reply_text(
-                    "❌ Invalid choice. Please enter <b>1</b> for default template or <b>2</b> for custom JSON.",
+                    I18nManager.t('workflow_state.architecture.invalid_choice', locale=locale),
                     parse_mode="HTML"
                 )
 
@@ -829,29 +837,30 @@ class WorkflowRouter:
                     session.selections['architecture'] = architecture
                     session.selections['expecting_json'] = False
 
-                    await update.message.reply_text(
-                        f"✅ <b>Custom Architecture Accepted</b>\n\n"
-                        f"• Layers: {len(architecture['layers'])}\n"
-                        f"• Loss: {architecture['compile'].get('loss', 'N/A')}\n\n"
-                        f"<b>Training Parameters</b>\n"
-                        f"How many epochs? (Recommended: 100-500)",
-                        parse_mode="HTML"
+                    locale = session.language if session.language else None
+                    custom_accepted_msg = (
+                        I18nManager.t('workflow_state.architecture.custom_accepted', locale=locale) + "\n\n" +
+                        I18nManager.t('workflow_state.architecture.layers_count', locale=locale, count=len(architecture['layers'])) + "\n" +
+                        I18nManager.t('workflow_state.architecture.loss_label', locale=locale, loss=architecture['compile'].get('loss', 'N/A')) + "\n\n" +
+                        "<b>" + I18nManager.t('workflow_state.hyperparameters.header', locale=locale).replace('**', '').replace('⚙️ ', '') + "</b>\n" +
+                        I18nManager.t('workflow_state.hyperparameters.epochs_prompt', locale=locale)
                     )
+                    await update.message.reply_text(custom_accepted_msg, parse_mode="HTML")
 
                     session.current_state = MLTrainingState.COLLECTING_HYPERPARAMETERS.value
                     session.selections['hyperparam_step'] = 'epochs'
                     await self.state_manager.update_session(session)
 
                 except json.JSONDecodeError as e:
+                    locale = session.language if session.language else None
                     await update.message.reply_text(
-                        f"❌ <b>Invalid JSON Format</b>\n\n"
-                        f"Error: {e}\n\n"
-                        f"Please send valid JSON or type <b>1</b> to use default template.",
+                        I18nManager.t('workflow_state.architecture.invalid_json', locale=locale, error=str(e)),
                         parse_mode="HTML"
                     )
             else:
+                locale = session.language if session.language else None
                 await update.message.reply_text(
-                    "Please enter a number (<b>1</b> or <b>2</b>).",
+                    I18nManager.t('workflow_state.architecture.enter_number', locale=locale),
                     parse_mode="HTML"
                 )
 
@@ -896,22 +905,27 @@ class WorkflowRouter:
             f"🎨 render_current_state() - user_id={session.user_id}, state={current_state}"
         )
 
+        # Extract locale from session for all state rendering
+        locale = session.language if session.language else None
+
         # Render based on current state
         if current_state == MLTrainingState.SELECTING_TARGET.value:
             # Get dataframe for target selection
             dataframe = await self.state_manager.get_data(session)
             columns = dataframe.columns.tolist()
 
+            # Target selection prompt with i18n
+            column_list = "\n".join(f"{i+1}. {col}" for i, col in enumerate(columns[:20]))
+            and_more = I18nManager.t('workflow_state.target_selection.and_more', locale=locale, count=len(columns) - 20) if len(columns) > 20 else ""
 
-            # Target selection prompt
             message = (
-                f"🎯 **Select Target Column**\n\n"
-                f"Your data has {len(columns)} columns:\n"
-                + "\n".join(f"{i+1}. {col}" for i, col in enumerate(columns[:20]))
-                + (f"\n... and {len(columns) - 20} more" if len(columns) > 20 else "")
-                + f"\n\n**Reply with:**\n"
-                f"• Column number (e.g., `21`)\n"
-                f"• Column name (e.g., `class`)"
+                f"{I18nManager.t('workflow_state.target_selection.header', locale=locale)}\n\n"
+                f"{I18nManager.t('workflow_state.target_selection.column_count', locale=locale, count=len(columns))}\n"
+                f"{column_list}"
+                f"{and_more}"
+                f"\n\n{I18nManager.t('workflow_state.target_selection.reply_with', locale=locale)}\n"
+                f"{I18nManager.t('workflow_state.target_selection.column_number_example', locale=locale)}\n"
+                f"{I18nManager.t('workflow_state.target_selection.column_name_example', locale=locale)}"
             )
             await query.edit_message_text(message, parse_mode="Markdown")
 
@@ -920,21 +934,23 @@ class WorkflowRouter:
             dataframe = await self.state_manager.get_data(session)
             columns = dataframe.columns.tolist()
 
-            # Feature selection prompt
+            # Feature selection prompt with i18n
             target_column = session.selections.get("target_column")
             available_features = [col for col in columns if col != target_column]
+            feature_list = "\n".join(f"{i+1}. {col}" for i, col in enumerate(available_features[:20]))
+            and_more = I18nManager.t('workflow_state.feature_selection.and_more', locale=locale, count=len(available_features) - 20) if len(available_features) > 20 else ""
 
             message = (
-                f"📋 **Select Feature Columns**\n\n"
-                f"Target: `{target_column}`\n\n"
-                f"Available features ({len(available_features)}):\n"
-                + "\n".join(f"{i+1}. {col}" for i, col in enumerate(available_features[:20]))
-                + (f"\n... and {len(available_features) - 20} more" if len(available_features) > 20 else "")
-                + f"\n\n**Reply with:**\n"
-                f"• Numbers: `1,2,3`\n"
-                f"• Range: `1-5`\n"
-                f"• Names: `age,income`\n"
-                f"• All: `all`"
+                f"{I18nManager.t('workflow_state.feature_selection.header', locale=locale)}\n\n"
+                f"{I18nManager.t('workflow_state.feature_selection.target_label', locale=locale, target=target_column)}\n\n"
+                f"{I18nManager.t('workflow_state.feature_selection.available_count', locale=locale, count=len(available_features))}\n"
+                f"{feature_list}"
+                f"{and_more}"
+                f"\n\n{I18nManager.t('workflow_state.feature_selection.reply_with', locale=locale)}\n"
+                f"{I18nManager.t('workflow_state.feature_selection.numbers_example', locale=locale)}\n"
+                f"{I18nManager.t('workflow_state.feature_selection.range_example', locale=locale)}\n"
+                f"{I18nManager.t('workflow_state.feature_selection.names_example', locale=locale)}\n"
+                f"{I18nManager.t('workflow_state.feature_selection.all_example', locale=locale)}"
             )
             await query.edit_message_text(message, parse_mode="Markdown")
 
@@ -951,20 +967,23 @@ class WorkflowRouter:
                 from src.bot.messages.local_path_messages import add_back_button
 
                 keyboard = [
-                    [InlineKeyboardButton("📈 Regression Models", callback_data="model_category:regression")],
-                    [InlineKeyboardButton("🎯 Classification Models", callback_data="model_category:classification")],
-                    [InlineKeyboardButton("🧠 Neural Networks", callback_data="model_category:neural")]
+                    [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.regression_models', locale=locale), callback_data="model_category:regression")],
+                    [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.classification_models', locale=locale), callback_data="model_category:classification")],
+                    [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.neural_networks', locale=locale), callback_data="model_category:neural")]
                 ]
                 add_back_button(keyboard)
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
+                message = (
+                    f"{I18nManager.t('workflow_state.model_selection.category_header', locale=locale)}\n\n"
+                    f"{I18nManager.t('workflow_state.model_selection.category_description', locale=locale)}\n\n"
+                    f"{I18nManager.t('workflow_state.model_selection.regression_description', locale=locale)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.classification_description', locale=locale)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.neural_description', locale=locale)}\n\n"
+                    f"{I18nManager.t('workflow_state.model_selection.which_category', locale=locale)}"
+                )
                 await query.edit_message_text(
-                    "🤖 **Choose Model Type**\n\n"
-                    "Select the type of model for your training:\n\n"
-                    "📈 **Regression**: Predict continuous values (prices, temperatures, etc.)\n"
-                    "🎯 **Classification**: Categorize data (spam/not spam, approve/reject, etc.)\n"
-                    "🧠 **Neural Networks**: Advanced deep learning models\n\n"
-                    "Which category fits your task?",
+                    message,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
@@ -974,77 +993,77 @@ class WorkflowRouter:
                 feature_count = len(session.selections.get("feature_columns", []))
 
                 message = (
-                    f"🤖 **Select Model Type**\n\n"
-                    f"Target: {target_column}\n"
-                    f"Features: {feature_count} columns\n\n"
-                    f"**Available models:**\n"
-                    f"1. Linear Regression\n"
-                    f"2. Random Forest\n"
-                    f"3. Neural Network (sklearn MLP)\n"
-                    f"4. Auto (best model selected)\n"
-                    f"5. Keras Binary Classification\n"
-                    f"6. Keras Multiclass Classification\n"
-                    f"7. Keras Regression\n\n"
-                    f"**Reply with number or name:**"
+                    f"{I18nManager.t('workflow_state.model_selection.header', locale=locale)}\n\n"
+                    f"{I18nManager.t('workflow_state.model_selection.target_label', locale=locale, target=target_column)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.features_label', locale=locale, count=feature_count)}\n\n"
+                    f"{I18nManager.t('workflow_state.model_selection.available_models', locale=locale)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.model_1_linear', locale=locale)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.model_2_rf', locale=locale)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.model_3_nn', locale=locale)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.model_4_auto', locale=locale)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.model_5_keras_binary', locale=locale)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.model_6_keras_multi', locale=locale)}\n"
+                    f"{I18nManager.t('workflow_state.model_selection.model_7_keras_reg', locale=locale)}\n\n"
+                    f"{I18nManager.t('workflow_state.model_selection.reply_prompt', locale=locale)}"
                 )
                 await query.edit_message_text(message, parse_mode="Markdown")
 
         elif current_state == MLTrainingState.SPECIFYING_ARCHITECTURE.value:
-            # Architecture specification prompt
+            # Architecture specification prompt with i18n
             message = (
-                f"🏗️ **Architecture Configuration**\n\n"
-                f"Choose architecture:\n"
-                f"1. Default template (recommended)\n"
-                f"2. Custom JSON (advanced)\n\n"
-                f"Enter choice:"
+                f"{I18nManager.t('workflow_state.architecture.header', locale=locale)}\n\n"
+                f"{I18nManager.t('workflow_state.architecture.choose_prompt', locale=locale)}\n"
+                f"{I18nManager.t('workflow_state.architecture.option_1_default', locale=locale)}\n"
+                f"{I18nManager.t('workflow_state.architecture.option_2_custom', locale=locale)}\n\n"
+                f"{I18nManager.t('workflow_state.architecture.enter_choice', locale=locale)}"
             )
             await query.edit_message_text(message, parse_mode="Markdown")
 
         elif current_state == MLTrainingState.COLLECTING_HYPERPARAMETERS.value:
-            # Hyperparameter collection prompt
+            # Hyperparameter collection prompt with i18n
             hyperparam_step = session.selections.get('hyperparam_step', 'epochs')
 
             if hyperparam_step == 'epochs':
                 message = (
-                    f"⚙️ **Training Parameters**\n\n"
-                    f"How many epochs? (Recommended: 100-500)"
+                    f"{I18nManager.t('workflow_state.hyperparameters.header', locale=locale)}\n\n"
+                    f"{I18nManager.t('workflow_state.hyperparameters.epochs_prompt', locale=locale)}"
                 )
             else:  # batch_size
                 epochs = session.selections.get('hyperparameters', {}).get('epochs', 'N/A')
                 message = (
-                    f"✅ Epochs: **{epochs}**\n\n"
-                    f"Batch size? (Recommended: 32-128, default: **32**)"
+                    f"{I18nManager.t('workflow_state.hyperparameters.epochs_confirmed', locale=locale, epochs=epochs)}\n\n"
+                    f"{I18nManager.t('workflow_state.hyperparameters.batch_size_prompt', locale=locale)}"
                 )
 
             await query.edit_message_text(message, parse_mode="Markdown")
 
         # Local Path Workflow States (Phase 2: Workflow Back Button Fix)
         elif current_state == MLTrainingState.CHOOSING_DATA_SOURCE.value:
-            # Data source selection (Upload vs Local Path)
+            # Data source selection (Upload vs Local Path) with i18n
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             from src.bot.messages.local_path_messages import LocalPathMessages
 
             keyboard = [
-                [InlineKeyboardButton("📤 Upload File", callback_data="data_source:telegram")],
-                [InlineKeyboardButton("📂 Use Local Path", callback_data="data_source:local_path")]
+                [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.upload_file', locale=locale), callback_data="data_source:telegram")],
+                [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.local_path', locale=locale), callback_data="data_source:local_path")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await query.edit_message_text(
-                LocalPathMessages.data_source_selection_prompt(),
+                LocalPathMessages.data_source_selection_prompt(locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
         elif current_state == MLTrainingState.AWAITING_FILE_PATH.value:
-            # File path input prompt
+            # File path input prompt with i18n
             from src.bot.messages.local_path_messages import LocalPathMessages
 
             # Get data_loader from bot_data (already initialized at startup)
             data_loader = context.bot_data['data_loader']
 
             await query.edit_message_text(
-                LocalPathMessages.file_path_input_prompt(data_loader.allowed_directories),
+                LocalPathMessages.file_path_input_prompt(data_loader.allowed_directories, locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -1059,8 +1078,12 @@ class WorkflowRouter:
             file_path = session.file_path
             if not file_path:
                 self.logger.error("File path missing in session for CHOOSING_LOAD_OPTION state")
+
+                # Extract locale from session
+                locale = session.language if session.language else None
+
                 await query.edit_message_text(
-                    "❌ **Error**: File path not found. Please restart with /train",
+                    I18nManager.t('ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
                 return
@@ -1068,22 +1091,31 @@ class WorkflowRouter:
             # Get file size
             size_mb = get_file_size_mb(Path(file_path))
 
+            # Extract locale from session
+            locale = session.language if session.language else None
+
             # Recreate keyboard with back button
             keyboard = [
-                [InlineKeyboardButton("🔄 Load Now", callback_data="load_option:immediate")],
-                [InlineKeyboardButton("⏳ Defer Loading", callback_data="load_option:defer")]
+                [InlineKeyboardButton(
+                    I18nManager.t('workflows.ml_training.load_now_button', locale=locale),
+                    callback_data="load_option:immediate"
+                )],
+                [InlineKeyboardButton(
+                    I18nManager.t('workflows.ml_training.defer_loading_button', locale=locale),
+                    callback_data="load_option:defer"
+                )]
             ]
             add_back_button(keyboard)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await query.edit_message_text(
-                LocalPathMessages.load_option_prompt(file_path, size_mb),
+                LocalPathMessages.load_option_prompt(file_path, size_mb, locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
         elif current_state == MLTrainingState.CONFIRMING_SCHEMA.value:
-            # Schema confirmation after data load
+            # Schema confirmation after data load with i18n
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
             from src.bot.messages.local_path_messages import LocalPathMessages, add_back_button
 
@@ -1091,18 +1123,21 @@ class WorkflowRouter:
             detected_schema = session.detected_schema
             if not detected_schema:
                 self.logger.error("detected_schema missing in session for CONFIRMING_SCHEMA state")
+
                 await query.edit_message_text(
-                    "❌ **Error**: Schema data not found. Please restart with /train",
+                    I18nManager.t('ml_training_local_path.errors.invalid_request', locale=locale),
                     parse_mode="Markdown"
                 )
                 return
 
-            # Build summary message
+            # Build summary message with i18n
+            quality_score = detected_schema.get('quality_score', 0)
+            quality_score_str = f"{quality_score:.2f}" if isinstance(quality_score, (int, float)) else 'N/A'
             summary = (
-                f"📊 **Dataset Summary**\n\n"
-                f"• Rows: {detected_schema.get('n_rows', 'N/A')}\n"
-                f"• Columns: {detected_schema.get('n_columns', 'N/A')}\n"
-                f"• Quality Score: {detected_schema.get('quality_score', 'N/A'):.2f}"
+                f"{I18nManager.t('ml_training_local_path.schema.dataset_summary_header', locale=locale)}\n\n"
+                f"• {I18nManager.t('ml_training_local_path.schema.rows', locale=locale)}: {detected_schema.get('n_rows', 'N/A')}\n"
+                f"• {I18nManager.t('ml_training_local_path.schema.columns', locale=locale)}: {detected_schema.get('n_columns', 'N/A')}\n"
+                f"• {I18nManager.t('ml_training_local_path.schema.quality_score', locale=locale)}: {quality_score_str}"
             )
 
             suggested_target = detected_schema.get('target')
@@ -1110,26 +1145,26 @@ class WorkflowRouter:
             task_type = detected_schema.get('task_type')
 
             keyboard = [
-                [InlineKeyboardButton("✅ Accept Schema", callback_data="schema:accept")],
-                [InlineKeyboardButton("❌ Try Different File", callback_data="schema:reject")]
+                [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.accept_schema', locale=locale), callback_data="schema:accept")],
+                [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.reject_schema', locale=locale), callback_data="schema:reject")]
             ]
             add_back_button(keyboard)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await query.edit_message_text(
                 LocalPathMessages.schema_confirmation_prompt(
-                    summary, suggested_target, suggested_features, task_type
+                    summary, suggested_target, suggested_features, task_type, locale=locale
                 ),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
         elif current_state == MLTrainingState.AWAITING_SCHEMA_INPUT.value:
-            # Manual schema input (deferred loading)
+            # Manual schema input (deferred loading) with i18n
             from src.bot.messages.local_path_messages import LocalPathMessages
 
             await query.edit_message_text(
-                LocalPathMessages.schema_input_prompt(),
+                LocalPathMessages.schema_input_prompt(locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -1191,56 +1226,65 @@ class WorkflowRouter:
 
         elif current_state == MLPredictionState.CHOOSING_LOAD_OPTION.value:
             # Load option selection (Load Now vs Defer)
-            keyboard = create_load_option_buttons()
+            # Extract locale from session
+            locale = session.language if session.language else None
+
+            keyboard = create_load_option_buttons(locale)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             # Get file path for display (should be in session from previous step)
-            file_path = session.file_path or "Unknown"
+            file_path = session.file_path or I18nManager.t('common.unknown', locale=locale, default="Unknown")
 
             await query.edit_message_text(
-                f"📂 **Data Load Strategy**\n\n"
-                f"File: `{file_path}`\n\n"
-                f"**🔄 Load Now:** Load data immediately to preview\n"
-                f"**⏳ Defer Loading:** Skip loading, save memory\n\n"
-                f"Choose your option:",
+                I18nManager.t(
+                    'workflows.prediction.load_option_prompt',
+                    locale=locale,
+                    file_path=file_path
+                ),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
         elif current_state == MLPredictionState.CONFIRMING_SCHEMA.value:
             # Schema confirmation for prediction workflow
+            # Extract locale from session
+            locale = session.language if session.language else None
+
             # Get data for schema display
             df = session.uploaded_data
             if df is not None:
                 summary = f"📊 **Dataset Loaded**\n• Rows: {df.shape[0]:,}\n• Columns: {df.shape[1]}"
                 available_columns = df.columns.tolist()
 
-                keyboard = create_schema_confirmation_buttons()
+                keyboard = create_schema_confirmation_buttons(locale)
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
                 await query.edit_message_text(
-                    PredictionMessages.schema_confirmation_prompt(summary, available_columns),
+                    PredictionMessages.schema_confirmation_prompt(summary, available_columns, locale),
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
             else:
                 # Data not loaded - show error
                 await query.edit_message_text(
-                    "❌ **Error**: Data not found in session. Please restart with /predict",
+                    I18nManager.t('prediction.data_not_found', locale=locale),
                     parse_mode="Markdown"
                 )
 
         elif current_state == MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value:
             # Prediction column name confirmation
+            # Extract locale from session
+            locale = session.language if session.language else None
+
             # Get model info from session
             selected_model_id = session.selections.get('selected_model_id')
             compatible_models = getattr(session, 'compatible_models', [])
 
             # Find the selected model to get target column
-            target_column = "Unknown"
+            target_column = I18nManager.t('common.unknown', locale=locale, default="Unknown")
             for model in compatible_models:
                 if model.get('model_id') == selected_model_id:
-                    target_column = model.get('target_column', 'Unknown')
+                    target_column = model.get('target_column', target_column)
                     break
 
             # Get existing columns (if data loaded)
@@ -1249,17 +1293,20 @@ class WorkflowRouter:
             if df is not None:
                 existing_columns = df.columns.tolist()
 
-            keyboard = create_column_confirmation_buttons()
+            keyboard = create_column_confirmation_buttons(locale)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await query.edit_message_text(
-                PredictionMessages.prediction_column_prompt(target_column, existing_columns),
+                PredictionMessages.prediction_column_prompt(target_column, existing_columns, locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
         elif current_state == MLPredictionState.READY_TO_RUN.value:
             # Ready to run predictions
+            # Extract locale from session
+            locale = session.language if session.language else None
+
             # Get all required info from session
             selected_model_id = session.selections.get('selected_model_id')
             selected_features = session.selections.get('selected_features', [])
@@ -1267,25 +1314,27 @@ class WorkflowRouter:
             compatible_models = getattr(session, 'compatible_models', [])
 
             # Find selected model details
-            model_type = "Unknown"
-            target_column = "Unknown"
+            unknown_label = I18nManager.t('common.unknown', locale=locale, default="Unknown")
+            model_type = unknown_label
+            target_column = unknown_label
             for model in compatible_models:
                 if model.get('model_id') == selected_model_id:
-                    model_type = model.get('model_type', 'Unknown')
-                    target_column = model.get('target_column', 'Unknown')
+                    model_type = model.get('model_type', unknown_label)
+                    target_column = model.get('target_column', unknown_label)
                     break
 
             # Get dataset info
             df = session.uploaded_data
-            n_rows = df.shape[0] if df is not None else "Deferred"
+            deferred_label = I18nManager.t('common.deferred', locale=locale, default="Deferred")
+            n_rows = df.shape[0] if df is not None else deferred_label
             n_features = len(selected_features)
 
-            keyboard = create_ready_to_run_buttons()
+            keyboard = create_ready_to_run_buttons(locale)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await query.edit_message_text(
                 PredictionMessages.ready_to_run_prompt(
-                    model_type, target_column, prediction_column, n_rows, n_features
+                    model_type, target_column, prediction_column, n_rows, n_features, locale
                 ),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
@@ -1293,22 +1342,30 @@ class WorkflowRouter:
 
         elif current_state == MLPredictionState.COMPLETE.value:
             # Workflow complete - show output options
-            keyboard = create_output_option_buttons()
+            # Extract locale from session
+            locale = session.language if session.language else None
+
+            keyboard = create_output_option_buttons(locale)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await query.edit_message_text(
-                PredictionMessages.output_options_prompt(),
+                PredictionMessages.output_options_prompt(locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
         else:
             # Unknown state or non-interactive state
+            # Extract locale from session
+            locale = session.language if session.language else None
+
             self.logger.warning(f"⚠️ Cannot render state: {current_state}")
             await query.edit_message_text(
-                f"⚠️ Navigation Error\n\n"
-                f"Current state: {current_state}\n\n"
-                f"Use /cancel to exit workflow."
+                I18nManager.t(
+                    'workflow_state.navigation_error',
+                    locale=locale,
+                    current_state=current_state
+                )
             )
 
     async def handle_hyperparameter_collection(
@@ -1343,6 +1400,9 @@ class WorkflowRouter:
             }
             self.logger.debug("📝 Initialized hyperparameters dict in session")
 
+        # Extract locale from session for i18n
+        locale = session.language if session.language else None
+
         try:
             if current_step == 'epochs':
                 epochs = int(user_input)
@@ -1350,10 +1410,7 @@ class WorkflowRouter:
                 # Validate epochs
                 if epochs < 1 or epochs > 10000:
                     await update.message.reply_text(
-                        "⚠️ **Invalid Epochs**\n\n"
-                        "Epochs must be between **1** and **10000**.\n"
-                        "Recommended: 100-500 for most datasets.\n\n"
-                        "Please enter epochs:",
+                        I18nManager.t('workflow_state.hyperparameters.invalid_epochs', locale=locale),
                         parse_mode="Markdown"
                     )
                     return
@@ -1363,8 +1420,8 @@ class WorkflowRouter:
 
                 # Move to batch_size
                 await update.message.reply_text(
-                    f"✅ Epochs: **{epochs}**\n\n"
-                    f"Batch size? (Recommended: 32-128, default: **32**)",
+                    f"{I18nManager.t('workflow_state.hyperparameters.epochs_confirmed', locale=locale, epochs=epochs)}\n\n"
+                    f"{I18nManager.t('workflow_state.hyperparameters.batch_size_prompt', locale=locale)}",
                     parse_mode="Markdown"
                 )
                 session.selections['hyperparam_step'] = 'batch_size'
@@ -1377,10 +1434,7 @@ class WorkflowRouter:
                 if batch_size < 1:
                     self.logger.warning(f"⚠️ Invalid batch_size: {batch_size}")
                     await update.message.reply_text(
-                        "⚠️ **Invalid Batch Size**\n\n"
-                        "Batch size must be at least **1**.\n"
-                        "Recommended: 32-128.\n\n"
-                        "Please enter batch size:",
+                        I18nManager.t('workflow_state.hyperparameters.invalid_batch_size', locale=locale),
                         parse_mode="Markdown"
                     )
                     return
@@ -1399,12 +1453,14 @@ class WorkflowRouter:
                 )
 
                 await update.message.reply_text(
-                    f"✅ **Training Configuration**\n\n"
-                    f"• Model: {session.selections['model_type']}\n"
-                    f"• Epochs: **{hyperparams['epochs']}**\n"
-                    f"• Batch size: **{hyperparams['batch_size']}**\n"
-                    f"• Layers: {len(architecture['layers'])}\n\n"
-                    f"🚀 Starting training...",
+                    I18nManager.t(
+                        'workflow_state.hyperparameters.config_summary',
+                        locale=locale,
+                        model_type=session.selections['model_type'],
+                        epochs=hyperparams['epochs'],
+                        batch_size=hyperparams['batch_size'],
+                        layers=len(architecture['layers'])
+                    ),
                     parse_mode="Markdown"
                 )
 
@@ -1420,6 +1476,6 @@ class WorkflowRouter:
 
         except ValueError:
             await update.message.reply_text(
-                f"❌ Please enter a valid number for **{current_step}**.",
+                I18nManager.t('workflow_state.hyperparameters.invalid_number', locale=locale, step=current_step),
                 parse_mode="Markdown"
             )

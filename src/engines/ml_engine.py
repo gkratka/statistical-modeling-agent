@@ -428,7 +428,10 @@ class MLEngine:
                 "missing_value_strategy",
                 "mean"
             )
-            X = MLPreprocessors.handle_missing_values(X, strategy=missing_strategy)
+            # Handle "None" string as skip preprocessing (backwards compatibility)
+            # Some models (e.g., Keras) may save "None" when no preprocessing was applied
+            if missing_strategy is not None and missing_strategy != "None":
+                X = MLPreprocessors.handle_missing_values(X, strategy=missing_strategy)
 
             # Apply categorical encoding if encoders exist (must be done before scaling)
             if encoders and len(encoders) > 0:

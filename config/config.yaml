@@ -31,12 +31,12 @@ data:
     - xls
     - json
     - parquet
-  temp_dir: /app/data/temp          # Railway volume path
-  cache_dir: /app/data/cache        # Railway volume path
+  temp_dir: ./data/temp             # Local development path
+  cache_dir: ./data/cache           # Local development path
 
 # ML Engine Configuration
 ml_engine:
-  models_dir: /app/models           # Railway volume path for saved models
+  models_dir: ./models              # Local development path for saved models
   max_models_per_user: 50           # Maximum models per user
   max_model_size_mb: 100            # Maximum individual model size
   max_training_time_seconds: 300    # 5 minutes
@@ -62,9 +62,22 @@ ml_engine:
 
 # Local File Path Training (NEW - Phase 1: Security Foundation)
 local_data:
-  enabled: true                     # Enabled for Railway deployment with /app/data whitelist
-  allowed_directories:              # Whitelist of allowed directories
-    - /app/data                     # Railway volume path
+  enabled: true                     # Enabled for universal path access
+  allowed_directories: []           # Empty = password required for all paths (universal access)
+
+  # System path blacklist - blocks access to system directories
+  forbidden_directories:
+    - /System
+    - /private
+    - /Library/System
+    - /Library/LaunchDaemons
+    - /Library/LaunchAgents
+    - /usr/bin
+    - /usr/sbin
+    - /sbin
+    - /bin
+    - /etc
+
   max_file_size_mb: 1000            # 1GB maximum file size for local paths
   allowed_extensions:               # Allowed file extensions
     - .csv
@@ -84,7 +97,7 @@ local_data:
 # Logging Configuration
 logging:
   level: INFO                       # DEBUG, INFO, WARNING, ERROR, CRITICAL
-  file: /app/data/logs/agent.log    # Railway volume path
+  file: ./data/logs/agent.log       # Local development path
   max_size: 10485760                # 10MB
   backup_count: 5
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

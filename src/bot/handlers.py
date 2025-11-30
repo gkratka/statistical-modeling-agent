@@ -22,7 +22,7 @@ sys.path.insert(0, str(project_root))
 
 from src.utils.exceptions import BotError, AgentError
 from src.utils.logger import get_logger
-from src.utils.decorators import telegram_handler, log_user_action, Messages, safe_get_user_data
+from src.utils.decorators import telegram_handler, log_user_action, detect_and_set_language, Messages, safe_get_user_data
 from src.utils.i18n_manager import I18nManager
 
 logger = get_logger(__name__)
@@ -56,13 +56,16 @@ def get_help_message(locale: str = None) -> str:
         f"{I18nManager.t('commands.help.help_cmd', locale=locale)}\n"
         f"{I18nManager.t('commands.help.train_cmd', locale=locale)}\n"
         f"{I18nManager.t('commands.help.models_cmd', locale=locale)}\n"
-        f"{I18nManager.t('commands.help.predict_cmd', locale=locale)}\n\n"
+        f"{I18nManager.t('commands.help.predict_cmd', locale=locale)}\n"
+        f"{I18nManager.t('commands.help.pt_cmd', locale=locale)}\n"
+        f"{I18nManager.t('commands.help.en_cmd', locale=locale)}\n\n"
         f"{I18nManager.t('commands.help.features_section', locale=locale)}\n\n"
         f"{I18nManager.t('commands.help.support', locale=locale)}"
     )
 
 
 @telegram_handler
+@detect_and_set_language
 @log_user_action("Bot start")
 async def start_handler(
     update: Update,
@@ -75,12 +78,26 @@ async def start_handler(
         update: Telegram update object
         context: Bot context
     """
-    # TODO: Get user's locale preference from context/database
-    locale = None  # Default to English for now
+    # Get user's language from session (set by detect_and_set_language decorator)
+    user_id = update.effective_user.id
+    state_manager = context.bot_data.get('state_manager')
+
+    locale = 'en'  # Default to English (explicit string, not None)
+    if state_manager:
+        session = await state_manager.get_or_create_session(
+            user_id,
+            str(update.effective_chat.id)
+        )
+        locale = session.language if session.language else 'en'
+
+    # Debug print (temporary)
+    print(f"🌍 START HANDLER: Using locale='{locale}' (session.language={session.language if state_manager else 'N/A'})")
+
     await update.message.reply_text(get_welcome_message(locale))
 
 
 @telegram_handler
+@detect_and_set_language
 @log_user_action("Help request")
 async def help_handler(
     update: Update,
@@ -93,9 +110,78 @@ async def help_handler(
         update: Telegram update object
         context: Bot context
     """
-    # TODO: Get user's locale preference from context/database
-    locale = None  # Default to English for now
+    # Get user's language from session (set by detect_and_set_language decorator)
+    user_id = update.effective_user.id
+    state_manager = context.bot_data.get('state_manager')
+
+    locale = 'en'  # Default to English (explicit string, not None)
+    if state_manager:
+        session = await state_manager.get_or_create_session(
+            user_id,
+            str(update.effective_chat.id)
+        )
+        locale = session.language if session.language else 'en'
+
     await update.message.reply_text(get_help_message(locale))
+
+
+@telegram_handler
+@log_user_action("Language switch to Portuguese")
+async def pt_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle /pt command - switch to Portuguese language.
+
+    Args:
+        update: Telegram update object
+        context: Bot context
+    """
+    user_id = update.effective_user.id
+    state_manager = context.bot_data.get('state_manager')
+
+    # Set language to Portuguese
+    if state_manager:
+        session = await state_manager.get_or_create_session(
+            user_id,
+            str(update.effective_chat.id)
+        )
+        session.language = "pt"
+        await state_manager.update_session(session)
+        print(f"🌐 PT HANDLER: Set session.language='pt' for user {user_id}")
+
+    # Send welcome message in Portuguese
+    await update.message.reply_text(get_welcome_message(locale="pt"))
+
+
+@telegram_handler
+@log_user_action("Language switch to English")
+async def en_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle /en command - switch to English language.
+
+    Args:
+        update: Telegram update object
+        context: Bot context
+    """
+    user_id = update.effective_user.id
+    state_manager = context.bot_data.get('state_manager')
+
+    # Set language to English
+    if state_manager:
+        session = await state_manager.get_or_create_session(
+            user_id,
+            str(update.effective_chat.id)
+        )
+        session.language = "en"
+        await state_manager.update_session(session)
+
+    # Send welcome message in English
+    await update.message.reply_text(get_welcome_message(locale="en"))
 
 
 @telegram_handler
@@ -129,7 +215,7 @@ async def message_handler(
     state_manager = context.bot_data['state_manager']
     session = await state_manager.get_or_create_session(
         user_id,
-        f"chat_{update.effective_chat.id}"
+        str(update.effective_chat.id)
     )
 
     # Check for score template submission (before state routing)
@@ -246,8 +332,11 @@ async def message_handler(
     # Check if user has uploaded data
     user_data = safe_get_user_data(context, user_id)
 
+    # Get locale from session for i18n
+    locale = session.language if session.language else None
+
     if not user_data:
-        response_message = Messages.UPLOAD_DATA_FIRST
+        response_message = Messages.upload_data_first(locale=locale)
     else:
         # User has data - provide helpful response about their data
         dataframe = user_data.get('dataframe')
@@ -558,13 +647,16 @@ async def document_handler(
                 f"chat_{update.effective_chat.id}"
             )
 
+            # Get locale from session for i18n
+            locale = session.language if session.language else None
+
             if session.current_state is not None:
                 await update.message.reply_text(
-                    f"⚠️ **Workflow Active**\n\n"
-                    f"Cannot upload data while workflow is in progress.\n\n"
-                    f"Current workflow: {session.workflow_type.value if session.workflow_type else 'unknown'}\n"
-                    f"Current step: {session.current_state}\n\n"
-                    f"Please use /cancel to cancel the current workflow first.",
+                    Messages.workflow_active(
+                        workflow_type=session.workflow_type.value if session.workflow_type else 'unknown',
+                        current_state=session.current_state,
+                        locale=locale
+                    ),
                     parse_mode="Markdown"
                 )
                 return
@@ -578,9 +670,7 @@ async def document_handler(
                     f"📄 Idempotency: file_id {current_file_id} already processed for user {user_id}"
                 )
                 await update.message.reply_text(
-                    f"ℹ️ **File Already Processed**\n\n"
-                    f"This file (`{file_name}`) has already been uploaded and processed.\n\n"
-                    f"Your data is ready. Send `/train` to start ML workflow!",
+                    Messages.file_already_processed(filename=file_name, locale=locale),
                     parse_mode="Markdown"
                 )
                 return
@@ -593,9 +683,13 @@ async def document_handler(
         # DIAGNOSTIC: Log message being sent
         logger.info("🔧 SENDING MESSAGE: DataLoader v2.0 processing message")
 
+        # Get locale if session was retrieved
+        if 'locale' not in dir():
+            locale = None  # Fallback if no session
+
         # Send initial processing message
         processing_msg = await update.message.reply_text(
-            Messages.PROCESSING_FILE,
+            Messages.processing_file(locale=locale),
             parse_mode="Markdown"
         )
 
@@ -637,7 +731,7 @@ async def document_handler(
 
         # Generate success message with data summary
         success_message = loader.get_data_summary(df, metadata)
-        success_message += "\n\n🎯 **Ready to train?** Send `/train` to start ML workflow!"
+        success_message += Messages.ready_to_train(locale=locale)
 
         # Edit the processing message with results
         await processing_msg.edit_text(success_message, parse_mode="Markdown")
@@ -709,7 +803,7 @@ async def cancel_handler(
     state_manager = context.bot_data['state_manager']
     session = await state_manager.get_or_create_session(
         user_id,
-        f"chat_{update.effective_chat.id}"
+        str(update.effective_chat.id)
     )
 
     if session.workflow_type is None:
@@ -743,7 +837,7 @@ async def train_handler(
     state_manager = context.bot_data['state_manager']
     session = await state_manager.get_or_create_session(
         user_id,
-        f"chat_{update.effective_chat.id}"
+        str(update.effective_chat.id)
     )
 
     # Check if workflow already active
@@ -969,8 +1063,9 @@ async def error_handler(
     # (Only for application logic errors, not API errors)
     if isinstance(update, Update) and update.effective_message:
         try:
+            # Use default locale since we can't reliably get session in error handler
             await update.effective_message.reply_text(
-                Messages.ERROR_OCCURRED,
+                Messages.error_occurred(),
                 parse_mode="Markdown"
             )
         except Exception as reply_error:

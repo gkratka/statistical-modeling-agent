@@ -263,7 +263,7 @@ class ModelManager:
             raise ModelSerializationError(
                 f"Failed to load model '{model_id}': {e}",
                 model_id=model_id,
-                error_details=str(e)
+                operation="load"
             )
 
     def get_model_metadata(self, user_id: int, model_id: str) -> Dict[str, Any]:

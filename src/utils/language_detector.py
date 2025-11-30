@@ -116,6 +116,17 @@ class LanguageDetector:
         if detect_langs is None:
             raise ImportError("langdetect not installed")
 
+        # Quick Portuguese word detection (fallback for short text)
+        portuguese_indicators = ['olá', 'você', 'preciso', 'ajuda', 'obrigado', 'por favor']
+        text_lower = text.lower()
+        if any(word in text_lower for word in portuguese_indicators):
+            return LanguageDetectionResult(
+                language="pt",
+                confidence=0.9,
+                method="keyword_match",
+                detected_at=datetime.now().isoformat()
+            )
+
         # langdetect works best with 20+ characters
         langs = detect_langs(text)
 
