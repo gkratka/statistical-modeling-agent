@@ -34,16 +34,20 @@ logger = logging.getLogger(__name__)
 auth_logger = logging.getLogger('auth')
 auth_logger.setLevel(logging.INFO)
 
-# Ensure logs directory exists
-log_dir = Path('data/logs')
-log_dir.mkdir(parents=True, exist_ok=True)
+# Ensure logs directory exists (may fail on read-only filesystems like Railway)
+try:
+    log_dir = Path('data/logs')
+    log_dir.mkdir(parents=True, exist_ok=True)
 
-# Add file handler for auth events
-auth_handler = logging.FileHandler(log_dir / 'auth.log')
-auth_handler.setFormatter(logging.Formatter(
-    '%(asctime)s - [AUTH] - %(levelname)s - %(message)s'
-))
-auth_logger.addHandler(auth_handler)
+    # Add file handler for auth events
+    auth_handler = logging.FileHandler(log_dir / 'auth.log')
+    auth_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - [AUTH] - %(levelname)s - %(message)s'
+    ))
+    auth_logger.addHandler(auth_handler)
+except (OSError, PermissionError) as e:
+    # Fall back to stdout logging on read-only filesystems
+    logger.warning(f"Could not create auth log file: {e}. Using stdout only.")
 
 
 @dataclass
