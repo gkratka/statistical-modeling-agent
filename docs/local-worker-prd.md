@@ -102,7 +102,7 @@ The Local Worker feature enables users to run ML training and prediction on thei
 |----|-------------|
 | FR20 | User sends `/connect` in Telegram |
 | FR21 | Bot generates one-time token (UUID, expires in 5 min) |
-| FR22 | Bot displays: `curl -sL https://bot.railway.app/worker \| python3 - --token=<TOKEN>` |
+| FR22 | Bot displays platform-specific command: Mac/Linux: `curl -sL https://bot.railway.app/worker \| python3 - --token=<TOKEN>`, Windows: `irm https://bot.railway.app/worker \| python - --token=<TOKEN>` |
 | FR23 | Worker sends token + machine identifier to bot |
 | FR24 | Bot validates token and links worker to Telegram user |
 | FR25 | Token is invalidated after successful use |
@@ -157,7 +157,7 @@ The Local Worker feature enables users to run ML training and prediction on thei
 1. **Cloud ML execution** - This feature is for local execution only; cloud training via RunPod is a separate feature
 2. **Multi-worker support** - One worker per user for MVP
 3. **Worker-to-worker communication** - Workers don't talk to each other
-4. **Windows GUI installer** - Command-line only for MVP
+4. **Windows GUI installer** - PowerShell command-line supported; GUI installer out of scope
 5. **Model syncing between machines** - Models stay on the machine where they were trained
 6. **Web dashboard** - All UI is through Telegram
 
@@ -212,13 +212,16 @@ To train models using files on your computer, connect a local worker:
 
 Run this command in your terminal:
 
+Mac/Linux:
 curl -sL https://statsbot.railway.app/worker | python3 - --token=abc123
+
+Windows (PowerShell):
+irm https://statsbot.railway.app/worker | python - --token=abc123
 
 ⏱️ Token expires in 5 minutes
 
 Requirements:
 • Python 3.8+
-• Mac or Linux (Windows: use WSL)
 ```
 
 **Worker connected:**
@@ -264,6 +267,12 @@ python3 worker.py --autostart
 python3 worker.py --autostart
 ```
 
+**Windows (Task Scheduler):**
+```powershell
+# Creates scheduled task to run at user login
+python worker.py --autostart
+```
+
 ### File Structure
 
 ```
@@ -288,7 +297,7 @@ python3 worker.py --autostart
 ## 9. Open Questions
 
 1. **Q: Should we support Windows natively or require WSL?**
-   - Recommendation: WSL for MVP, native Windows later
+   - Decision: Native Windows support via PowerShell (`irm` command) included in MVP
 
 2. **Q: How to handle worker updates?**
    - Recommendation: Worker checks version on connect, prompts user to re-run curl if outdated
@@ -301,6 +310,6 @@ python3 worker.py --autostart
 
 ---
 
-*PRD Version: 1.0*
+*PRD Version: 1.1*
 *Created: 2025-11-30*
 *Status: Draft*
