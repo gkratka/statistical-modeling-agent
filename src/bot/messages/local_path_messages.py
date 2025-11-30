@@ -2,140 +2,137 @@
 
 from typing import List, Optional
 from telegram import InlineKeyboardButton
+from src.utils.i18n_manager import I18nManager
 
 
 class LocalPathMessages:
     """Consolidated message templates for local path workflow."""
 
     @staticmethod
-    def data_source_selection_prompt() -> str:
-        return (
-            "🤖 **ML Training Workflow**\n\n"
-            "How would you like to provide your training data?\n\n"
-            "**📤 Upload File**: Upload CSV/Excel through Telegram\n"
-            "• Max size: 10MB | Best for: Quick analysis\n\n"
-            "**📂 Use Local Path**: Provide filesystem path\n"
-            "• No size limits | Best for: Large datasets\n\n"
-            "Choose your data source:"
-        )
+    def data_source_selection_prompt(locale: Optional[str] = None) -> str:
+        result = I18nManager.t('workflows.ml_training.data_source_prompt', locale=locale)
+        print(f"🌐 LocalPathMessages.data_source_selection_prompt: locale={locale}, result length={len(result)}")
+        return result
 
     @staticmethod
-    def file_path_input_prompt(allowed_dirs: List[str]) -> str:
+    def file_path_input_prompt(allowed_dirs: List[str], locale: Optional[str] = None) -> str:
         dirs = "\n".join(f"• `{d}`" for d in allowed_dirs[:5])
         if len(allowed_dirs) > 5:
-            dirs += f"\n• ... and {len(allowed_dirs) - 5} more"
+            dirs += f"\n• {I18nManager.t('common.and_more', locale=locale, count=len(allowed_dirs) - 5)}"
 
         return (
-            "✅ **Local File Path**\n\n"
-            f"**Allowed directories:**\n{dirs}\n\n"
-            "**Formats:** CSV, Excel (.xlsx, .xls), Parquet\n\n"
-            "**Examples:**\n"
-            "• `/Users/username/datasets/housing.csv`\n"
-            "• `~/Documents/data/sales.xlsx`\n\n"
-            "Type or paste your file path:"
+            f"{I18nManager.t('workflows.ml_training.local_file_path_header', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.allowed_directories', locale=locale)}\n{dirs}\n\n"
+            f"{I18nManager.t('workflows.ml_training.formats_label', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.examples_label', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.example_path_1', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.example_path_2', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.type_path_prompt', locale=locale)}"
         )
 
     @staticmethod
-    def loading_data_message() -> str:
-        return "🔄 **Loading data...**\n⏳ Validating, loading, and analyzing schema..."
+    def loading_data_message(locale: Optional[str] = None) -> str:
+        return (
+            f"{I18nManager.t('workflows.ml_training.loading_data', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.loading_status', locale=locale)}"
+        )
 
     @staticmethod
     def schema_confirmation_prompt(
         summary: str,
         suggested_target: Optional[str],
         suggested_features: List[str],
-        task_type: Optional[str]
+        task_type: Optional[str],
+        locale: Optional[str] = None
     ) -> str:
         msg = f"{summary}\n\n"
 
         if task_type and suggested_target:
             msg += (
-                f"**🎯 Auto-Detected:** {task_type.title()}\n"
-                f"**Target:** `{suggested_target}`\n"
+                f"{I18nManager.t('workflows.ml_training.auto_detected', locale=locale, task_type=task_type.title())}\n"
+                f"{I18nManager.t('workflows.ml_training.target_label', locale=locale, target=suggested_target)}\n"
             )
             if suggested_features:
                 feats = ", ".join(f"`{f}`" for f in suggested_features[:5])
                 if len(suggested_features) > 5:
                     feats += f" ... (+{len(suggested_features) - 5})"
-                msg += f"**Features:** {feats}\n\n"
+                msg += f"{I18nManager.t('workflows.ml_training.features_label', locale=locale, features=feats)}\n\n"
 
-        msg += "**Proceed?**\n• ✅ Accept | ❌ Try Different File"
+        msg += I18nManager.t('workflows.ml_training.proceed_question', locale=locale)
         return msg
 
     @staticmethod
-    def schema_accepted_message(suggested_target: Optional[str]) -> str:
+    def schema_accepted_message(suggested_target: Optional[str], locale: Optional[str] = None) -> str:
         if suggested_target:
             return (
-                f"✅ **Schema Accepted!**\n\n"
-                f"🎯 Using: `{suggested_target}`\n\n"
-                "Proceeding to target selection..."
+                f"{I18nManager.t('workflows.ml_training.schema_accepted', locale=locale)}\n\n"
+                f"{I18nManager.t('workflows.ml_training.using_target', locale=locale, target=suggested_target)}\n\n"
+                f"{I18nManager.t('workflows.ml_training.proceeding_to_selection', locale=locale)}"
             )
-        return "✅ **Schema Accepted!**\n\nProceeding to target selection..."
-
-    @staticmethod
-    def schema_rejected_message() -> str:
-        return "❌ **Schema Rejected**\n\nPlease provide a different file path."
-
-    @staticmethod
-    def telegram_upload_prompt() -> str:
         return (
-            "✅ **Telegram Upload**\n\n"
-            "📤 Please upload your file.\n\n"
-            "**Formats:** CSV, Excel, Parquet | **Max:** 10MB"
+            f"{I18nManager.t('workflows.ml_training.schema_accepted', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.proceeding_to_selection', locale=locale)}"
         )
 
     @staticmethod
-    def load_option_prompt(file_path: str, size_mb: float) -> str:
+    def schema_rejected_message(locale: Optional[str] = None) -> str:
+        return (
+            f"{I18nManager.t('workflows.ml_training.schema_rejected', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.provide_different_file', locale=locale)}"
+        )
+
+    @staticmethod
+    def telegram_upload_prompt(locale: Optional[str] = None) -> str:
+        return I18nManager.t('workflows.ml_training.awaiting_file', locale=locale)
+
+    @staticmethod
+    def load_option_prompt(file_path: str, size_mb: float, locale: Optional[str] = None) -> str:
         """Prompt for load strategy selection (immediate or deferred)."""
         return (
-            f"✅ **Path Validated:** `{file_path}`\n"
-            f"📊 **Size:** {size_mb:.2f} MB\n\n"
-            "**Choose Loading Strategy:**\n\n"
-            "**🔄 Load Now** - Load & analyze data immediately\n"
-            "• Auto-detect schema | Preview statistics\n"
-            "• Best for: Small to medium datasets (<100MB)\n\n"
-            "**⏳ Defer Loading** - Provide schema, load later\n"
-            "• Skip preview | Load at training time only\n"
-            "• Best for: Large datasets (>100MB)\n\n"
-            "**Select your strategy:**"
+            f"{I18nManager.t('workflows.ml_training.path_validated', locale=locale, file_path=file_path)}\n"
+            f"{I18nManager.t('workflows.ml_training.size_label', locale=locale, size_mb=f'{size_mb:.2f}')}\n\n"
+            f"{I18nManager.t('workflows.ml_training.choose_loading_strategy', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.load_now_option', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.load_now_features', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.defer_loading_option', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.defer_loading_features', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.select_strategy', locale=locale)}"
         )
 
     @staticmethod
-    def schema_input_prompt() -> str:
+    def schema_input_prompt(locale: Optional[str] = None) -> str:
         """Prompt for manual schema input (deferred loading)."""
         return (
-            "📝 **Manual Schema Input**\n\n"
-            "Provide target and feature columns. **3 formats supported:**\n\n"
-            "**Format 1 - Key-Value (recommended):**\n"
-            "`target: price`\n"
-            "`features: sqft, bedrooms, bathrooms`\n\n"
-            "**Format 2 - JSON:**\n"
-            '`{"target": "price", "features": ["sqft", "bedrooms", "bathrooms"]}`\n\n'
-            "**Format 3 - Simple List:**\n"
-            "`price, sqft, bedrooms, bathrooms`\n"
-            "(first = target, rest = features)\n\n"
-            "**Type your schema:**"
+            f"{I18nManager.t('workflows.ml_training.manual_schema_header', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.schema_formats_intro', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.format_1_label', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.format_1_example', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.format_2_label', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.format_2_example', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.format_3_label', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.format_3_example', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.type_schema_prompt', locale=locale)}"
         )
 
     @staticmethod
-    def schema_accepted_deferred(target: str, n_features: int) -> str:
+    def schema_accepted_deferred(target: str, n_features: int, locale: Optional[str] = None) -> str:
         """Message when manual schema is accepted (deferred loading)."""
         features_word = "feature" if n_features == 1 else "features"
         return (
-            f"✅ **Schema Accepted**\n\n"
-            f"🎯 Target: `{target}`\n"
-            f"📊 Features: {n_features} {features_word}\n\n"
-            "⏳ Data will load at training time.\n\n"
-            "Proceeding to model selection..."
+            f"{I18nManager.t('workflows.ml_training.schema_accepted_deferred', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.target_deferred', locale=locale, target=target)}\n"
+            f"{I18nManager.t('workflows.ml_training.features_count', locale=locale, n_features=n_features, features_word=features_word)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.data_load_later', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.proceeding_to_model', locale=locale)}"
         )
 
     @staticmethod
-    def schema_parse_error(error_msg: str) -> str:
+    def schema_parse_error(error_msg: str, locale: Optional[str] = None) -> str:
         """Error message when schema parsing fails."""
         return (
-            f"❌ **Schema Parse Error**\n\n"
-            f"{error_msg}\n\n"
-            "Please try again with correct format."
+            f"{I18nManager.t('workflows.ml_training.schema_parse_error', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.parse_error_details', locale=locale, error_msg=error_msg)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.try_again', locale=locale)}"
         )
 
     @staticmethod
@@ -146,102 +143,111 @@ class LocalPathMessages:
         size_mb: float = None,
         max_size_mb: int = None,
         allowed_extensions: List[str] = None,
-        error_details: str = None
+        error_details: str = None,
+        locale: Optional[str] = None
     ) -> str:
         """Format error message based on type."""
-        templates = {
-            "not_found": (
-                f"❌ **File Not Found**\n\n`{path}`\n\n"
-                "Check: Path correct? File exists? Readable?"
-            ),
-            "not_in_whitelist": (
-                f"🚫 **Access Denied**\n\n`{path}`\n\n**Allowed:**\n"
-                + "\n".join(f"• `{d}`" for d in (allowed_dirs or [])[:5])
-                + (f"\n• ... and {len(allowed_dirs) - 5} more" if allowed_dirs and len(allowed_dirs) > 5 else "")
-            ),
-            "path_traversal": f"🚫 **Security Error**\n\nPath contains suspicious patterns: `{path}`",
-            "too_large": (
-                f"⚠️ **File Too Large**\n\n"
-                f"Size: {size_mb if size_mb is not None else 0:.1f}MB | "
-                f"Limit: {max_size_mb if max_size_mb is not None else 0}MB\n\n"
-                "Try: Smaller file or sample data"
-            ),
-            "invalid_extension": (
-                f"❌ **Unsupported Format**\n\n`{path}`\n\n"
-                f"**Supported:** {', '.join(allowed_extensions or [])}"
-            ),
-            "empty": f"❌ **Empty File**\n\n`{path}` (0 bytes)",
-            "loading_error": f"❌ **Loading Error**\n\n`{path}`\n\n{error_details}",
-            "security_validation": error_details or f"❌ **Validation Error**\n\n`{path}`",
-            "feature_disabled": "⚠️ **Feature Disabled**\n\nUse Telegram upload instead.",
-            "unexpected": (
-                f"❌ **Unexpected Error**\n\n"
-                f"`{path}`\n\n"
-                + (f"{error_details}\n\n" if error_details else "")
-                + "Try again or use /train to restart."
+        if error_type == "not_found":
+            return (
+                f"{I18nManager.t('workflows.ml_training.file_not_found', locale=locale)}\n\n`{path}`\n\n"
+                f"{I18nManager.t('workflows.ml_training.check_path', locale=locale)}"
             )
-        }
-
-        return templates.get(error_type, templates["unexpected"])
+        elif error_type == "not_in_whitelist":
+            dirs = "\n".join(f"• `{d}`" for d in (allowed_dirs or [])[:5])
+            if allowed_dirs and len(allowed_dirs) > 5:
+                dirs += f"\n• {I18nManager.t('common.and_more', locale=locale, count=len(allowed_dirs) - 5)}"
+            return (
+                f"{I18nManager.t('workflows.ml_training.access_denied', locale=locale)}\n\n`{path}`\n\n"
+                f"{I18nManager.t('workflows.ml_training.allowed_label', locale=locale)}\n{dirs}"
+            )
+        elif error_type == "path_traversal":
+            return I18nManager.t('workflows.ml_training.suspicious_patterns', locale=locale, path=path)
+        elif error_type == "too_large":
+            size_val = size_mb if size_mb is not None else 0
+            max_val = max_size_mb if max_size_mb is not None else 0
+            return (
+                f"{I18nManager.t('workflows.ml_training.file_too_large_error', locale=locale)}\n\n"
+                f"{I18nManager.t('workflows.ml_training.size_limit', locale=locale, size_mb=f'{size_val:.1f}', max_size_mb=max_val)}\n\n"
+                f"{I18nManager.t('workflows.ml_training.try_smaller', locale=locale)}"
+            )
+        elif error_type == "invalid_extension":
+            exts = ', '.join(allowed_extensions or [])
+            return (
+                f"{I18nManager.t('workflows.ml_training.unsupported_format', locale=locale)}\n\n`{path}`\n\n"
+                f"{I18nManager.t('workflows.ml_training.supported_label', locale=locale, allowed_extensions=exts)}"
+            )
+        elif error_type == "empty":
+            return I18nManager.t('workflows.ml_training.zero_bytes', locale=locale, path=path)
+        elif error_type == "loading_error":
+            return (
+                f"{I18nManager.t('workflows.ml_training.loading_error', locale=locale)}\n\n"
+                f"`{path}`\n\n{error_details}"
+            )
+        elif error_type == "security_validation":
+            if error_details:
+                return error_details
+            return (
+                f"{I18nManager.t('workflows.ml_training.security_validation_error', locale=locale)}\n\n"
+                f"`{path}`"
+            )
+        elif error_type == "feature_disabled":
+            return (
+                f"{I18nManager.t('workflows.ml_training.feature_disabled', locale=locale)}\n\n"
+                f"{I18nManager.t('workflows.ml_training.use_telegram_upload', locale=locale)}"
+            )
+        else:  # unexpected
+            msg = f"{I18nManager.t('workflows.ml_training.unexpected_error', locale=locale)}\n\n`{path}`\n\n"
+            if error_details:
+                msg += f"{error_details}\n\n"
+            msg += I18nManager.t('workflows.ml_training.try_restart', locale=locale)
+            return msg
 
     @staticmethod
-    def xgboost_description() -> str:
+    def xgboost_description(locale: Optional[str] = None) -> str:
         """Description of XGBoost models for users."""
         return (
-            "🌳 **XGBoost (Gradient Boosting)**\n\n"
-            "**Best for:** Tabular/structured data\n"
-            "**Performance:** Often outperforms neural networks on structured datasets\n\n"
-            "**Advantages:**\n"
-            "✓ High accuracy on structured data\n"
-            "✓ Built-in feature importance\n"
-            "✓ Handles missing values\n"
-            "✓ Fast training\n\n"
-            "**When to use:**\n"
-            "• Credit scoring, fraud detection\n"
-            "• Customer churn prediction\n"
-            "• Price prediction, sales forecasting\n"
-            "• Any structured/tabular data\n\n"
-            "**When NOT to use:**\n"
-            "• Image data\n"
-            "• Text/NLP tasks\n"
-            "• Time series with complex patterns"
+            f"{I18nManager.t('workflows.ml_training.xgboost_header', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_best_for', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_performance', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_advantages', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_adv_accuracy', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_adv_importance', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_adv_missing', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_adv_fast', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_when_use', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_use_credit', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_use_churn', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_use_price', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_use_tabular', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_when_not', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_not_image', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_not_text', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_not_timeseries', locale=locale)}"
         )
 
     @staticmethod
-    def xgboost_hyperparameter_help() -> str:
+    def xgboost_hyperparameter_help(locale: Optional[str] = None) -> str:
         """Help text for XGBoost hyperparameters."""
         return (
-            "🔧 **XGBoost Hyperparameters**\n\n"
-            "**n_estimators** (100-1000):\n"
-            "Number of trees. More = better but slower.\n"
-            "Default: 100\n\n"
-            "**max_depth** (3-10):\n"
-            "Maximum tree depth. Higher = more complex.\n"
-            "Default: 6\n\n"
-            "**learning_rate** (0.01-0.3):\n"
-            "Step size. Lower = more conservative.\n"
-            "Default: 0.1\n\n"
-            "**subsample** (0.5-1.0):\n"
-            "Fraction of samples per tree.\n"
-            "Default: 0.8\n\n"
-            "**colsample_bytree** (0.5-1.0):\n"
-            "Fraction of features per tree.\n"
-            "Default: 0.8"
+            f"{I18nManager.t('workflows.ml_training.xgboost_hyperparams_header', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_n_estimators', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_max_depth', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_learning_rate', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_subsample', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_colsample', locale=locale)}"
         )
 
     @staticmethod
-    def xgboost_setup_required() -> str:
+    def xgboost_setup_required(locale: Optional[str] = None) -> str:
         """Error message when XGBoost is unavailable due to missing OpenMP."""
         return (
-            "❌ **XGBoost Setup Required**\n\n"
-            "XGBoost needs OpenMP runtime to work.\n\n"
-            "**macOS Quick Fix:**\n"
-            "```\n"
-            "brew install libomp\n"
-            "```\n\n"
-            "**OR** Use **Gradient Boosting (sklearn)** instead\n"
-            "_(Works immediately, no setup needed)_\n\n"
-            "📖 Full guide: `XGBOOST_SETUP.md`"
+            f"{I18nManager.t('workflows.ml_training.xgboost_setup_required', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_needs_openmp', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_macos_fix', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_brew_install', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_alternative', locale=locale)}\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_alt_note', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.xgboost_docs', locale=locale)}"
         )
 
     # =========================================================================
@@ -249,49 +255,51 @@ class LocalPathMessages:
     # =========================================================================
 
     @staticmethod
-    def password_prompt(original_path: str, resolved_dir: str) -> str:
+    def password_prompt(original_path: str, resolved_dir: str, locale: Optional[str] = None) -> str:
         """Password prompt for non-whitelisted path.
 
         Args:
             original_path: Original path string from user
             resolved_dir: Resolved parent directory
+            locale: Language locale
 
         Returns:
             Markdown-formatted password prompt
         """
         return (
-            f"🔐 **Password Required**\n\n"
-            f"The path you entered is not in the allowed directories:\n"
+            f"{I18nManager.t('workflows.ml_training.password_required', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.password_not_in_whitelist', locale=locale)}\n"
             f"`{original_path}`\n\n"
-            f"**Resolved to:** `{resolved_dir}`\n\n"
-            f"To access this directory, please enter the password.\n\n"
-            f"⚠️ **Security Note:** This will grant access to ALL files in "
-            f"this directory for the current session only."
+            f"{I18nManager.t('workflows.ml_training.password_resolved_to', locale=locale, resolved_dir=resolved_dir)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.password_enter_prompt', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.password_security_note', locale=locale)}"
         )
 
     @staticmethod
-    def password_success(directory: str) -> str:
+    def password_success(directory: str, locale: Optional[str] = None) -> str:
         """Message shown after successful password entry.
 
         Args:
             directory: Directory that was granted access
+            locale: Language locale
 
         Returns:
             Markdown-formatted success message
         """
         return (
-            f"✅ **Access Granted**\n\n"
-            f"Directory added to allowed paths for this session:\n"
+            f"{I18nManager.t('workflows.ml_training.password_access_granted', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.password_directory_added', locale=locale)}\n"
             f"`{directory}`\n\n"
-            f"You can now access any file in this directory."
+            f"{I18nManager.t('workflows.ml_training.password_can_access', locale=locale)}"
         )
 
     @staticmethod
-    def password_failure(error_message: str) -> str:
+    def password_failure(error_message: str, locale: Optional[str] = None) -> str:
         """Message shown after failed password attempt.
 
         Args:
             error_message: Error message from PasswordValidator
+            locale: Language locale
 
         Returns:
             Markdown-formatted error message
@@ -299,57 +307,79 @@ class LocalPathMessages:
         return f"❌ {error_message}"
 
     @staticmethod
-    def password_lockout(wait_seconds: int) -> str:
+    def password_lockout(wait_seconds: int, locale: Optional[str] = None) -> str:
         """Message shown when user is locked out.
 
         Args:
             wait_seconds: Seconds until lockout expires
+            locale: Language locale
 
         Returns:
             Markdown-formatted lockout message
         """
         return (
-            f"🔒 **Access Locked**\n\n"
-            f"Too many failed password attempts.\n\n"
-            f"Please wait {wait_seconds} seconds before trying again, "
-            f"or choose a different path from the whitelist."
+            f"{I18nManager.t('workflows.ml_training.password_locked', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.password_too_many_attempts', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.password_wait', locale=locale, wait_seconds=wait_seconds)}"
         )
 
     @staticmethod
-    def password_timeout() -> str:
+    def password_timeout(locale: Optional[str] = None) -> str:
         """Message shown when password prompt expires.
+
+        Args:
+            locale: Language locale
 
         Returns:
             Markdown-formatted timeout message
         """
         return (
-            f"⏱️ **Session Timeout**\n\n"
-            f"The password prompt has expired (5 minute limit).\n\n"
-            f"Please restart with /train or /predict to try again."
+            f"{I18nManager.t('workflows.ml_training.password_timeout', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.password_prompt_expired', locale=locale)}\n\n"
+            f"{I18nManager.t('workflows.ml_training.password_restart', locale=locale)}"
         )
 
 
 # Back Button Utilities (Phase 2: Workflow Back Button)
-def create_back_button() -> InlineKeyboardButton:
+def create_back_button(
+    locale: Optional[str] = None,
+    callback_data: str = "workflow_back"
+) -> InlineKeyboardButton:
     """
     Create standardized back button for workflow navigation.
 
+    Args:
+        locale: Optional language code for i18n
+        callback_data: Callback data for button (default: 'workflow_back')
+                      Use 'pred_back' for prediction workflow
+                      Use 'train_back' for training workflow
+
     Returns:
-        InlineKeyboardButton with callback_data='workflow_back'
+        InlineKeyboardButton with specified callback_data
     """
-    return InlineKeyboardButton("⬅️ Back", callback_data="workflow_back")
+    from src.utils.i18n_manager import I18nManager
+    return InlineKeyboardButton(
+        I18nManager.t('workflows.prediction.buttons.go_back', locale=locale),
+        callback_data=callback_data
+    )
 
 
-def add_back_button(keyboard: List[List[InlineKeyboardButton]]) -> None:
+def add_back_button(
+    keyboard: List[List[InlineKeyboardButton]],
+    locale: Optional[str] = None,
+    callback_data: str = "workflow_back"
+) -> None:
     """
     Add back button to keyboard layout as last row.
 
     Args:
         keyboard: Existing keyboard layout (modified in-place)
+        locale: Optional language code for i18n
+        callback_data: Callback data for button (default: 'workflow_back')
 
     Example:
         >>> keyboard = [[button1, button2]]
-        >>> add_back_button(keyboard)
+        >>> add_back_button(keyboard, callback_data='pred_back')
         >>> # keyboard is now: [[button1, button2], [back_button]]
     """
-    keyboard.append([create_back_button()])
+    keyboard.append([create_back_button(locale=locale, callback_data=callback_data)])

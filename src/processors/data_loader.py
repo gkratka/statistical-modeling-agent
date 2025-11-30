@@ -25,6 +25,7 @@ from src.utils.exceptions import DataError, ValidationError, PathValidationError
 from src.utils.logger import get_logger
 from src.utils.path_validator import validate_local_path
 from src.utils.schema_detector import detect_schema, DatasetSchema
+from src.core.state_manager import UserSession
 
 logger = get_logger(__name__)
 
@@ -62,6 +63,7 @@ class DataLoader:
         local_config = self.config.get('local_data', {})
         self.local_enabled = local_config.get('enabled', False)
         self.allowed_directories = local_config.get('allowed_directories', [])
+        self.forbidden_directories = local_config.get('forbidden_directories', [])
         self.local_max_size_mb = local_config.get('max_file_size_mb', 1000)
         self.local_extensions = local_config.get('allowed_extensions', ['.csv', '.xlsx', '.xls', '.parquet'])
 
@@ -120,10 +122,16 @@ class DataLoader:
     async def load_from_local_path(
         self,
         file_path: str,
-        detect_schema_flag: bool = True
+        detect_schema_flag: bool = True,
+        session: Optional[UserSession] = None
     ) -> Tuple[pd.DataFrame, Dict[str, Any], Optional[DatasetSchema]]:
         """
         Load data from local file path with security validation.
+
+        Args:
+            file_path: Path to the file to load
+            detect_schema_flag: Whether to auto-detect dataset schema
+            session: Optional UserSession for accessing dynamic whitelist
 
         Returns: (DataFrame, metadata dict, optional schema)
         Raises: PathValidationError, DataError, ValidationError
@@ -138,12 +146,24 @@ class DataLoader:
                 value="disabled"
             )
 
+        # Merge static whitelist + session dynamic whitelist (password-authenticated paths)
+        allowed_dirs = self.allowed_directories.copy()
+        if session and hasattr(session, 'dynamic_allowed_directories'):
+            # Add password-authenticated directories to whitelist
+            allowed_dirs.extend(session.dynamic_allowed_directories)
+            self.logger.info(
+                f"Merged whitelists: static={len(self.allowed_directories)}, "
+                f"dynamic={len(session.dynamic_allowed_directories)}, "
+                f"total={len(allowed_dirs)}"
+            )
+
         # Validate path security
         is_valid, error_msg, resolved_path = validate_local_path(
             path=file_path,
-            allowed_dirs=self.allowed_directories,
+            allowed_dirs=allowed_dirs,
             max_size_mb=self.local_max_size_mb,
-            allowed_extensions=self.local_extensions
+            allowed_extensions=self.local_extensions,
+            forbidden_dirs=self.forbidden_directories
         )
 
         if not is_valid:

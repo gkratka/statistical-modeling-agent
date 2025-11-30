@@ -11,6 +11,7 @@ import pandas as pd
 import telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ApplicationHandlerStop
+from telegram import error as telegram_error
 
 from src.core.state_manager import StateManager, MLPredictionState, WorkflowType
 from src.processors.data_loader import DataLoader
@@ -21,6 +22,7 @@ from src.bot.messages import prediction_messages
 from src.bot.messages.prediction_messages import (
     PredictionMessages,
     create_data_source_buttons,
+    create_load_option_buttons,
     create_schema_confirmation_buttons,
     create_column_confirmation_buttons,
     create_ready_to_run_buttons,
@@ -31,6 +33,7 @@ from src.bot.messages.local_path_messages import add_back_button, LocalPathMessa
 from src.bot.utils.markdown_escape import escape_markdown_v1
 from src.engines.ml_engine import MLEngine
 from src.engines.ml_config import MLEngineConfig
+from src.utils.i18n_manager import I18nManager
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +102,7 @@ class PredictionHandler:
             logger.error(f"Malformed update object in handle_start_prediction: {e}")
             if update and update.effective_message:
                 await update.effective_message.reply_text(
-                    "❌ **Invalid Request**\n\nPlease try /predict again.",
+                    I18nManager.t('prediction.errors.malformed_update', command='/predict'),
                     parse_mode="Markdown"
                 )
             return
@@ -107,7 +110,7 @@ class PredictionHandler:
         # Get or create session
         session = await self.state_manager.get_or_create_session(
             user_id=user_id,
-            conversation_id=f"chat_{chat_id}"
+            conversation_id=str(chat_id)
         )
 
         # Initialize prediction workflow
@@ -115,9 +118,12 @@ class PredictionHandler:
         session.current_state = MLPredictionState.STARTED.value
         await self.state_manager.update_session(session)
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         # Show start message
         await update.message.reply_text(
-            PredictionMessages.prediction_start_message(),
+            PredictionMessages.prediction_start_message(locale=locale),
             parse_mode="Markdown"
         )
 
@@ -129,11 +135,11 @@ class PredictionHandler:
         )
 
         # Show data source selection
-        keyboard = create_data_source_buttons()
+        keyboard = create_data_source_buttons(locale=locale)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            PredictionMessages.data_source_selection_prompt(),
+            PredictionMessages.data_source_selection_prompt(locale=locale),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -158,12 +164,15 @@ class PredictionHandler:
         except AttributeError as e:
             logger.error(f"Malformed update in handle_data_source_selection: {e}")
             await query.edit_message_text(
-                "❌ **Invalid Request**\n\nPlease restart with /predict",
+                I18nManager.t('prediction.errors.malformed_update'),
                 parse_mode="Markdown"
             )
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if choice == "upload":
             # User chose Telegram upload
@@ -176,7 +185,7 @@ class PredictionHandler:
             )
 
             await query.edit_message_text(
-                PredictionMessages.telegram_upload_prompt(),
+                PredictionMessages.telegram_upload_prompt(locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -192,7 +201,7 @@ class PredictionHandler:
 
             allowed_dirs = self.data_loader.allowed_directories
             await query.edit_message_text(
-                PredictionMessages.file_path_input_prompt(allowed_dirs),
+                PredictionMessages.file_path_input_prompt(allowed_dirs, locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -209,13 +218,16 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_file_upload: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if session is None or session.current_state != MLPredictionState.AWAITING_FILE_UPLOAD.value:
             return
 
         loading_msg = await update.message.reply_text(
-            PredictionMessages.loading_data_message()
+            PredictionMessages.loading_data_message(locale=locale)
         )
 
         try:
@@ -251,7 +263,8 @@ class PredictionHandler:
             await loading_msg.edit_text(
                 PredictionMessages.file_loading_error(
                     update.message.document.file_name,
-                    str(e)
+                    str(e),
+                    locale=locale
                 ),
                 parse_mode="Markdown"
             )
@@ -270,12 +283,17 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_file_path_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if session is None or session.current_state != MLPredictionState.AWAITING_FILE_PATH.value:
             return
 
-        validating_msg = await update.message.reply_text("🔍 **Validating path...**")
+        validating_msg = await update.message.reply_text(
+            I18nManager.t('prediction.save.validating_path', locale=locale)
+        )
 
         try:
             # Validate path
@@ -293,10 +311,10 @@ class PredictionHandler:
                     raise ApplicationHandlerStop
                 else:
                     # Other validation error (path traversal, size, etc.)
-                    keyboard = create_path_error_recovery_buttons()
+                    keyboard = create_path_error_recovery_buttons(locale=locale)
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     await update.message.reply_text(
-                        PredictionMessages.file_loading_error(file_path, result['error']),
+                        PredictionMessages.file_loading_error(file_path, result['error'], locale=locale),
                         reply_markup=reply_markup,
                         parse_mode="Markdown"
                     )
@@ -323,10 +341,7 @@ class PredictionHandler:
                 await safe_delete_message(validating_msg)
                 missing_str = ', '.join(missing) if missing else 'unknown'
                 await update.message.reply_text(
-                    f"❌ **State Transition Failed**\n\n"
-                    f"Error: {error_msg}\n"
-                    f"Missing prerequisites: {missing_str}\n\n"
-                    f"Please try again or use /predict to restart.",
+                    I18nManager.t('prediction.errors.transition_failed', locale=locale, error=error_msg, missing=missing_str),
                     parse_mode="Markdown"
                 )
                 logger.error(
@@ -340,11 +355,11 @@ class PredictionHandler:
             from src.bot.messages.prediction_messages import create_load_option_buttons
             from src.bot.messages.local_path_messages import LocalPathMessages
 
-            keyboard = create_load_option_buttons()
+            keyboard = create_load_option_buttons(locale=locale)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await update.message.reply_text(
-                LocalPathMessages.load_option_prompt(str(resolved_path), size_mb),
+                LocalPathMessages.load_option_prompt(str(resolved_path), size_mb, locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
@@ -358,7 +373,7 @@ class PredictionHandler:
             logger.error(f"Error loading path: {e}")
             await safe_delete_message(validating_msg)
             await update.message.reply_text(
-                PredictionMessages.file_loading_error(file_path, str(e)),
+                PredictionMessages.file_loading_error(file_path, str(e), locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -378,19 +393,22 @@ class PredictionHandler:
         except AttributeError as e:
             logger.error(f"Malformed update in handle_load_option_selection: {e}")
             await query.edit_message_text(
-                "❌ **Invalid Request**\n\nPlease restart with /predict",
+                I18nManager.t('prediction.errors.malformed_update'),
                 parse_mode="Markdown"
             )
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if choice == "immediate":
             # LOAD NOW PATH
             session.load_deferred = False
 
             loading_msg = await query.edit_message_text(
-                PredictionMessages.loading_data_message()
+                PredictionMessages.loading_data_message(locale=locale)
             )
 
             try:
@@ -411,10 +429,7 @@ class PredictionHandler:
                 if not success:
                     missing_str = ', '.join(missing) if missing else 'unknown'
                     await loading_msg.edit_text(
-                        f"❌ **Transition Failed**\n\n"
-                        f"Error: {error_msg}\n"
-                        f"Missing: {missing_str}\n\n"
-                        f"Please try again or use /predict to restart.",
+                        I18nManager.t('prediction.errors.transition_failed', locale=locale, error=error_msg, missing=missing_str),
                         parse_mode="Markdown"
                     )
                     logger.error(
@@ -432,7 +447,7 @@ class PredictionHandler:
             except Exception as e:
                 logger.error(f"Error loading data: {e}")
                 await loading_msg.edit_text(
-                    PredictionMessages.file_loading_error(session.file_path, str(e)),
+                    PredictionMessages.file_loading_error(session.file_path, str(e), locale=locale),
                     parse_mode="Markdown"
                 )
 
@@ -450,10 +465,7 @@ class PredictionHandler:
             if not success:
                 missing_str = ', '.join(missing) if missing else 'unknown'
                 await query.edit_message_text(
-                    f"❌ **Transition Failed**\n\n"
-                    f"Error: {error_msg}\n"
-                    f"Missing: {missing_str}\n\n"
-                    f"Please try again or use /predict to restart.",
+                    I18nManager.t('prediction.errors.transition_failed', locale=locale, error=error_msg, missing=missing_str),
                     parse_mode="Markdown"
                 )
                 logger.error(
@@ -462,13 +474,13 @@ class PredictionHandler:
                 return
 
             await query.edit_message_text(
-                PredictionMessages.deferred_loading_confirmed_message(),
+                PredictionMessages.deferred_loading_confirmed_message(locale=locale),
                 parse_mode="Markdown"
             )
 
             # Show feature selection prompt (no preview since data not loaded)
             await update.effective_message.reply_text(
-                PredictionMessages.feature_selection_prompt_no_preview(),
+                PredictionMessages.feature_selection_prompt_no_preview(locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -480,6 +492,9 @@ class PredictionHandler:
         df: pd.DataFrame
     ) -> None:
         """Show schema confirmation with dataset summary."""
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         # Generate summary
         summary = (
             f"📊 **Dataset Loaded**\n\n"
@@ -489,18 +504,18 @@ class PredictionHandler:
 
         available_columns = df.columns.tolist()
 
-        keyboard = create_schema_confirmation_buttons()
+        keyboard = create_schema_confirmation_buttons(locale=locale)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         if update.callback_query:
             await update.callback_query.edit_message_text(
-                PredictionMessages.schema_confirmation_prompt(summary, available_columns),
+                PredictionMessages.schema_confirmation_prompt(summary, available_columns, locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
         else:
             await update.message.reply_text(
-                PredictionMessages.schema_confirmation_prompt(summary, available_columns),
+                PredictionMessages.schema_confirmation_prompt(summary, available_columns, locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
@@ -522,15 +537,16 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_schema_confirmation: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         # BUG FIX: Validate we're in the correct state before processing
         if session.current_state != MLPredictionState.CONFIRMING_SCHEMA.value:
             await query.edit_message_text(
-                f"❌ **Invalid State**\n\n"
-                f"Expected state: `CONFIRMING_SCHEMA`\n"
-                f"Current state: `{session.current_state}`\n\n"
-                f"Please use /predict to restart the workflow.",
+                I18nManager.t('prediction.errors.invalid_state', locale=locale,
+                             expected='CONFIRMING_SCHEMA', current=session.current_state),
                 parse_mode="Markdown"
             )
             logger.error(
@@ -550,10 +566,7 @@ class PredictionHandler:
             if not success:
                 missing_str = ', '.join(missing) if missing else 'unknown'
                 await query.edit_message_text(
-                    f"❌ **Transition Failed**\n\n"
-                    f"Error: {error_msg}\n"
-                    f"Missing: {missing_str}\n\n"
-                    f"Please try again or use /predict to restart.",
+                    I18nManager.t('prediction.errors.transition_failed', locale=locale, error=error_msg, missing=missing_str),
                     parse_mode="Markdown"
                 )
                 logger.error(
@@ -562,7 +575,7 @@ class PredictionHandler:
                 return
 
             await query.edit_message_text(
-                PredictionMessages.schema_accepted_message(),
+                PredictionMessages.schema_accepted_message(locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -581,7 +594,7 @@ class PredictionHandler:
             session.file_path = None
 
             await query.edit_message_text(
-                PredictionMessages.schema_rejected_message(),
+                PredictionMessages.schema_rejected_message(locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -596,12 +609,15 @@ class PredictionHandler:
         session
     ) -> None:
         """Show feature selection prompt."""
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         df = session.uploaded_data
         available_columns = df.columns.tolist()
         dataset_shape = df.shape
 
         await update.effective_message.reply_text(
-            PredictionMessages.feature_selection_prompt(available_columns, dataset_shape),
+            PredictionMessages.feature_selection_prompt(available_columns, dataset_shape, locale=locale),
             parse_mode="Markdown"
         )
 
@@ -619,7 +635,10 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_feature_selection_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if session is None or session.current_state != MLPredictionState.AWAITING_FEATURE_SELECTION.value:
             return
@@ -631,12 +650,7 @@ class PredictionHandler:
         # Check for "target:" prefix (not valid in prediction workflow)
         if features_input.lower().startswith('target:'):
             await update.message.reply_text(
-                "❌ **Invalid Format for Predictions**\n\n"
-                "Prediction data should NOT include the target column "
-                "- that's what you're trying to predict!\n\n"
-                "**Just list the feature columns:**\n"
-                "`Attribute1, Attribute2, Attribute3, ...`\n\n"
-                "Do NOT use `target:` or `features:` prefixes.",
+                I18nManager.t('prediction.features.invalid_format', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -650,14 +664,23 @@ class PredictionHandler:
             features_input_clean = features_input.split(':', 1)[1].strip()
             format_auto_corrected = True
 
-            # Show helpful auto-correction message
-            await update.message.reply_text(
-                "ℹ️ **Format Auto-Corrected**\n\n"
-                "Detected training workflow format. For predictions, "
-                "just list feature names without the `features:` prefix.\n\n"
-                f"**Processing:** `{features_input_clean}`",
-                parse_mode="Markdown"
-            )
+            # Show helpful auto-correction message with error handling
+            try:
+                await update.message.reply_text(
+                    I18nManager.t('prediction.features.auto_corrected', locale=locale, features=features_input_clean),
+                    parse_mode="Markdown"
+                )
+            except telegram_error.BadRequest as e:
+                logger.error(f"Telegram markdown parse error in auto-correction message: {e}")
+                # Fallback: send without markdown to prevent workflow hang
+                try:
+                    await update.message.reply_text(
+                        I18nManager.t('prediction.features.auto_corrected', locale=locale, features=features_input_clean),
+                        parse_mode=None
+                    )
+                except Exception as fallback_error:
+                    logger.error(f"Failed to send auto-correction message even without markdown: {fallback_error}")
+                    # Continue workflow anyway - auto-correction message is informational only
 
         # Parse features (comma-separated)
         selected_features = [f.strip() for f in features_input_clean.split(',')]
@@ -671,7 +694,8 @@ class PredictionHandler:
                 await update.message.reply_text(
                     PredictionMessages.feature_validation_error(
                         "Some features are not in the dataset.",
-                        {'invalid': invalid_features}
+                        {'invalid': invalid_features},
+                        locale=locale
                     ),
                     parse_mode="Markdown"
                 )
@@ -681,17 +705,36 @@ class PredictionHandler:
         # Store selected features
         session.selections['selected_features'] = selected_features
 
-        # Save snapshot and transition
+        # Save snapshot and transition with validation
         session.save_state_snapshot()
-        await self.state_manager.transition_state(
+        success, error_msg, missing = await self.state_manager.transition_state(
             session,
             MLPredictionState.SELECTING_MODEL.value
         )
 
-        await update.message.reply_text(
-            PredictionMessages.features_selected_message(selected_features),
-            parse_mode="Markdown"
-        )
+        if not success:
+            missing_str = ', '.join(missing) if missing else 'unknown'
+            await update.message.reply_text(
+                I18nManager.t('prediction.errors.transition_failed',
+                             locale=locale, error=error_msg, missing=missing_str),
+                parse_mode="Markdown"
+            )
+            logger.error(f"Transition to SELECTING_MODEL failed: {error_msg} | Missing: {missing}")
+            return
+
+        # Send feature selection confirmation with error handling
+        try:
+            await update.message.reply_text(
+                PredictionMessages.features_selected_message(selected_features, locale=locale),
+                parse_mode="Markdown"
+            )
+        except telegram_error.BadRequest as e:
+            logger.error(f"Telegram markdown parse error: {e}")
+            # Fallback: send without markdown to prevent workflow hang
+            await update.message.reply_text(
+                PredictionMessages.features_selected_message(selected_features, locale=locale),
+                parse_mode=None
+            )
 
         # Show model selection WITH ERROR HANDLING
         try:
@@ -705,13 +748,7 @@ class PredictionHandler:
 
             # Show user-friendly error
             await update.message.reply_text(
-                "❌ **Model Loading Error**\n\n"
-                f"Failed to load compatible models: {str(e)}\n\n"
-                "**Possible causes:**\n"
-                "• No trained models available\n"
-                "• Model metadata corrupted\n"
-                "• File permission issues\n\n"
-                "**Solution:** Use /train to create a model first, then try /predict again.",
+                I18nManager.t('prediction.errors.model_loading_error', locale=locale, error=str(e)),
                 parse_mode="Markdown"
             )
             return  # Stop execution
@@ -729,6 +766,9 @@ class PredictionHandler:
         session
     ) -> None:
         """Show compatible models for selection."""
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         user_id = session.user_id
         selected_features = session.selections.get('selected_features', [])
 
@@ -741,7 +781,7 @@ class PredictionHandler:
 
         if not all_models:
             await update.effective_message.reply_text(
-                PredictionMessages.no_models_available_error(),
+                PredictionMessages.no_models_available_error(locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -757,12 +797,12 @@ class PredictionHandler:
         session.compatible_models = compatible_models
 
         # Show model selection
-        keyboard = create_model_selection_buttons(compatible_models)
+        keyboard = create_model_selection_buttons(compatible_models, locale=locale)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         try:
             await update.effective_message.reply_text(
-                PredictionMessages.model_selection_prompt(compatible_models, selected_features),
+                PredictionMessages.model_selection_prompt(compatible_models, selected_features, locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
@@ -772,9 +812,7 @@ class PredictionHandler:
 
             # Fallback: Send user-friendly error without markdown
             await update.effective_message.reply_text(
-                "❌ Error displaying model list due to formatting issue.\n\n"
-                f"Found {len(compatible_models)} compatible model(s) but cannot display details.\n\n"
-                "Please contact support or try /predict again.",
+                I18nManager.t('prediction.errors.model_display_error', locale=locale, count=len(compatible_models)),
                 reply_markup=reply_markup  # Still show selection buttons if possible
             )
 
@@ -795,17 +833,20 @@ class PredictionHandler:
         except (AttributeError, ValueError) as e:
             logger.error(f"Malformed update in handle_model_selection: {e}")
             await query.edit_message_text(
-                "❌ **Invalid Selection**\n\nPlease try again or use /predict to restart.",
+                I18nManager.t('prediction.errors.invalid_selection'),
                 parse_mode="Markdown"
             )
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         # Validate session has compatible_models
         if not hasattr(session, 'compatible_models') or not session.compatible_models:
             await query.edit_message_text(
-                "❌ **Session Expired**\n\nPlease restart with /predict",
+                I18nManager.t('prediction.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -813,7 +854,7 @@ class PredictionHandler:
         # Validate index is in range
         if index >= len(session.compatible_models):
             await query.edit_message_text(
-                "❌ **Invalid Selection**\n\nPlease try again.",
+                I18nManager.t('prediction.errors.invalid_selection', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -827,7 +868,7 @@ class PredictionHandler:
 
         if not model_info:
             await query.edit_message_text(
-                "❌ **Model Not Found**\n\nPlease try again.",
+                I18nManager.t('prediction.errors.model_not_found', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -838,7 +879,7 @@ class PredictionHandler:
 
         if set(selected_features) != set(model_features):
             await query.edit_message_text(
-                PredictionMessages.model_feature_mismatch_error(model_features, selected_features),
+                PredictionMessages.model_feature_mismatch_error(model_features, selected_features, locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -859,13 +900,186 @@ class PredictionHandler:
             PredictionMessages.model_selected_message(
                 model_id,
                 model_info.get('model_type', 'Unknown'),
-                model_info.get('target_column', 'Unknown')
+                model_info.get('target_column', 'Unknown'),
+                locale=locale
             ),
             parse_mode="Markdown"
         )
 
         # Show prediction column confirmation
         await self._show_column_confirmation(update, context, session)
+
+    # =========================================================================
+    # Delete Models Workflow
+    # =========================================================================
+
+    async def handle_delete_models_start(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle entering delete models mode - show checkbox selection."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_delete_models_start: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+        locale = session.language if session.language else None
+
+        # Get compatible models from session
+        if not hasattr(session, 'compatible_models') or not session.compatible_models:
+            await query.edit_message_text(
+                I18nManager.t('prediction.errors.session_expired', locale=locale),
+                parse_mode="Markdown"
+            )
+            return
+
+        # Initialize empty selection set
+        session.delete_selected_indices = set()
+        await self.state_manager.update_session(session)
+
+        # Show checkbox selection UI
+        from src.bot.messages.prediction_messages import create_delete_models_checkbox_buttons
+        keyboard = create_delete_models_checkbox_buttons(
+            session.compatible_models,
+            session.delete_selected_indices,
+            locale=locale
+        )
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            I18nManager.t('prediction.delete_models.title', locale=locale),
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_delete_model_toggle(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle toggling model selection for deletion."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            # Parse index from callback_data (format: pred_delete_toggle_{index})
+            index = int(query.data.split("pred_delete_toggle_")[-1])
+        except (AttributeError, ValueError) as e:
+            logger.error(f"Malformed update in handle_delete_model_toggle: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+        locale = session.language if session.language else None
+
+        # Toggle selection
+        if not hasattr(session, 'delete_selected_indices'):
+            session.delete_selected_indices = set()
+
+        if index in session.delete_selected_indices:
+            session.delete_selected_indices.remove(index)
+        else:
+            session.delete_selected_indices.add(index)
+
+        await self.state_manager.update_session(session)
+
+        # Refresh checkbox UI
+        from src.bot.messages.prediction_messages import create_delete_models_checkbox_buttons
+        keyboard = create_delete_models_checkbox_buttons(
+            session.compatible_models,
+            session.delete_selected_indices,
+            locale=locale
+        )
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
+
+    async def handle_delete_models_confirm(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle confirming model deletion."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_delete_models_confirm: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+        locale = session.language if session.language else None
+
+        # Check if any models selected
+        if not hasattr(session, 'delete_selected_indices') or not session.delete_selected_indices:
+            await query.edit_message_text(
+                I18nManager.t('prediction.delete_models.none_selected', locale=locale),
+                parse_mode="Markdown"
+            )
+            return
+
+        # Delete selected models
+        deleted_count = 0
+        for index in session.delete_selected_indices:
+            if index < len(session.compatible_models):
+                model = session.compatible_models[index]
+                model_id = model.get('model_id')
+                try:
+                    self.ml_engine.delete_model(user_id, model_id)
+                    deleted_count += 1
+                    logger.info(f"Deleted model {model_id} for user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to delete model {model_id}: {e}")
+
+        # Clear selection state
+        session.delete_selected_indices = set()
+        await self.state_manager.update_session(session)
+
+        # Show success message
+        await query.edit_message_text(
+            I18nManager.t('prediction.delete_models.success', locale=locale, count=deleted_count),
+            parse_mode="Markdown"
+        )
+
+        # Refresh model selection (reload compatible models)
+        await self._show_model_selection(update, context, session)
+
+    async def handle_delete_models_cancel(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle canceling model deletion - return to model selection."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_delete_models_cancel: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Clear selection state
+        if hasattr(session, 'delete_selected_indices'):
+            session.delete_selected_indices = set()
+            await self.state_manager.update_session(session)
+
+        # Return to model selection
+        await self._show_model_selection(update, context, session)
 
     # =========================================================================
     # Steps 8-9: Prediction Column Confirmation
@@ -878,15 +1092,18 @@ class PredictionHandler:
         session
     ) -> None:
         """Show prediction column name confirmation."""
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         target_column = session.selections.get('model_target_column', 'target')
         # PHASE 1: Skip existing columns check if data not loaded (deferred loading)
         existing_columns = session.uploaded_data.columns.tolist() if session.uploaded_data is not None else []
 
-        keyboard = create_column_confirmation_buttons()
+        keyboard = create_column_confirmation_buttons(locale=locale)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.effective_message.reply_text(
-            PredictionMessages.prediction_column_prompt(target_column, existing_columns),
+            PredictionMessages.prediction_column_prompt(target_column, existing_columns, locale=locale),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -907,7 +1124,10 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_column_confirmation: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         # Use default column name (target_predicted)
         target_column = session.selections.get('model_target_column', 'target')
@@ -918,7 +1138,7 @@ class PredictionHandler:
             existing_columns = session.uploaded_data.columns.tolist()
             if prediction_column in existing_columns:
                 await query.edit_message_text(
-                    PredictionMessages.column_name_conflict_error(prediction_column, existing_columns),
+                    PredictionMessages.column_name_conflict_error(prediction_column, existing_columns, locale=locale),
                     parse_mode="Markdown"
                 )
                 return
@@ -935,7 +1155,7 @@ class PredictionHandler:
         )
 
         await query.edit_message_text(
-            PredictionMessages.column_name_confirmed_message(prediction_column),
+            PredictionMessages.column_name_confirmed_message(prediction_column, locale=locale),
             parse_mode="Markdown"
         )
 
@@ -956,7 +1176,10 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_custom_column_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if session is None or session.current_state != MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value:
             return
@@ -966,7 +1189,7 @@ class PredictionHandler:
             existing_columns = session.uploaded_data.columns.tolist()
             if column_name in existing_columns:
                 await update.message.reply_text(
-                    PredictionMessages.column_name_conflict_error(column_name, existing_columns),
+                    PredictionMessages.column_name_conflict_error(column_name, existing_columns, locale=locale),
                     parse_mode="Markdown"
                 )
                 return
@@ -983,7 +1206,7 @@ class PredictionHandler:
         )
 
         await update.message.reply_text(
-            PredictionMessages.column_name_confirmed_message(column_name),
+            PredictionMessages.column_name_confirmed_message(column_name, locale=locale),
             parse_mode="Markdown"
         )
 
@@ -1003,18 +1226,21 @@ class PredictionHandler:
         session
     ) -> None:
         """Show ready to run prompt."""
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         model_type = session.selections.get('model_type', 'Unknown')
         target_column = session.selections.get('model_target_column', 'Unknown')
         prediction_column = session.selections.get('prediction_column_name', 'Unknown')
         n_rows = session.uploaded_data.shape[0] if session.uploaded_data is not None else "Deferred"
         n_features = len(session.selections.get('selected_features', []))
 
-        keyboard = create_ready_to_run_buttons()
+        keyboard = create_ready_to_run_buttons(locale=locale)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.effective_message.reply_text(
             PredictionMessages.ready_to_run_prompt(
-                model_type, target_column, prediction_column, n_rows, n_features
+                model_type, target_column, prediction_column, n_rows, n_features, locale=locale
             ),
             reply_markup=reply_markup,
             parse_mode="Markdown"
@@ -1036,7 +1262,10 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_run_prediction: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         # Transition to running state
         session.save_state_snapshot()
@@ -1046,7 +1275,7 @@ class PredictionHandler:
         )
 
         await query.edit_message_text(
-            PredictionMessages.running_prediction_message()
+            PredictionMessages.running_prediction_message(locale=locale)
         )
 
         # Execute prediction
@@ -1068,7 +1297,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_go_back: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Go back to model selection
         session.save_state_snapshot()
@@ -1077,13 +1306,119 @@ class PredictionHandler:
             MLPredictionState.SELECTING_MODEL.value
         )
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         await query.edit_message_text(
-            "⬅️ **Going Back**\n\nLet's select a different model.",
+            I18nManager.t('prediction.navigation.going_back', locale=locale),
             parse_mode="Markdown"
         )
 
         # Show model selection again
         await self._show_model_selection(update, context, session)
+
+    async def handle_prediction_back(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle unified back button for prediction workflow.
+
+        Navigates to previous step based on current state:
+        - CHOOSING_DATA_SOURCE: Show "at beginning" message
+        - CHOOSING_LOAD_OPTION: Go back to data source selection
+        - CONFIRMING_SCHEMA: Go back to load option selection
+        - AWAITING_FEATURE_SELECTION: Go back to schema confirmation
+        - SELECTING_MODEL: Go back to feature selection
+        - CONFIRMING_PREDICTION_COLUMN: Go back to model selection
+        - READY_TO_RUN: Go back to model selection
+        """
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_prediction_back: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+        locale = session.language if session.language else None
+        current_state = session.current_state
+
+        logger.info(f"handle_prediction_back: current_state={current_state}")
+
+        # Define back transitions
+        back_transitions = {
+            MLPredictionState.CHOOSING_LOAD_OPTION.value: MLPredictionState.CHOOSING_DATA_SOURCE.value,
+            MLPredictionState.CONFIRMING_SCHEMA.value: MLPredictionState.CHOOSING_LOAD_OPTION.value,
+            MLPredictionState.AWAITING_FEATURE_SELECTION.value: MLPredictionState.CONFIRMING_SCHEMA.value,
+            MLPredictionState.SELECTING_MODEL.value: MLPredictionState.AWAITING_FEATURE_SELECTION.value,
+            MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value: MLPredictionState.SELECTING_MODEL.value,
+            MLPredictionState.READY_TO_RUN.value: MLPredictionState.SELECTING_MODEL.value,
+        }
+
+        # Handle first step: show "at beginning" message
+        if current_state == MLPredictionState.CHOOSING_DATA_SOURCE.value:
+            await query.answer(
+                I18nManager.t('workflows.prediction.navigation.at_beginning', locale=locale),
+                show_alert=True
+            )
+            return
+
+        # Get target state
+        target_state = back_transitions.get(current_state)
+        if not target_state:
+            logger.warning(f"No back transition defined for state: {current_state}")
+            await query.answer(
+                I18nManager.t('workflows.prediction.navigation.cannot_go_back', locale=locale),
+                show_alert=True
+            )
+            return
+
+        # Transition to target state
+        session.save_state_snapshot()
+        await self.state_manager.transition_state(session, target_state)
+
+        # Show appropriate UI for target state
+        if target_state == MLPredictionState.CHOOSING_DATA_SOURCE.value:
+            # Clear previous data
+            session.uploaded_data = None
+            session.file_path = None
+            keyboard = create_data_source_buttons(locale=locale)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                PredictionMessages.data_source_selection_prompt(locale=locale),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif target_state == MLPredictionState.CHOOSING_LOAD_OPTION.value:
+            # Show load option selection
+            file_path = session.file_path or "file"
+            size_mb = 0
+            if session.file_path:
+                try:
+                    size_mb = Path(session.file_path).stat().st_size / (1024 * 1024)
+                except Exception:
+                    pass
+            keyboard = create_load_option_buttons(locale=locale)
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                LocalPathMessages.load_option_prompt(str(file_path), size_mb, locale=locale),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+        elif target_state == MLPredictionState.CONFIRMING_SCHEMA.value:
+            await self._show_schema_confirmation(update, context, session)
+
+        elif target_state == MLPredictionState.AWAITING_FEATURE_SELECTION.value:
+            await self._show_feature_selection(update, context, session)
+
+        elif target_state == MLPredictionState.SELECTING_MODEL.value:
+            await self._show_model_selection(update, context, session)
 
     # =========================================================================
     # Error Recovery Handlers
@@ -1105,12 +1440,15 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_retry_path: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         # Re-show the path input prompt (stay in AWAITING_FILE_PATH state)
         allowed_dirs = self.data_loader.allowed_directories
         await query.edit_message_text(
-            PredictionMessages.file_path_input_prompt(allowed_dirs),
+            PredictionMessages.file_path_input_prompt(allowed_dirs, locale=locale),
             parse_mode="Markdown"
         )
 
@@ -1130,7 +1468,10 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_back_to_source: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         # Transition back to data source selection
         session.save_state_snapshot()
@@ -1144,11 +1485,11 @@ class PredictionHandler:
         session.file_path = None
 
         # Show data source selection again
-        keyboard = create_data_source_buttons()
+        keyboard = create_data_source_buttons(locale=locale)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(
-            PredictionMessages.data_source_selection_prompt(),
+            PredictionMessages.data_source_selection_prompt(locale=locale),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1169,17 +1510,16 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_cancel_workflow: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         # Reset session
         await self.state_manager.reset_session(session)
 
         await query.edit_message_text(
-            "❌ **Workflow Canceled**\n\n"
-            "Your prediction workflow has been canceled.\n\n"
-            "**Start Over:**\n"
-            "• /predict - Start new prediction\n"
-            "• /train - Train a new model",
+            I18nManager.t('prediction.navigation.workflow_cancelled', locale=locale),
             parse_mode="Markdown"
         )
 
@@ -1196,6 +1536,9 @@ class PredictionHandler:
         """Execute prediction and return results."""
         start_time = time.time()
 
+        # Extract locale from session at the beginning (used throughout function)
+        locale = session.language if session.language else None
+
         # PHASE 2: Enhanced error logging at start of execution
         logger.info(f"🚀 Starting prediction execution for user {session.user_id}")
         logger.debug(f"Session state: {session.current_state}")
@@ -1207,15 +1550,17 @@ class PredictionHandler:
             # Check if data loading was deferred
             if getattr(session, 'load_deferred', False):
                 loading_msg = await update.effective_message.reply_text(
-                    PredictionMessages.loading_deferred_data_message(session.file_path),
+                    PredictionMessages.loading_deferred_data_message(session.file_path, locale=locale),
                     parse_mode="Markdown"
                 )
 
                 try:
                     # Load deferred data from file path
+                    # Pass session to merge static + dynamic whitelists (password-authenticated paths)
                     df = await self.data_loader.load_from_local_path(
                         file_path=session.file_path,
-                        detect_schema_flag=False
+                        detect_schema_flag=False,
+                        session=session
                     )
                     session.uploaded_data = df[0] if isinstance(df, tuple) else df
 
@@ -1224,7 +1569,7 @@ class PredictionHandler:
                 except Exception as e:
                     logger.error(f"Error loading deferred data: {e}")
                     await loading_msg.edit_text(
-                        PredictionMessages.file_loading_error(session.file_path, str(e)),
+                        PredictionMessages.file_loading_error(session.file_path, str(e), locale=locale),
                         parse_mode="Markdown"
                     )
                     return
@@ -1236,15 +1581,10 @@ class PredictionHandler:
 
             # PHASE 3: Explicit data validation before prediction execution
             if session.uploaded_data is None:
-                error_msg = (
-                    "❌ **Data Not Found**\n\n"
-                    "Prediction data is missing from session. This can happen if:\n"
-                    "• Session expired\n"
-                    "• Data loading failed silently\n"
-                    "• Memory limit exceeded\n\n"
-                    "**Solution:** Please reload the template or restart with /predict"
+                await update.effective_message.reply_text(
+                    I18nManager.t('prediction.data_not_found', locale=locale),
+                    parse_mode="Markdown"
                 )
-                await update.effective_message.reply_text(error_msg, parse_mode="Markdown")
                 logger.error(
                     f"Missing uploaded_data for user {session.user_id} during prediction execution. "
                     f"Model: {model_id}, Features: {selected_features}"
@@ -1257,13 +1597,12 @@ class PredictionHandler:
 
             # PHASE 2: Deferred conflict check (for workflows where data loaded late)
             if prediction_column in df.columns:
-                error_msg = (
-                    f"❌ **Column Name Conflict**\n\n"
-                    f"Column `{prediction_column}` already exists in your dataset.\n\n"
-                    f"**Existing columns:** {', '.join(df.columns.tolist()[:10])}{'...' if len(df.columns) > 10 else ''}\n\n"
-                    f"**Solution:** Please restart /predict and choose a different column name."
+                columns_preview = ', '.join(df.columns.tolist()[:10]) + ('...' if len(df.columns) > 10 else '')
+                await update.effective_message.reply_text(
+                    I18nManager.t('prediction.column_conflict_deferred', locale=locale,
+                                 column=prediction_column, columns_preview=columns_preview),
+                    parse_mode="Markdown"
                 )
-                await update.effective_message.reply_text(error_msg, parse_mode="Markdown")
                 logger.warning(
                     f"Prediction column conflict for user {session.user_id}: "
                     f"'{prediction_column}' already in dataset columns"
@@ -1318,7 +1657,8 @@ class PredictionHandler:
                     prediction_column,
                     execution_time,
                     preview_data,
-                    session.selections['prediction_stats']
+                    session.selections['prediction_stats'],
+                    locale=locale
                 ),
                 parse_mode="Markdown"
             )
@@ -1328,8 +1668,15 @@ class PredictionHandler:
 
         except Exception as e:
             logger.error(f"Prediction execution error: {e}", exc_info=True)
+            # Add back button so user can retry with different model
+            from src.bot.messages.local_path_messages import create_back_button
+            keyboard = [[create_back_button(locale=locale)]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Truncate long error messages to prevent Telegram API markdown errors
+            error_msg = str(e)[:500] + "..." if len(str(e)) > 500 else str(e)
             await update.effective_message.reply_text(
-                PredictionMessages.prediction_error_message(str(e)),
+                PredictionMessages.prediction_error_message(error_msg, locale=locale),
+                reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
@@ -1344,16 +1691,23 @@ class PredictionHandler:
         session
     ) -> None:
         """Show template save prompt after prediction completion."""
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         keyboard = [
-            [InlineKeyboardButton("💾 Save as Template", callback_data="save_pred_template")],
-            [InlineKeyboardButton("⏭️ Skip to Output", callback_data="skip_to_output")]
+            [InlineKeyboardButton(
+                I18nManager.t('prediction.template_save.button_save', locale=locale),
+                callback_data="save_pred_template"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('prediction.template_save.button_skip', locale=locale),
+                callback_data="skip_to_output"
+            )]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.effective_message.reply_text(
-            "**What would you like to do next?**\n\n"
-            "You can save this prediction configuration as a template for quick reuse, "
-            "or skip directly to output options.",
+            I18nManager.t('prediction.template_save.prompt', locale=locale),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1367,11 +1721,14 @@ class PredictionHandler:
         """Show output method selection after predictions complete."""
         from src.bot.messages.prediction_messages import create_output_option_buttons
 
-        keyboard = create_output_option_buttons()
+        # Extract locale from session
+        locale = session.language if session.language else None
+
+        keyboard = create_output_option_buttons(locale=locale)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.effective_message.reply_text(
-            PredictionMessages.output_options_prompt(),
+            PredictionMessages.output_options_prompt(locale=locale),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1393,7 +1750,10 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_output_option_selection: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if choice == "local":
             # Transition to AWAITING_SAVE_PATH with validation
@@ -1406,10 +1766,7 @@ class PredictionHandler:
             if not success:
                 missing_str = ', '.join(missing) if missing else 'unknown'
                 await query.edit_message_text(
-                    f"❌ **State Transition Failed**\n\n"
-                    f"Error: {error_msg}\n"
-                    f"Missing prerequisites: {missing_str}\n\n"
-                    f"Please try /predict to restart.",
+                    I18nManager.t('prediction.errors.transition_failed', locale=locale, error=error_msg, missing=missing_str),
                     parse_mode="Markdown"
                 )
                 logger.error(
@@ -1419,7 +1776,7 @@ class PredictionHandler:
 
             allowed_dirs = self.data_loader.allowed_directories
             await query.edit_message_text(
-                PredictionMessages.save_path_input_prompt(allowed_dirs),
+                PredictionMessages.save_path_input_prompt(allowed_dirs, locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -1429,26 +1786,28 @@ class PredictionHandler:
             output_path = Path(tempfile.gettempdir()) / f"predictions_{session.user_id}_{int(time.time())}.csv"
             df.to_csv(output_path, index=False)
 
-            await query.edit_message_text("📥 **Preparing download...**")
+            await query.edit_message_text(
+                I18nManager.t('prediction.output.preparing_download', locale=locale)
+            )
 
             with open(output_path, 'rb') as f:
                 await update.effective_message.reply_document(
                     document=f,
                     filename=f"predictions_{session.user_id}.csv",
-                    caption="📥 **Download Complete Results**"
+                    caption=I18nManager.t('prediction.output.download_complete', locale=locale)
                 )
 
             output_path.unlink()
 
             await update.effective_message.reply_text(
-                PredictionMessages.workflow_complete_message(),
+                PredictionMessages.workflow_complete_message(locale=locale),
                 parse_mode="Markdown"
             )
 
         elif choice == "done":
             # Skip both options
             await query.edit_message_text(
-                PredictionMessages.workflow_complete_message(),
+                PredictionMessages.workflow_complete_message(locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -1466,7 +1825,10 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_save_directory_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if session is None or session.current_state != MLPredictionState.AWAITING_SAVE_PATH.value:
             # DEBUG: Log state mismatch for troubleshooting
@@ -1477,7 +1839,9 @@ class PredictionHandler:
                 )
             return
 
-        validating_msg = await update.message.reply_text("🔍 **Validating path...**")
+        validating_msg = await update.message.reply_text(
+            I18nManager.t('prediction.save.validating_path', locale=locale)
+        )
 
         try:
             # Smart path parsing - detect if user provided full path or directory-only
@@ -1512,15 +1876,23 @@ class PredictionHandler:
             await safe_delete_message(validating_msg)
 
             if not result['is_valid']:
+                # Check if error is whitelist failure - prompt for password
+                if "not in allowed" in result['error'].lower():
+                    await self._prompt_for_save_password(
+                        update, context, session, directory_path, filename
+                    )
+                    raise ApplicationHandlerStop
+
+                # Other validation error - show error message
                 from src.bot.messages.prediction_messages import create_path_error_recovery_buttons
-                keyboard = create_path_error_recovery_buttons()
+                keyboard = create_path_error_recovery_buttons(locale=locale)
                 reply_markup = InlineKeyboardMarkup(keyboard)
 
                 # Enhanced error logging
                 logger.error(f"Path validation failed for user {user_id}: {result['error']}")
 
                 await update.message.reply_text(
-                    PredictionMessages.file_save_error_message("Path Validation", result['error']),
+                    PredictionMessages.file_save_error_message("Path Validation", result['error'], locale=locale),
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
@@ -1548,7 +1920,7 @@ class PredictionHandler:
             logger.error(f"Error processing save path for user {user_id}: {e}", exc_info=True)
             await safe_delete_message(validating_msg)
             await update.message.reply_text(
-                PredictionMessages.file_save_error_message("Processing Error", str(e)),
+                PredictionMessages.file_save_error_message("Processing Error", str(e), locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -1561,14 +1933,17 @@ class PredictionHandler:
         """Show filename confirmation prompt."""
         from src.bot.messages.prediction_messages import create_filename_confirmation_buttons
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         default_name = session.selections.get('save_filename')
         directory = session.selections.get('save_directory')
 
-        keyboard = create_filename_confirmation_buttons()
+        keyboard = create_filename_confirmation_buttons(locale=locale)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.effective_message.reply_text(
-            PredictionMessages.filename_confirmation_prompt(default_name, directory),
+            PredictionMessages.filename_confirmation_prompt(default_name, directory, locale=locale),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1590,19 +1965,22 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_filename_confirmation: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if choice == "default":
             # Use default filename - execute save
-            await query.edit_message_text("💾 **Saving file...**")
+            await query.edit_message_text(
+                I18nManager.t('prediction.save.saving', locale=locale)
+            )
             await self._execute_file_save(update, context, session)
 
         elif choice == "custom":
             # Prompt for custom filename
             await query.edit_message_text(
-                "✏️ **Custom Filename**\n\n"
-                "Enter your desired filename (include .csv extension):\n\n"
-                "**Example:** `my_predictions.csv`",
+                I18nManager.t('prediction.save.custom_filename_prompt', locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -1620,7 +1998,10 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_filename_custom_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         if session is None or session.current_state != MLPredictionState.CONFIRMING_SAVE_FILENAME.value:
             return
@@ -1634,7 +2015,7 @@ class PredictionHandler:
 
         if not result['is_valid']:
             await update.message.reply_text(
-                PredictionMessages.file_save_error_message("Invalid Filename", result['error']),
+                PredictionMessages.file_save_error_message("Invalid Filename", result['error'], locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -1644,7 +2025,9 @@ class PredictionHandler:
         session.selections['save_full_path'] = str(result['resolved_path'])
 
         # Execute save
-        saving_msg = await update.message.reply_text("💾 **Saving file...**")
+        saving_msg = await update.message.reply_text(
+            I18nManager.t('prediction.save.saving', locale=locale)
+        )
         await self._execute_file_save(update, context, session)
         await safe_delete_message(saving_msg)
 
@@ -1657,6 +2040,9 @@ class PredictionHandler:
         session
     ) -> None:
         """Execute file save operation."""
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         try:
             # Get saved path and data
             full_path = session.selections.get('save_full_path')
@@ -1675,21 +2061,27 @@ class PredictionHandler:
             await update.effective_message.reply_text(
                 PredictionMessages.file_save_success_message(
                     full_path,
-                    len(df)
+                    len(df),
+                    locale=locale
                 ),
                 parse_mode="Markdown"
             )
 
             # Show template save option
             keyboard = [
-                [InlineKeyboardButton("💾 Save as Template", callback_data="save_pred_template")],
-                [InlineKeyboardButton("✅ Done", callback_data="pred_output_done")]
+                [InlineKeyboardButton(
+                    I18nManager.t('prediction.template_save.button_save', locale=locale),
+                    callback_data="save_pred_template"
+                )],
+                [InlineKeyboardButton(
+                    I18nManager.t('workflows.prediction.buttons.done', locale=locale),
+                    callback_data="pred_output_done"
+                )]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await update.effective_message.reply_text(
-                "**What would you like to do next?**\n\n"
-                "You can save this prediction configuration as a template for quick reuse.",
+                I18nManager.t('prediction.template_save.prompt', locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
@@ -1697,7 +2089,7 @@ class PredictionHandler:
         except Exception as e:
             logger.error(f"File save error: {e}", exc_info=True)
             await update.effective_message.reply_text(
-                PredictionMessages.file_save_error_message("Save Failed", str(e)),
+                PredictionMessages.file_save_error_message("Save Failed", str(e), locale=locale),
                 parse_mode="Markdown"
             )
 
@@ -1735,11 +2127,14 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_skip_to_output: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         # Edit message to show skip confirmation
         await query.edit_message_text(
-            "⏭️ **Skipped Template Save**\n\nProceeding to output options...",
+            I18nManager.t('prediction.template_save.skipped', locale=locale),
             parse_mode="Markdown"
         )
 
@@ -1779,9 +2174,13 @@ class PredictionHandler:
             MLPredictionState.AWAITING_PASSWORD.value
         )
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         if not success:
+            missing_str = ', '.join(missing) if missing else 'unknown'
             await update.message.reply_text(
-                f"❌ **State Transition Failed**\n\n{error_msg}",
+                I18nManager.t('prediction.errors.transition_failed', locale=locale, error=error_msg, missing=missing_str),
                 parse_mode="Markdown"
             )
             return
@@ -1791,12 +2190,15 @@ class PredictionHandler:
 
         # Show password prompt
         keyboard = [
-            [InlineKeyboardButton("❌ Cancel", callback_data="pred_password_cancel")]
+            [InlineKeyboardButton(
+                I18nManager.t('common.buttons.cancel', locale=locale),
+                callback_data="pred_password_cancel"
+            )]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            LocalPathMessages.password_prompt(original_path, parent_dir),
+            LocalPathMessages.password_prompt(original_path, parent_dir, locale=locale),
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1815,17 +2217,20 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_password_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Validate we're in password state
         if session.current_state != MLPredictionState.AWAITING_PASSWORD.value:
             return
 
+        # Extract locale from session
+        locale = session.language if session.language else None
+
         # Get pending path
         pending_path = session.pending_auth_path
         if not pending_path:
             await update.message.reply_text(
-                "❌ **Session Error**\n\nNo pending path found. Please try /predict again.",
+                I18nManager.t('prediction.errors.session_error_no_pending_path', locale=locale),
                 parse_mode="Markdown"
             )
             return
@@ -1841,7 +2246,7 @@ class PredictionHandler:
             # FIX: Double-check pending_path is still valid (defense in depth)
             if not pending_path:
                 await update.message.reply_text(
-                    "❌ **Session Expired**\n\nPlease restart with /predict.",
+                    I18nManager.t('prediction.errors.session_expired', locale=locale),
                     parse_mode="Markdown"
                 )
                 return
@@ -1870,17 +2275,17 @@ class PredictionHandler:
             )
 
             await update.message.reply_text(
-                LocalPathMessages.password_success(parent_dir),
+                LocalPathMessages.password_success(parent_dir, locale=locale),
                 parse_mode="Markdown"
             )
 
             # Show load options
             from src.bot.messages.prediction_messages import create_load_option_buttons
-            keyboard = create_load_option_buttons()
+            keyboard = create_load_option_buttons(locale=locale)
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await update.message.reply_text(
-                LocalPathMessages.load_option_prompt(pending_path, size_mb),
+                LocalPathMessages.load_option_prompt(pending_path, size_mb, locale=locale),
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
@@ -1904,13 +2309,13 @@ class PredictionHandler:
                 )
 
                 await update.message.reply_text(
-                    LocalPathMessages.password_lockout(60),
+                    LocalPathMessages.password_lockout(60, locale=locale),
                     parse_mode="Markdown"
                 )
             else:
                 # Show error and allow retry
                 await update.message.reply_text(
-                    LocalPathMessages.password_failure(error_msg),
+                    LocalPathMessages.password_failure(error_msg, locale=locale),
                     parse_mode="Markdown"
                 )
 
@@ -1932,7 +2337,10 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_password_cancel: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Extract locale from session
+        locale = session.language if session.language else None
 
         # Clear pending auth
         session.pending_auth_path = None
@@ -1951,7 +2359,230 @@ class PredictionHandler:
 
         allowed_dirs = self.data_loader.allowed_directories
         await query.edit_message_text(
-            PredictionMessages.file_path_input_prompt(allowed_dirs),
+            PredictionMessages.file_path_input_prompt(allowed_dirs, locale=locale),
+            parse_mode="Markdown"
+        )
+
+    # =========================================================================
+    # Save Path Password Bypass
+    # =========================================================================
+
+    async def _prompt_for_save_password(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        session,
+        directory_path: str,
+        filename: str
+    ) -> None:
+        """Prompt user for password to save to non-whitelisted directory.
+
+        Args:
+            update: Telegram update
+            context: Telegram context
+            session: User session
+            directory_path: Directory path for saving
+            filename: Filename to save as
+        """
+        from pathlib import Path
+
+        # Store pending save info
+        session.pending_save_directory = directory_path
+        session.pending_save_filename = filename
+
+        # Transition to save password state
+        session.save_state_snapshot()
+        success, error_msg, missing = await self.state_manager.transition_state(
+            session,
+            MLPredictionState.AWAITING_SAVE_PASSWORD.value
+        )
+
+        locale = session.language if session.language else None
+
+        if not success:
+            missing_str = ', '.join(missing) if missing else 'unknown'
+            await update.message.reply_text(
+                I18nManager.t('prediction.errors.transition_failed', locale=locale, error=error_msg, missing=missing_str),
+                parse_mode="Markdown"
+            )
+            return
+
+        # Show password prompt
+        keyboard = [
+            [InlineKeyboardButton(
+                I18nManager.t('common.buttons.cancel', locale=locale),
+                callback_data="pred_save_password_cancel"
+            )]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            LocalPathMessages.password_prompt(f"{directory_path}/{filename}", directory_path, locale=locale),
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_save_password_input(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle password input for save path access."""
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            password_input = update.message.text.strip()
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_save_password_input: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Validate we're in save password state
+        if session.current_state != MLPredictionState.AWAITING_SAVE_PASSWORD.value:
+            return
+
+        locale = session.language if session.language else None
+
+        # Get pending save info
+        directory_path = getattr(session, 'pending_save_directory', None)
+        filename = getattr(session, 'pending_save_filename', None)
+
+        if not directory_path or not filename:
+            await update.message.reply_text(
+                I18nManager.t('prediction.errors.session_error_no_pending_path', locale=locale),
+                parse_mode="Markdown"
+            )
+            return
+
+        # Validate password
+        is_valid, error_msg = self.password_validator.validate_password(
+            user_id=user_id,
+            password_input=password_input,
+            path=directory_path
+        )
+
+        if is_valid:
+            # Password correct - add directory to dynamic whitelist
+            self.state_manager.add_dynamic_directory(session, directory_path)
+
+            # Reset password attempts (but DON'T clear pending data yet - we need it)
+            if hasattr(session, 'password_attempts'):
+                session.password_attempts = 0
+
+            await update.message.reply_text(
+                LocalPathMessages.password_success(directory_path, locale=locale),
+                parse_mode="Markdown"
+            )
+
+            # After password success, build path directly (skip whitelist re-check)
+            # This matches the load handler pattern - password already verified access
+            from pathlib import Path
+
+            # Auto-fix missing leading slash (same as validate_output_path)
+            if not directory_path.startswith('/') and not directory_path.startswith('./'):
+                absolute_patterns = ['Users/', 'home/', 'var/', 'tmp/', 'opt/']
+                for pattern in absolute_patterns:
+                    if directory_path.startswith(pattern):
+                        directory_path = '/' + directory_path
+                        break
+
+            # Sanitize filename
+            sanitized_filename = self.path_validator.sanitize_filename(filename)
+            if not sanitized_filename.lower().endswith('.csv'):
+                sanitized_filename += '.csv'
+
+            # Build full path
+            dir_path = Path(directory_path).resolve()
+            full_path = dir_path / sanitized_filename
+
+            # Store path and proceed
+            session.selections['save_directory'] = directory_path
+            session.selections['save_filename'] = sanitized_filename
+            session.selections['save_full_path'] = str(full_path)
+
+            # Transition to filename confirmation
+            await self.state_manager.transition_state(
+                session,
+                MLPredictionState.CONFIRMING_SAVE_FILENAME.value
+            )
+
+            # Clear pending auth
+            session.pending_save_directory = None
+            session.pending_save_filename = None
+
+            # Show filename confirmation
+            await self._show_filename_confirmation(update, context, session)
+
+            raise ApplicationHandlerStop
+
+        else:
+            # Password incorrect
+            if not hasattr(session, 'password_attempts'):
+                session.password_attempts = 0
+            session.password_attempts += 1
+
+            if "locked" in error_msg.lower() or "maximum attempts" in error_msg.lower():
+                # Rate limit - reset to save path input
+                session.pending_save_directory = None
+                session.pending_save_filename = None
+                session.password_attempts = 0
+
+                await self.state_manager.transition_state(
+                    session,
+                    MLPredictionState.AWAITING_SAVE_PATH.value
+                )
+
+                await update.message.reply_text(
+                    LocalPathMessages.password_lockout(60, locale=locale),
+                    parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text(
+                    LocalPathMessages.password_failure(error_msg, locale=locale),
+                    parse_mode="Markdown"
+                )
+
+            raise ApplicationHandlerStop
+
+    async def handle_save_password_cancel(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle save password cancel callback."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_save_password_cancel: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+        locale = session.language if session.language else None
+
+        # Clear pending save
+        session.pending_save_directory = None
+        session.pending_save_filename = None
+        if hasattr(session, 'password_attempts'):
+            session.password_attempts = 0
+
+        # Reset password validator attempts
+        self.password_validator.reset_attempts(user_id)
+
+        # Go back to save path input
+        session.save_state_snapshot()
+        await self.state_manager.transition_state(
+            session,
+            MLPredictionState.AWAITING_SAVE_PATH.value
+        )
+
+        allowed_dirs = self.data_loader.allowed_directories
+        await query.edit_message_text(
+            PredictionMessages.save_path_input_prompt(allowed_dirs, locale=locale),
             parse_mode="Markdown"
         )
 
@@ -1973,7 +2604,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_text_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         if session is None:
             return
@@ -1990,6 +2621,8 @@ class PredictionHandler:
             await self.handle_file_path_input(update, context)
         elif current_state == MLPredictionState.AWAITING_PASSWORD.value:
             await self.handle_password_input(update, context)
+        elif current_state == MLPredictionState.AWAITING_SAVE_PASSWORD.value:
+            await self.handle_save_password_input(update, context)
         elif current_state == MLPredictionState.AWAITING_FEATURE_SELECTION.value:
             await self.handle_feature_selection_input(update, context)
         elif current_state == MLPredictionState.CONFIRMING_PREDICTION_COLUMN.value:
@@ -2050,6 +2683,35 @@ def register_prediction_handlers(
         )
     )
 
+    # Delete models workflow handlers
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_delete_models_start,
+            pattern=r"^pred_delete_start$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_delete_model_toggle,
+            pattern=r"^pred_delete_toggle_"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_delete_models_confirm,
+            pattern=r"^pred_delete_confirm$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_delete_models_cancel,
+            pattern=r"^pred_delete_cancel$"
+        )
+    )
+
     application.add_handler(
         CallbackQueryHandler(
             handler.handle_column_confirmation,
@@ -2071,11 +2733,27 @@ def register_prediction_handlers(
         )
     )
 
+    # Unified back button handler for all prediction workflow steps
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_prediction_back,
+            pattern=r"^pred_back$"
+        )
+    )
+
     # Password protection handlers
     application.add_handler(
         CallbackQueryHandler(
             handler.handle_password_cancel,
             pattern=r"^pred_password_cancel$"
+        )
+    )
+
+    # Save password cancel handler
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_save_password_cancel,
+            pattern=r"^pred_save_password_cancel$"
         )
     )
 

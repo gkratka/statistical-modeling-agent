@@ -1,7 +1,8 @@
 """Message templates for /models command - interactive model browser."""
 
-from typing import List
+from typing import List, Optional
 from src.engines.model_catalog import ModelInfo
+from src.utils.i18n_manager import I18nManager
 
 
 class ModelsMessages:
@@ -11,34 +12,55 @@ class ModelsMessages:
     def models_list_message(
         page: int,
         total_pages: int,
-        total_models: int
+        total_models: int,
+        locale: Optional[str] = None
     ) -> str:
         """
-        Format models list message.
+        Format models list message with i18n support.
 
         Args:
             page: Current page number (1-indexed)
             total_pages: Total number of pages
             total_models: Total number of models
+            locale: Language code (e.g., 'en', 'pt')
 
         Returns:
             Formatted message
         """
+        header = I18nManager.t("workflows.models.list_header", locale=locale)
+        browse_msg = I18nManager.t(
+            "workflows.models.browse_message",
+            locale=locale,
+            total_models=total_models
+        )
+        details_msg = I18nManager.t("workflows.models.list_details", locale=locale)
+        page_info = I18nManager.t(
+            "workflows.models.page_info",
+            locale=locale,
+            current=page,
+            total=total_pages
+        )
+        tip = I18nManager.t("workflows.models.list_tip", locale=locale)
+
         return (
-            f"📚 **ML Model Catalog**\n\n"
-            f"Browse {total_models} available models for training.\n"
-            f"Click a model to see details, parameters, and use cases.\n\n"
-            f"**Page {page}/{total_pages}**\n\n"
-            f"💡 **Tip:** Models are organized by type and task."
+            f"{header}\n\n"
+            f"{browse_msg}\n"
+            f"{details_msg}\n\n"
+            f"{page_info}\n\n"
+            f"{tip}"
         )
 
     @staticmethod
-    def model_details_message(model: ModelInfo) -> str:
+    def model_details_message(
+        model: ModelInfo,
+        locale: Optional[str] = None
+    ) -> str:
         """
-        Format model details message.
+        Format model details message with i18n support.
 
         Args:
             model: Model information
+            locale: Language code (e.g., 'en', 'pt')
 
         Returns:
             Formatted message with full model details
@@ -50,64 +72,84 @@ class ModelsMessages:
         msg += f"_{model.short_description}_\n\n"
 
         # Category and task type
-        msg += f"**Category:** {model.category.value.replace('_', ' ').title()}\n"
-        msg += f"**Task Type:** {model.task_type.value.replace('_', ' ').title()}\n\n"
+        category_label = I18nManager.t("workflows.models.category", locale=locale)
+        task_type_label = I18nManager.t("workflows.models.task_type", locale=locale)
+        msg += f"**{category_label}:** {model.category.value.replace('_', ' ').title()}\n"
+        msg += f"**{task_type_label}:** {model.task_type.value.replace('_', ' ').title()}\n\n"
 
         # Variants (if applicable)
         if model.variants:
-            msg += "**Variants:**\n"
+            variants_label = I18nManager.t("workflows.models.variants", locale=locale)
+            msg += f"**{variants_label}:**\n"
             for variant in model.variants:
                 variant_display = variant.replace('_', ' ').replace(model.id, '').strip()
                 msg += f"  • {variant_display.title()}\n"
             msg += "\n"
 
         # Long description
-        msg += f"**Description:**\n{model.long_description}\n\n"
+        description_label = I18nManager.t("workflows.models.description", locale=locale)
+        msg += f"**{description_label}:**\n{model.long_description}\n\n"
 
         # Performance characteristics
-        msg += "**Performance:**\n"
-        msg += f"  • Training Speed: {model.training_speed}\n"
-        msg += f"  • Prediction Speed: {model.prediction_speed}\n"
-        msg += f"  • Interpretability: {model.interpretability}\n"
+        performance_label = I18nManager.t("workflows.models.performance", locale=locale)
+        training_speed_label = I18nManager.t("workflows.models.training_speed", locale=locale)
+        prediction_speed_label = I18nManager.t("workflows.models.prediction_speed", locale=locale)
+        interpretability_label = I18nManager.t("workflows.models.interpretability", locale=locale)
+        requires_tuning_label = I18nManager.t("workflows.models.requires_tuning", locale=locale)
+
+        msg += f"**{performance_label}:**\n"
+        msg += f"  • {training_speed_label}: {model.training_speed}\n"
+        msg += f"  • {prediction_speed_label}: {model.prediction_speed}\n"
+        msg += f"  • {interpretability_label}: {model.interpretability}\n"
         if model.requires_tuning:
-            msg += f"  • Requires Tuning: ✅ Yes\n"
+            msg += f"  • {requires_tuning_label}: ✅ {I18nManager.t('workflows.models.yes', locale=locale)}\n"
         else:
-            msg += f"  • Requires Tuning: ❌ No\n"
+            msg += f"  • {requires_tuning_label}: ❌ {I18nManager.t('workflows.models.no', locale=locale)}\n"
         msg += "\n"
 
         # Key parameters
         if model.parameters:
-            msg += "**Key Parameters:**\n"
+            key_params_label = I18nManager.t("workflows.models.key_parameters", locale=locale)
+            more_params_label = I18nManager.t(
+                "workflows.models.more_parameters",
+                locale=locale,
+                count=len(model.parameters) - 3
+            )
+            msg += f"**{key_params_label}:**\n"
             for param in model.parameters[:3]:  # Show top 3
                 msg += f"  • **{param.display_name}** (`{param.name}`)\n"
                 msg += f"    {param.description}\n"
-                msg += f"    Default: `{param.default}`, Range: `{param.range}`\n"
+                msg += f"    {I18nManager.t('workflows.models.default', locale=locale)}: `{param.default}`, {I18nManager.t('workflows.models.range', locale=locale)}: `{param.range}`\n"
             if len(model.parameters) > 3:
-                msg += f"  ... and {len(model.parameters) - 3} more parameters\n"
+                msg += f"  {more_params_label}\n"
             msg += "\n"
 
         # Use cases
         if model.use_cases:
-            msg += "**Best For:**\n"
+            best_for_label = I18nManager.t("workflows.models.best_for", locale=locale)
+            msg += f"**{best_for_label}:**\n"
             for use_case in model.use_cases[:4]:  # Show top 4
                 msg += f"  • {use_case}\n"
             msg += "\n"
 
         # Strengths
         if model.strengths:
-            msg += "**Strengths:**\n"
+            strengths_label = I18nManager.t("workflows.models.strengths", locale=locale)
+            msg += f"**{strengths_label}:**\n"
             for strength in model.strengths[:3]:  # Show top 3
                 msg += f"  ✅ {strength}\n"
             msg += "\n"
 
         # Limitations
         if model.limitations:
-            msg += "**Limitations:**\n"
+            limitations_label = I18nManager.t("workflows.models.limitations", locale=locale)
+            msg += f"**{limitations_label}:**\n"
             for limitation in model.limitations[:3]:  # Show top 3
                 msg += f"  ⚠️ {limitation}\n"
             msg += "\n"
 
         # Footer
-        msg += "💡 **Tip:** Use `/train` to start training with this model."
+        footer_tip = I18nManager.t("workflows.models.details_tip", locale=locale)
+        msg += footer_tip
 
         return msg

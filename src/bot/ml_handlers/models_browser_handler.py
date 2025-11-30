@@ -12,6 +12,7 @@ from src.engines.model_catalog import (
     MODEL_CATALOG, ModelInfo, get_all_models, get_model_by_id
 )
 from src.bot.messages.models_messages import ModelsMessages
+from src.utils.i18n_manager import I18nManager
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class ModelsBrowserHandler:
             logger.error(f"Malformed update object in handle_models_command: {e}")
             if update and update.effective_message:
                 await update.effective_message.reply_text(
-                    "❌ **Invalid Request**\n\nPlease try /models again.",
+                    I18nManager.t('models_browser.malformed_update', locale=None, command='/models'),
                     parse_mode="Markdown"
                 )
             return
@@ -52,7 +53,7 @@ class ModelsBrowserHandler:
         # Get or create session
         session = await self.state_manager.get_or_create_session(
             user_id=user_id,
-            conversation_id=f"chat_{chat_id}"
+            conversation_id=str(chat_id)
         )
 
         # Initialize workflow at VIEWING_MODEL_LIST state
@@ -61,13 +62,14 @@ class ModelsBrowserHandler:
         await self.state_manager.update_session(session)
 
         # Show first page of models
-        await self._show_model_list(update, context, page=0)
+        await self._show_model_list(update, context, page=0, locale=session.language)
 
     async def _show_model_list(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
-        page: int = 0
+        page: int = 0,
+        locale: Optional[str] = None
     ) -> None:
         """
         Show paginated list of models.
@@ -76,6 +78,7 @@ class ModelsBrowserHandler:
             update: Telegram update
             context: Bot context
             page: Page number (0-indexed)
+            locale: Language code for translations
         """
         # Get all models
         all_models = get_all_models()
@@ -104,10 +107,19 @@ class ModelsBrowserHandler:
         # Pagination + Cancel row
         nav_row = []
         if page > 0:
-            nav_row.append(InlineKeyboardButton("← Prev", callback_data=f"page:{page-1}"))
-        nav_row.append(InlineKeyboardButton("✖️ Cancel", callback_data="cancel_models"))
+            nav_row.append(InlineKeyboardButton(
+                I18nManager.t('models_browser.navigation.prev_button', locale=locale),
+                callback_data=f"page:{page-1}"
+            ))
+        nav_row.append(InlineKeyboardButton(
+            I18nManager.t('models_browser.navigation.cancel_button', locale=locale),
+            callback_data="cancel_models"
+        ))
         if page < total_pages - 1:
-            nav_row.append(InlineKeyboardButton("Next →", callback_data=f"page:{page+1}"))
+            nav_row.append(InlineKeyboardButton(
+                I18nManager.t('models_browser.navigation.next_button', locale=locale),
+                callback_data=f"page:{page+1}"
+            ))
         keyboard.append(nav_row)
 
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -116,7 +128,8 @@ class ModelsBrowserHandler:
         message_text = ModelsMessages.models_list_message(
             page=page + 1,
             total_pages=total_pages,
-            total_models=total_models
+            total_models=total_models,
+            locale=locale
         )
 
         # Send or edit message
@@ -157,7 +170,7 @@ class ModelsBrowserHandler:
         except (ValueError, IndexError) as e:
             logger.error(f"Invalid callback data in handle_model_selection: {e}")
             await query.edit_message_text(
-                "❌ **Error**\n\nInvalid model selection. Please try /models again.",
+                I18nManager.t('models_browser.invalid_selection', locale=None),
                 parse_mode="Markdown"
             )
             return
@@ -170,7 +183,7 @@ class ModelsBrowserHandler:
             logger.error(f"Malformed update object: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Save state snapshot for back navigation
         session.save_state_snapshot()
@@ -183,17 +196,22 @@ class ModelsBrowserHandler:
         # Get model info
         model = get_model_by_id(model_id)
         if not model:
+            locale = session.language if session.language else None
             await query.edit_message_text(
-                f"❌ **Model Not Found**\n\nModel `{model_id}` not found in catalog.",
+                I18nManager.t('models_browser.model_not_found', locale=locale, model_id=model_id),
                 parse_mode="Markdown"
             )
             return
 
-        # Build message
-        message_text = ModelsMessages.model_details_message(model)
+        # Build message with locale
+        locale = session.language if session.language else None
+        message_text = ModelsMessages.model_details_message(model, locale=locale)
 
         # Build keyboard with Back button
-        keyboard = [[InlineKeyboardButton("← Back to Models", callback_data=f"back_to_list:{page}")]]
+        keyboard = [[InlineKeyboardButton(
+            I18nManager.t('models_browser.navigation.back_button', locale=locale),
+            callback_data=f"back_to_list:{page}"
+        )]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         # Edit message with details
@@ -224,8 +242,18 @@ class ModelsBrowserHandler:
             logger.error(f"Invalid pagination callback: {e}")
             return
 
+        # Get user session for locale
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            session = await self.state_manager.get_session(user_id, str(chat_id))
+            locale = session.language
+        except (AttributeError, Exception) as e:
+            logger.error(f"Error getting session in pagination: {e}")
+            locale = None
+
         # Show requested page
-        await self._show_model_list(update, context, page=page)
+        await self._show_model_list(update, context, page=page, locale=locale)
 
     async def handle_back_to_list(
         self,
@@ -256,14 +284,14 @@ class ModelsBrowserHandler:
             logger.error(f"Malformed update object: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Restore previous state
         session.restore_previous_state()
         await self.state_manager.update_session(session)
 
         # Show model list
-        await self._show_model_list(update, context, page=page)
+        await self._show_model_list(update, context, page=page, locale=session.language)
 
     async def handle_cancel(
         self,
@@ -286,13 +314,14 @@ class ModelsBrowserHandler:
             logger.error(f"Malformed update object: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        session = await self.state_manager.get_session(user_id, str(chat_id))
 
         # Cancel workflow
         await self.state_manager.cancel_workflow(session)
 
         # Edit message
+        locale = session.language if session.language else None
         await query.edit_message_text(
-            "✅ **Models Browser Closed**\n\nUse /models to browse models again.",
+            I18nManager.t('models_browser.closed', locale=locale),
             parse_mode="Markdown"
         )

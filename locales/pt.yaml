@@ -1,0 +1,1241 @@
+# Traduções em Português
+# Bot Telegram de Modelagem Estatística
+
+pt:
+  # Frases comuns
+  common:
+    buttons:
+      cancel: "❌ Cancelar"
+      back: "← Voltar"
+      confirm: "✅ Confirmar"
+    suggestions: "💡 Sugestões"
+    language_switched: "✅ Idioma alterado para Português"
+    summary: "📊 Resumo"
+    metrics: "📈 Métricas"
+    next_steps: "💡 Próximos Passos"
+    phase: "Fase %{current}/%{total}"
+    elapsed: "⏱️ Decorrido: %{seconds}s"
+    and_more: "... e mais %{count}"
+    unknown: "Desconhecido"
+    deferred: "Adiado"
+
+  # Comandos do bot
+  commands:
+    start:
+      welcome: "🤖 Bem-vindo ao Agente de Modelagem Estatística!"
+      version: "🔧 Versão: %{version}"
+      features: |
+        Posso ajudá-lo com:
+        📊 Análise estatística dos seus dados
+        🧠 Treinamento de modelos de machine learning
+        📈 Previsões e insights de dados
+        📁 Suporte a caminhos de arquivos locais (sem limites de tamanho)
+      instructions: |
+        **Primeiros Passos:**
+        • Envie /help para ver os comandos disponíveis
+        • Faça upload de um arquivo de dados (CSV, Excel, Parquet)
+        • Ou use /train para iniciar o treinamento de modelo ML
+
+    help:
+      title: "🆘 Ajuda do Agente de Modelagem Estatística"
+      description: "Sou seu assistente de IA para análise estatística e machine learning."
+      commands_section: "**Comandos Disponíveis:**"
+      start_cmd: "/start - Iniciar o bot e ver mensagem de boas-vindas"
+      help_cmd: "/help - Mostrar esta mensagem de ajuda"
+      train_cmd: "/train - Iniciar fluxo de treinamento de modelo ML"
+      models_cmd: "/models - Navegar pelos seus modelos treinados"
+      predict_cmd: "/predict - Fazer previsões com um modelo treinado"
+      pt_cmd: "/pt - Mudar para Português"
+      en_cmd: "/en - Mudar para Inglês (Switch to English)"
+      features_section: |
+
+        **Recursos:**
+        📊 Análise Estatística: Estatísticas descritivas, correlação, testes de hipóteses
+        🧠 Treinamento ML: 13 tipos de modelos (regressão, classificação, redes neurais)
+        📈 Previsões: Pontuar novos dados com modelos treinados
+        📁 Caminhos Locais: Treinar em grandes conjuntos de dados via caminhos do sistema de arquivos
+
+      support: "Precisa de ajuda? Apenas descreva o que você quer fazer em linguagem natural!"
+
+    pt:
+      description: "Mudar para Português"
+      success: "✅ Idioma alterado para Português"
+
+    en:
+      description: "Mudar para Inglês"
+      success: "✅ Language switched to English"
+
+  # Mensagens de erro
+  errors:
+    validation:
+      empty_request:
+        title: "Solicitação Vazia"
+        details: "Sua mensagem parece estar vazia. Por favor, descreva o que você gostaria de fazer."
+        suggestions:
+          upload: "Fazer upload de um arquivo de dados"
+          command: "Usar um comando como /help ou /train"
+
+      invalid_path:
+        title: "Caminho Inválido"
+        details: "O caminho '%{path}' não está nos diretórios permitidos."
+        suggestions:
+          check: "Verificar se o caminho existe e está acessível"
+          whitelist: "Verificar os diretórios permitidos na configuração"
+
+      file_too_large:
+        title: "Arquivo Muito Grande"
+        details: "O tamanho do arquivo %{size}MB excede o máximo de %{max_size}MB."
+        suggestions:
+          local: "Usar o recurso de caminho de arquivo local para arquivos grandes"
+          compress: "Comprimir ou dividir o arquivo"
+
+  # Mensagens de sucesso
+  success:
+    data_loaded: "✅ Dados carregados com sucesso"
+    model_trained: "✅ Modelo '%{model_id}' treinado com sucesso"
+    prediction_complete: "✅ Previsões geradas"
+    file_uploaded: "✅ Arquivo enviado: %{filename}"
+
+  # Mensagens de manipulação de arquivos
+  file_handling:
+    upload_data_first: |
+      📁 **Envie os Dados Primeiro**
+
+      Para começar, envie um arquivo CSV ou Excel com seus dados.
+
+      Após enviar um arquivo, posso ajudá-lo com:
+      📊 Análise estatística (média, correlação, etc.)
+      🧠 Treinamento de modelos de machine learning
+      📈 Previsões e insights sobre dados
+
+      📤 **Envie seu arquivo CSV/Excel agora!**
+    processing_file: |
+      📁 **Processando seu arquivo...**
+
+      Validando e carregando dados...
+
+      🔧 *DataLoader v2.0 ativo*
+    error_occurred: |
+      ⚠️ **Erro Ocorreu**
+
+      Encontrei um erro ao processar sua solicitação. Por favor, tente novamente ou entre em contato com o suporte se o problema persistir.
+
+      🔧 O erro foi registrado para investigação.
+    workflow_active: |
+      ⚠️ **Fluxo de Trabalho Ativo**
+
+      Não é possível enviar dados enquanto o fluxo de trabalho está em progresso.
+
+      Fluxo de trabalho atual: %{workflow_type}
+      Etapa atual: %{current_state}
+
+      Por favor, use /cancel para cancelar o fluxo de trabalho atual primeiro.
+    file_already_processed: |
+      ℹ️ **Arquivo Já Processado**
+
+      Este arquivo (`%{filename}`) já foi enviado e processado.
+
+      Seus dados estão prontos. Envie `/train` para iniciar o fluxo de ML!
+    ready_to_train: "\n\n🎯 **Pronto para treinar?** Envie `/train` para iniciar o fluxo de ML!"
+
+  # Fluxos de ML
+  workflows:
+    # Fluxo de Previsão
+    prediction:
+      start_message: |
+        🔮 **Fluxo de Previsão de ML**
+
+        Use modelos treinados para prever valores-alvo em novos dados.
+
+        **Requisitos:**
+        • Modelo treinado (de /train)
+        • Novo conjunto de dados com as mesmas características
+        • Conjunto de dados NÃO deve incluir coluna alvo
+
+        Vamos começar! 🚀
+
+      data_source_prompt: |
+        📊 **Carregar Dados de Previsão**
+
+        Como você gostaria de fornecer seus dados?
+
+        **📤 Fazer Upload**: Enviar CSV/Excel pelo Telegram
+        • Tamanho máx: 10MB | Melhor para: Previsões rápidas
+
+        **📂 Usar Caminho Local**: Fornecer caminho do sistema de arquivos
+        • Sem limites de tamanho | Melhor para: Conjuntos de dados grandes
+
+        Escolha sua fonte de dados:
+
+      file_path_prompt: |
+        ✅ **Caminho do Arquivo Local**
+
+        **Diretórios permitidos:**
+        %{allowed_dirs}
+
+        **Formatos:** CSV, Excel (.xlsx, .xls), Parquet
+
+        **Exemplos:**
+        • `/Users/username/datasets/new_data.csv`
+        • `~/Documents/predictions/test.xlsx`
+
+        Digite ou cole o caminho do seu arquivo:
+
+      telegram_upload_prompt: |
+        ✅ **Upload via Telegram**
+
+        📤 Por favor, envie seus dados de previsão.
+
+        **Formatos:** CSV, Excel, Parquet | **Máx:** 10MB
+
+        **Nota:** Os dados devem ter as mesmas características do treinamento, sem coluna alvo.
+
+      loading_data: "🔄 **Carregando dados...**\n⏳ Validando e analisando esquema..."
+
+      loading_deferred: |
+        🔄 **Carregando Dados Adiados**
+
+        Carregando: `%{file_path}`
+
+        ⏳ Por favor, aguarde...
+
+      schema_accepted: "✅ **Dados Carregados!**\n\nProsseguindo para seleção de características..."
+      schema_rejected: "❌ **Rejeitado**\n\nVamos tentar um arquivo diferente."
+
+      deferred_confirmed: |
+        ⏳ **Carregamento de Dados Adiado**
+
+        Seu conjunto de dados será carregado logo antes de executar as previsões.
+
+        **Próximo Passo:** Selecione as colunas de características para usar nas previsões.
+
+      load_option_prompt: |
+        📂 **Estratégia de Carregamento de Dados**
+
+        Arquivo: `%{file_path}`
+
+        **🔄 Carregar Agora:** Carregar dados imediatamente para visualização
+        **⏳ Adiar Carregamento:** Pular carregamento, economizar memória
+
+        Escolha sua opção:
+
+      no_models_error: |
+        ⚠️ **Nenhum Modelo Treinado**
+
+        Você ainda não tem nenhum modelo treinado.
+
+        **Comece:**
+        Use /train para criar seu primeiro modelo!
+
+      running: |
+        🔮 **Executando Previsão...**
+
+        ⏳ Carregando modelo, processando dados, gerando previsões...
+
+      workflow_complete: |
+        🎉 **Fluxo Completo!**
+
+        **Próximos Passos:**
+        • Fazer mais previsões: /predict
+        • Treinar novos modelos: /train
+        • Ver modelos: /models
+
+      # Seleção de Características (NOVO)
+      feature_selection:
+        header: "📊 **Seleção de Características**"
+        header_deferred: "📝 **Seleção de Características** (Modo Adiado)"
+        dataset_label: "**Conjunto de Dados:**"
+        columns_available: "**Colunas Disponíveis:**"
+        select_prompt: "**Selecione características para previsão:**"
+        format_label: "**Formato:**"
+        format_example: "Lista separada por vírgulas"
+        example_label: "**Exemplo:**"
+        example_text: "`m2, quartos, banheiros`"
+        note_label: "⚠️ **Nota:**"
+        note_text: "Nomes de colunas devem corresponder exatamente ao seu conjunto de dados."
+        no_prefix_warning: "**NÃO** use prefixo `features:` ou `target:`"
+        type_prompt: "Digite suas colunas de características:"
+        selected_success: "✅ **Características Selecionadas**"
+        loading_models: "Carregando modelos compatíveis..."
+        error_header: "❌ **Erro de Característica**"
+        error_missing_label: "**Faltando:**"
+        error_invalid_label: "**Inválido:**"
+        error_retry: "Por favor, tente novamente com nomes de colunas corretos."
+        error_tip: "💡 **Dica:**"
+        auto_corrected: "✅ **Características auto-corrigidas**"
+        no_compatible_models: "⚠️ **Nenhum Modelo Compatível**"
+        no_models_options: "**Opções:**"
+        no_models_back: "Use ⬅️ Voltar para selecionar características diferentes"
+        no_models_train: "Treine um novo modelo com /train usando essas características"
+
+      # Seleção de Modelo (NOVO)
+      model_selection:
+        header: "🤖 **Selecionar Modelo**"
+        prompt: "**Selecione um modelo para usar nas previsões:**"
+        selected_success: "✅ **Modelo Selecionado**"
+        type_label: "**Tipo:**"
+        target_label: "**Alvo:**"
+        id_label: "**ID:**"
+        preparing: "Preparando configuração de previsão..."
+        feature_singular: "característica"
+        feature_plural: "características"
+        accuracy_label: "Precisão"
+        compatible_models: "compatível"
+        compatible_models_plural: "compatíveis"
+        feature_mismatch_error: "❌ **Incompatibilidade de Características**"
+        missing_features: "**Faltando:**"
+        extra_features: "**Extra:**"
+        required_features: "**Características Necessárias:**"
+        mismatch_instructions: "Por favor, volte e selecione as características corretas, ou treine um novo modelo."
+
+      # Nome da Coluna de Previsão (NOVO)
+      prediction_column:
+        header: "📝 **Nome da Coluna de Previsão**"
+        prompt: "Que nome devemos usar para a coluna de previsão nos seus resultados?"
+        default_label: "Nome padrão:"
+        options_label: "**Opções:**"
+        note_label: "**Nota:**"
+        note_text: "Escolha um nome que não conflite com colunas existentes"
+        confirmed_success: "✅ **Nome da Coluna Definido**"
+        confirmed_text: "Previsões serão salvas como:"
+        ready_message: "Pronto para executar previsão!"
+        conflict_error: "❌ **Conflito de Nome**"
+        conflict_exists: "já existe no seu conjunto de dados"
+        conflict_existing: "**Colunas existentes:**"
+        conflict_retry: "Por favor, forneça um nome diferente."
+
+      # Pronto para Executar (NOVO)
+      ready_to_run:
+        header: "🚀 **Pronto para Prever**"
+        model_label: "**Modelo:**"
+        target_label: "**Alvo:**"
+        output_column_label: "**Coluna de Saída:**"
+        dataset_label: "**Conjunto de Dados:**"
+        choose_action: "Escolha a Ação:"
+        run_instructions: "▶️ Executar Modelo para executar previsão"
+        back_instructions: "⬅️ Voltar para modificar configurações"
+
+      # Resultados (NOVO)
+      results:
+        success_header: "✅ **Previsão Completa!**"
+        model_label: "**Modelo:**"
+        predictions_label: "**Previsões:**"
+        time_label: "**Tempo:**"
+        statistics_header: "📊 Estatísticas de Previsão"
+        stat_mean: "• Média:"
+        stat_std: "• Desvio Padrão:"
+        stat_min: "• Mín:"
+        stat_max: "• Máx:"
+        stat_median: "• Mediana:"
+        preview_header: "**Prévia (primeiras 10 linhas):**"
+        download_prompt: "📥 **Baixe os resultados completos abaixo** ⬇️"
+        error_header: "❌ **Previsão Falhou**"
+        error_issues_label: "**Possíveis Problemas:**"
+        error_feature_mismatch: "Incompatibilidade de características entre modelo e dados"
+        error_invalid_types: "Tipos de dados inválidos na entrada"
+        error_missing_values: "Valores ausentes em colunas necessárias"
+        error_back_instructions: "Use ⬅️ Voltar para verificar sua configuração"
+
+      # Opções de Saída (NOVO)
+      output_options:
+        save_header: "💾 **Salvar Resultados de Previsão**"
+        save_prompt: "Escolha como salvar seus resultados de previsão:"
+        save_local_option: "**📂 Salvar em Caminho Local** - Salvar diretamente no seu sistema de arquivos"
+        save_telegram_option: "**📥 Baixar via Telegram** - Receber arquivo através do bot"
+        done_option: "**✅ Concluído** - Não salvar, apenas visualizar resultados"
+        path_header: "📂 **Escolher Diretório de Saída**"
+        path_allowed_label: "**Diretórios permitidos:**"
+        path_examples_label: "**Exemplos:**"
+        path_prompt: "Digite ou cole o caminho completo do diretório onde deseja salvar:"
+        filename_header: "📝 **Confirmar Nome do Arquivo**"
+        filename_directory_label: "**Diretório:**"
+        filename_default_label: "**Nome padrão:**"
+        filename_options_label: "**Opções:**"
+        filename_prompt: "Escolha sua opção:"
+        save_success_header: "✅ **Arquivo Salvo com Sucesso!**"
+        save_success_location: "**Localização:**"
+        save_success_rows: "**Linhas:**"
+        save_success_message: "Suas previsões estão prontas para usar!"
+        save_error_header: "❌ **Falha ao Salvar:** %{error_type}"
+        save_error_options: "**Opções:**"
+
+      # Botões (NOVO - mesclar com existentes)
+      buttons:
+        upload_file: "📤 Fazer Upload"
+        local_path: "📂 Caminho Local"
+        use_template: "📋 Usar Template"
+        load_now: "🔄 Carregar Agora"
+        defer_loading: "⏳ Adiar Carregamento"
+        continue: "✅ Continuar"
+        different_file: "❌ Arquivo Diferente"
+        use_default: "✅ Usar Padrão"
+        run_model: "▶️ Executar Modelo"
+        go_back: "⬅️ Voltar"
+        try_again: "🔄 Tentar Novamente"
+        different_source: "⬅️ Fonte de Dados Diferente"
+        cancel_workflow: "❌ Cancelar Fluxo"
+        save_local: "📂 Salvar em Caminho Local"
+        download_telegram: "📥 Baixar via Telegram"
+        done: "✅ Concluído"
+        accept_default: "✅ Aceitar Padrão"
+        custom_name: "✏️ Nome Personalizado"
+
+      # Mensagens de Navegação
+      navigation:
+        at_beginning: "Você está no início do fluxo. Use /cancel para sair."
+        cannot_go_back: "Não é possível voltar nesta etapa."
+        going_back: "⬅️ Voltando..."
+
+      # Mensagens de Template de Previsão
+      template_save_prompt: |
+        📝 *Digite um nome para este template de previsão:*
+        *Regras:*
+        • Apenas letras, números e underscores
+        • Máximo de 32 caracteres
+        • Deve ser único
+        *Exemplo:* previsao\_vendas\_template
+      template_saved_success: "✅ *Template '%{name}' salvo com sucesso!*\nVocê pode usar este template para futuras previsões."
+      template_updated_success: "✅ *Template '%{name}' atualizado com sucesso!*\nSuas alterações foram salvas."
+      template_load_prompt: "📋 *Selecione um template de previsão:*\nVocê tem %{count} template(s) salvo(s)."
+      template_no_templates: |
+        📋 *Nenhum template de previsão encontrado*
+        Crie um template completando um fluxo de previsão e clicando em '💾 Salvar como Template' após salvar as previsões.
+      template_load_summary: |
+        📋 *Template:* `%{name}`
+        📁 *Arquivo de Dados:* `%{file_path}`
+        🤖 *Modelo:* `%{model_id}`
+        📊 *Features:* %{features}
+        📝 *Coluna de Saída:* `%{output_column}`
+        %{description}*Criado em:* %{created}
+      template_invalid_name: "❌ *Nome de template inválido:* %{error}\nPor favor, tente novamente:"
+      template_exists: "⚠️ *Template '%{name}' já existe*\nEscolha um nome diferente ou exclua o template existente primeiro."
+      template_not_found: "❌ *Template '%{name}' não encontrado*\nPode ter sido excluído."
+      template_save_failed: "❌ *Falha ao salvar template:* %{error}\nPor favor, tente novamente ou entre em contato com o suporte se o problema persistir."
+      template_load_failed: "❌ *Falha ao carregar template:* %{error}\nPor favor, tente outro template ou inicie uma nova sessão de previsão."
+      template_model_invalid: "❌ *Modelo não encontrado*\nO modelo `%{model_id}` deste template não está mais disponível.\nPor favor, tente outro template ou treine um novo modelo."
+      template_file_path_invalid: "❌ *Caminho de arquivo inválido no template*\nO caminho %{path} não é mais válido:\n%{error}\nPor favor, tente outro template ou atualize o caminho do arquivo."
+      template_data_loaded: "✅ *Dados carregados do template!*\n📊 Linhas: %{rows}\n📊 Colunas: %{columns}\nPronto para executar previsões."
+      template_continue_prediction: "O que você gostaria de fazer a seguir?"
+
+    # Fluxo de Treinamento de ML
+    ml_training:
+      data_source_prompt: |
+        🤖 **Fluxo de Treinamento de ML**
+
+        Como você gostaria de fornecer seus dados de treinamento?
+
+        **📤 Fazer Upload**: Enviar CSV/Excel pelo Telegram
+        • Tamanho máx: 10MB | Melhor para: Análise rápida
+
+        **📂 Usar Caminho Local**: Fornecer caminho do sistema de arquivos
+        • Sem limites de tamanho | Melhor para: Conjuntos de dados grandes
+
+        Escolha sua fonte de dados:
+
+      upload_button: "📤 Fazer Upload"
+      local_path_button: "📂 Caminho Local"
+      template_button: "📋 Usar Modelo"
+      load_now_button: "🔄 Carregar Agora"
+      defer_loading_button: "⏳ Adiar Carregamento"
+
+      awaiting_file: |
+        ✅ **Upload via Telegram**
+
+        📤 Por favor, envie seu arquivo.
+
+        **Formatos:** CSV, Excel, Parquet | **Máx:** 10MB
+
+      awaiting_path: |
+        📂 **Caminho de Arquivo Local**
+
+        Por favor, forneça o caminho absoluto para seu arquivo de dados.
+
+        **Exemplo:** `/home/user/data/housing.csv`
+
+        **Diretórios permitidos:**
+        %{allowed_dirs}
+
+      schema_detected: |
+        ✅ **Dados Carregados com Sucesso**
+
+        **Conjunto de Dados:** %{filename}
+        **Linhas:** %{n_rows} | **Colunas:** %{n_cols}
+
+        **Esquema Sugerido:**
+        🎯 **Alvo:** %{target}
+        📊 **Características:** %{features}
+        📈 **Tipo de Tarefa:** %{task_type}
+
+        Aceitar esta configuração?
+
+      schema_accept_button: "✅ Aceitar"
+      schema_reject_button: "❌ Modificar"
+      what_next: "O que você gostaria de fazer?"
+
+      # Mensagens de Fluxo de Caminho Local
+      local_file_path_header: "✅ **Caminho do Arquivo Local**"
+      allowed_directories: "**Diretórios permitidos:**"
+      formats_label: "**Formatos:** CSV, Excel (.xlsx, .xls), Parquet"
+      examples_label: "**Exemplos:**"
+      example_path_1: "• `/Users/username/datasets/housing.csv`"
+      example_path_2: "• `~/Documents/data/sales.xlsx`"
+      type_path_prompt: "Digite ou cole o caminho do seu arquivo:"
+
+      loading_data: "🔄 **Carregando dados...**"
+      loading_status: "⏳ Validando, carregando e analisando esquema..."
+
+      auto_detected: "**🎯 Detectado Automaticamente:** %{task_type}"
+      target_label: "**Alvo:** `%{target}`"
+      features_label: "**Características:** %{features}"
+      proceed_question: "**Prosseguir?**\n• ✅ Aceitar | ❌ Tentar Arquivo Diferente"
+
+      schema_accepted: "✅ **Esquema Aceito!**"
+      using_target: "🎯 Usando: `%{target}`"
+      proceeding_to_selection: "Prosseguindo para seleção de alvo..."
+
+      schema_rejected: "❌ **Esquema Rejeitado**"
+      provide_different_file: "Por favor, forneça um caminho de arquivo diferente."
+
+      # Seleção de Estratégia de Carregamento
+      path_validated: "✅ **Caminho Validado:** `%{file_path}`"
+      size_label: "📊 **Tamanho:** %{size_mb} MB"
+      choose_loading_strategy: "**Escolha a Estratégia de Carregamento:**"
+      load_now_option: "**🔄 Carregar Agora** - Carregar e analisar dados imediatamente"
+      load_now_features: "• Detectar esquema automaticamente | Visualizar estatísticas\n• Melhor para: Conjuntos de dados pequenos a médios (<100MB)"
+      defer_loading_option: "**⏳ Adiar Carregamento** - Fornecer esquema, carregar depois"
+      defer_loading_features: "• Pular visualização | Carregar apenas no momento do treinamento\n• Melhor para: Conjuntos de dados grandes (>100MB)"
+      select_strategy: "**Selecione sua estratégia:**"
+
+      # Entrada Manual de Esquema
+      manual_schema_header: "📝 **Entrada Manual de Esquema**"
+      schema_formats_intro: "Forneça colunas de alvo e características. **3 formatos suportados:**"
+      format_1_label: "**Formato 1 - Chave-Valor (recomendado):**"
+      format_1_example: "`target: price`\n`features: sqft, bedrooms, bathrooms`"
+      format_2_label: "**Formato 2 - JSON:**"
+      format_2_example: '`{"target": "price", "features": ["sqft", "bedrooms", "bathrooms"]}`'
+      format_3_label: "**Formato 3 - Lista Simples:**"
+      format_3_example: "`price, sqft, bedrooms, bathrooms`\n(primeiro = alvo, resto = características)"
+      type_schema_prompt: "**Digite seu esquema:**"
+
+      schema_accepted_deferred: "✅ **Esquema Aceito**"
+      target_deferred: "🎯 Alvo: `%{target}`"
+      features_count: "📊 Características: %{n_features} %{features_word}"
+      data_load_later: "⏳ Os dados serão carregados no momento do treinamento."
+      proceeding_to_model: "Prosseguindo para seleção de modelo..."
+
+      schema_parse_error: "❌ **Erro de Análise de Esquema**"
+      parse_error_details: "%{error_msg}"
+      try_again: "Por favor, tente novamente com o formato correto."
+
+      # Mensagens de Erro
+      file_not_found: "❌ **Arquivo Não Encontrado**"
+      check_path: "Verifique: Caminho correto? Arquivo existe? Legível?"
+
+      access_denied: "🚫 **Acesso Negado**"
+      allowed_label: "**Permitido:**"
+
+      security_error: "🚫 **Erro de Segurança**"
+      suspicious_patterns: "Caminho contém padrões suspeitos: `%{path}`"
+
+      file_too_large_error: "⚠️ **Arquivo Muito Grande**"
+      size_limit: "Tamanho: %{size_mb}MB | Limite: %{max_size_mb}MB"
+      try_smaller: "Tente: Arquivo menor ou dados de amostra"
+
+      unsupported_format: "❌ **Formato Não Suportado**"
+      supported_label: "**Suportado:** %{allowed_extensions}"
+
+      empty_file: "❌ **Arquivo Vazio**"
+      zero_bytes: "`%{path}` (0 bytes)"
+
+      loading_error: "❌ **Erro de Carregamento**"
+
+      security_validation_error: "❌ **Erro de Validação**"
+
+      feature_disabled: "⚠️ **Recurso Desativado**"
+      use_telegram_upload: "Use o upload do Telegram em vez disso."
+
+      unexpected_error: "❌ **Erro Inesperado**"
+      try_restart: "Tente novamente ou use /train para reiniciar."
+
+      # Mensagens XGBoost
+      xgboost_header: "🌳 **XGBoost (Gradient Boosting)**"
+      xgboost_best_for: "**Melhor para:** Dados tabulares/estruturados"
+      xgboost_performance: "**Desempenho:** Frequentemente supera redes neurais em conjuntos de dados estruturados"
+      xgboost_advantages: "**Vantagens:**"
+      xgboost_adv_accuracy: "✓ Alta precisão em dados estruturados"
+      xgboost_adv_importance: "✓ Importância de características integrada"
+      xgboost_adv_missing: "✓ Lida com valores ausentes"
+      xgboost_adv_fast: "✓ Treinamento rápido"
+      xgboost_when_use: "**Quando usar:**"
+      xgboost_use_credit: "• Pontuação de crédito, detecção de fraude"
+      xgboost_use_churn: "• Previsão de churn de clientes"
+      xgboost_use_price: "• Previsão de preço, previsão de vendas"
+      xgboost_use_tabular: "• Quaisquer dados estruturados/tabulares"
+      xgboost_when_not: "**Quando NÃO usar:**"
+      xgboost_not_image: "• Dados de imagem"
+      xgboost_not_text: "• Tarefas de texto/NLP"
+      xgboost_not_timeseries: "• Séries temporais com padrões complexos"
+
+      xgboost_hyperparams_header: "🔧 **Hiperparâmetros do XGBoost**"
+      xgboost_n_estimators: "**n_estimators** (100-1000):\nNúmero de árvores. Mais = melhor mas mais lento.\nPadrão: 100"
+      xgboost_max_depth: "**max_depth** (3-10):\nProfundidade máxima da árvore. Maior = mais complexo.\nPadrão: 6"
+      xgboost_learning_rate: "**learning_rate** (0.01-0.3):\nTamanho do passo. Menor = mais conservador.\nPadrão: 0.1"
+      xgboost_subsample: "**subsample** (0.5-1.0):\nFração de amostras por árvore.\nPadrão: 0.8"
+      xgboost_colsample: "**colsample_bytree** (0.5-1.0):\nFração de características por árvore.\nPadrão: 0.8"
+
+      xgboost_setup_required: "❌ **Configuração do XGBoost Necessária**"
+      xgboost_needs_openmp: "XGBoost precisa do runtime OpenMP para funcionar."
+      xgboost_macos_fix: "**Correção Rápida para macOS:**"
+      xgboost_brew_install: "```\nbrew install libomp\n```"
+      xgboost_alternative: "**OU** Use **Gradient Boosting (sklearn)** em vez disso"
+      xgboost_alt_note: "_(Funciona imediatamente, sem configuração necessária)_"
+      xgboost_docs: "📖 Guia completo: `XGBOOST_SETUP.md`"
+
+      # Mensagens de Proteção por Senha
+      password_required: "🔐 **Senha Necessária**"
+      password_not_in_whitelist: "O caminho que você digitou não está nos diretórios permitidos:"
+      password_resolved_to: "**Resolvido para:** `%{resolved_dir}`"
+      password_enter_prompt: "Para acessar este diretório, por favor digite a senha."
+      password_security_note: "⚠️ **Nota de Segurança:** Isso concederá acesso a TODOS os arquivos neste diretório apenas para a sessão atual."
+
+      password_access_granted: "✅ **Acesso Concedido**"
+      password_directory_added: "Diretório adicionado aos caminhos permitidos para esta sessão:"
+      password_can_access: "Você agora pode acessar qualquer arquivo neste diretório."
+
+      password_locked: "🔒 **Acesso Bloqueado**"
+      password_too_many_attempts: "Muitas tentativas de senha falhadas."
+      password_wait: "Por favor, aguarde %{wait_seconds} segundos antes de tentar novamente, ou escolha um caminho diferente da lista de permissões."
+
+      password_timeout: "⏱️ **Tempo Esgotado da Sessão**"
+      password_prompt_expired: "O prompt de senha expirou (limite de 5 minutos)."
+      password_restart: "Por favor, reinicie com /train ou /predict para tentar novamente."
+
+    # Models Browser Workflow
+    models:
+      list_header: "📚 **Catálogo de Modelos ML**"
+      browse_message: "Navegue por %{total_models} modelos disponíveis para treinamento."
+      list_details: "Clique em um modelo para ver detalhes, parâmetros e casos de uso."
+      page_info: "**Página %{current}/%{total}**"
+      list_tip: "💡 **Dica:** Os modelos são organizados por tipo e tarefa."
+
+      category: "Categoria"
+      task_type: "Tipo de Tarefa"
+      variants: "Variantes"
+      description: "Descrição"
+      performance: "Desempenho"
+      training_speed: "Velocidade de Treinamento"
+      prediction_speed: "Velocidade de Previsão"
+      interpretability: "Interpretabilidade"
+      requires_tuning: "Requer Ajuste"
+      "yes": "Sim"
+      "no": "Não"
+      key_parameters: "Parâmetros-Chave"
+      more_parameters: "... e %{count} parâmetros adicionais"
+      default: "Padrão"
+      range: "Intervalo"
+      best_for: "Melhor Para"
+      strengths: "Pontos Fortes"
+      limitations: "Limitações"
+      details_tip: "💡 **Dica:** Use `/train` para começar o treinamento com este modelo."
+
+    # Model Selection
+    model_selection:
+      title: "🤖 **Escolher Tipo de Modelo**"
+      description: "Selecione o tipo de modelo para seu treinamento:"
+      regression_label: "📈 Modelos de Regressão"
+      regression_desc: "Prever valores contínuos (preços, temperaturas, etc.)"
+      classification_label: "🎯 Modelos de Classificação"
+      classification_desc: "Categorizar dados (spam/não spam, aprovar/rejeitar, etc.)"
+      neural_label: "🧠 Redes Neurais"
+      neural_desc: "Modelos avançados de deep learning"
+      which_category: "Qual categoria se encaixa na sua tarefa?"
+
+    # Model Types
+    model_types:
+      linear: "Regressão Linear"
+      ridge: "Regressão Ridge (L2)"
+      lasso: "Regressão Lasso (L1)"
+      elasticnet: "ElasticNet (L1+L2)"
+      polynomial: "Regressão Polinomial"
+      xgboost_regression: "Regressão XGBoost"
+      lightgbm_regression: "Regressão LightGBM"
+      catboost_regression: "Regressão CatBoost"
+      logistic: "Regressão Logística"
+      decision_tree: "Árvore de Decisão"
+      random_forest: "Random Forest"
+      gradient_boosting: "Gradient Boosting (sklearn)"
+      xgboost_binary_classification: "Classificação XGBoost"
+      lightgbm_binary_classification: "Classificação LightGBM"
+      catboost_binary_classification: "Classificação CatBoost"
+      svm: "Support Vector Machine"
+      naive_bayes: "Naive Bayes"
+      mlp_regression: "Regressão MLP"
+      mlp_classification: "Classificação MLP"
+      keras_binary_classification: "Classificação Binária Keras"
+      keras_multiclass_classification: "Classificação Multiclasse Keras"
+      keras_regression: "Regressão Keras"
+
+    # Category Headers
+    category_headers:
+      regression: "📈 Modelos de Regressão"
+      classification: "🎯 Modelos de Classificação"
+      neural: "🧠 Redes Neurais"
+      select_specific: "Selecione um modelo específico:"
+      detected_task: "**Tarefa Detectada**: %{task_type}"
+      all_models_note: "_(Todos os modelos mostrados - escolha o que funciona melhor para você)_"
+
+  # Traduções de Workflow - Português
+  # Traduções específicas de workflow para cobertura completa de i18n
+  workflow_state:
+    # Erros gerais de workflow
+    training_in_progress: "⏳ Treinamento em andamento... Por favor, aguarde."
+    workflow_state_error: "⚠️ Erro no estado do fluxo. Por favor, comece novamente."
+    workflow_error: "⚠️ **Erro de Workflow**\n\n%{error}\n\nPor favor, use /cancel e comece novamente."
+    workflow_cancelled: "❌ **Workflow Cancelado**\n\nSeu %{workflow_type} foi cancelado.\nEnvie uma nova solicitação para recomeçar."
+    training_failed: "Treinamento Falhou\n\nErro: %{error}\n\nO workflow foi cancelado. Por favor, tente /start para começar novamente."
+    training_started: "🚀 **Treinamento Iniciado**: `%{model_type}`\n\nPor favor, aguarde enquanto o modelo está sendo treinado..."
+
+    # Botões
+    buttons:
+      upload_file: "📤 Enviar Arquivo"
+      local_path: "📂 Usar Caminho Local"
+      accept_schema: "✅ Aceitar Esquema"
+      reject_schema: "❌ Tentar Arquivo Diferente"
+      regression_models: "📈 Modelos de Regressão"
+      classification_models: "🎯 Modelos de Classificação"
+      neural_networks: "🧠 Redes Neurais"
+      cancel: "❌ Cancelar"
+      back: "🔙 Voltar"
+      start_training: "🚀 Iniciar Treinamento Agora"
+      done_exit: "✅ Concluído (Sair)"
+      load_now: "📥 Carregar Dados Agora"
+      defer_loading: "⏳ Adiar Carregamento"
+      back_to_templates: "🔙 Voltar aos Templates"
+    invalid_request: "❌ **Solicitação Inválida**\n\nPor favor, tente %{command} novamente."
+    session_not_found: "❌ Sessão não encontrada. Por favor, inicie uma nova sessão com %{command}."
+    state_transition_failed: "❌ **Falha na Transição de Estado**\n\nErro: %{error}\nPré-requisitos faltando: %{missing}\n\nPor favor, tente novamente ou use %{command} para reiniciar."
+    navigation_error: "⚠️ **Erro de Navegação**\n\nEstado atual: %{current_state}\n\nUse /cancel para sair do fluxo."
+
+    # Seleção de Alvo
+    target_selection:
+      header: "🎯 **Selecionar Coluna Alvo**"
+      column_count: "Seus dados têm %{count} colunas:"
+      and_more: "... e mais %{count}"
+      reply_with: "**Responda com:**"
+      column_number_example: "• Número da coluna (ex: `21`)"
+      column_name_example: "• Nome da coluna (ex: `class`)"
+      invalid_selection: "❌ Seleção inválida: %{error}\n\nPor favor, selecione uma coluna por número (1-%{max}) ou nome.\nExemplo: '5' ou 'price'"
+      column_not_found: "❌ Coluna '%{column}' não encontrada no conjunto de dados."
+      target_stored: "✅ **Alvo Selecionado:** `%{column}`"
+
+    # Seleção de Características
+    feature_selection:
+      header: "📋 **Selecionar Colunas de Características**"
+      target_label: "Alvo: `%{target}`"
+      available_count: "Características disponíveis (%{count}):"
+      and_more: "... e mais %{count}"
+      reply_with: "**Responda com:**"
+      numbers_example: "• Números: `1,2,3`"
+      range_example: "• Intervalo: `1-5`"
+      names_example: "• Nomes: `idade,renda`"
+      all_example: "• Todos: `all`"
+      invalid_selection: "❌ Seleção inválida: %{error}\n\nExemplos:\n• '1,2,3' - Selecionar colunas 1, 2 e 3\n• 'idade,renda,sqft' - Selecionar por nome\n• '1-5' - Selecionar intervalo de colunas\n• 'all' - Selecionar todas as características"
+      no_features_selected: "❌ Por favor, selecione pelo menos uma coluna de característica."
+      features_stored: "✅ **Características Selecionadas:** %{count} colunas"
+      prompt_header: "📊 **Selecionar Colunas de Características**"
+      exclude_target: "(Excluir alvo: %{target})"
+
+    # Seleção e Confirmação de Modelo
+    model_selection:
+      header: "🤖 **Selecionar Tipo de Modelo**"
+      target_label: "Alvo: %{target}"
+      features_label: "Características: %{count} colunas"
+      available_models: "**Modelos disponíveis:**"
+      model_1_linear: "1. Regressão Linear"
+      model_2_rf: "2. Random Forest"
+      model_3_nn: "3. Rede Neural (sklearn MLP)"
+      model_4_auto: "4. Auto (melhor modelo selecionado)"
+      model_5_keras_binary: "5. Keras Classificação Binária"
+      model_6_keras_multi: "6. Keras Classificação Multiclasse"
+      model_7_keras_reg: "7. Keras Regressão"
+      reply_prompt: "**Responda com número ou nome:**"
+      invalid_model_type: "❌ Tipo de modelo inválido: '%{model}'\n\nPor favor, selecione:\n1. Regressão Linear\n2. Random Forest\n3. Rede Neural (sklearn MLP)\n4. Auto (melhor modelo selecionado automaticamente)\n5. Keras Classificação Binária (NN)\n6. Keras Classificação Multiclasse (NN)\n7. Keras Regressão (NN)"
+      keras_selected: "✅ **Modelo Keras Selecionado**: %{model_type}"
+      model_stored: "✅ **Tipo de Modelo:** %{model_type}"
+      invalid_model: "❌ Tipo de modelo inválido. Por favor, tente novamente."
+      # Seleção de categoria (workflow de caminho local)
+      category_header: "🤖 **Escolher Tipo de Modelo**"
+      category_description: "Selecione o tipo de modelo para seu treinamento:"
+      regression_description: "📈 **Regressão**: Prever valores contínuos (preços, temperaturas, etc.)"
+      classification_description: "🎯 **Classificação**: Categorizar dados (spam/não spam, aprovar/rejeitar, etc.)"
+      neural_description: "🧠 **Redes Neurais**: Modelos avançados de deep learning"
+      which_category: "Qual categoria se encaixa na sua tarefa?"
+
+    # Configuração de Modelo
+    model_config:
+      keras:
+        header: "🧠 **Configuração de Rede Neural Keras**"
+        epochs:
+          title: "**Passo 1/5: Épocas de Treinamento**"
+          question: "Quantas épocas de treinamento?"
+          help: "(Mais épocas = treinamento mais longo, potencialmente melhor precisão)"
+          btn_50: "50 épocas"
+          btn_100: "100 épocas (recomendado)"
+          btn_200: "200 épocas"
+          btn_custom: "Personalizado"
+        batch_size:
+          title: "**Passo 2/5: Tamanho do Lote**"
+          question: "Selecione o tamanho do lote:"
+          help: "(Menor = mais lento mas mais preciso, Maior = mais rápido mas menos preciso)"
+          btn_16: "16 (pequeno)"
+          btn_32: "32 (recomendado)"
+          btn_64: "64 (médio)"
+          btn_128: "128 (grande)"
+        weight_init:
+          title: "**Passo 3/5: Inicialização de Pesos**"
+          question: "Selecione o inicializador de kernel:"
+          btn_glorot: "glorot_uniform (recomendado)"
+          btn_random_normal: "random_normal"
+          btn_random_uniform: "random_uniform"
+          btn_he_normal: "he_normal"
+          btn_he_uniform: "he_uniform"
+        verbosity:
+          title: "**Passo 4/5: Saída de Treinamento**"
+          question: "Selecione o nível de detalhamento:"
+          btn_0: "0 - Silencioso"
+          btn_1: "1 - Barra de progresso (recomendado)"
+          btn_2: "2 - Uma linha por época"
+        validation:
+          title: "**Passo 5/5: Divisão de Validação**"
+          question: "Porcentagem de dados para usar na validação:"
+          btn_0: "0% - Sem validação"
+          btn_10: "10% validação"
+          btn_20: "20% validação (recomendado)"
+          btn_30: "30% validação"
+        configuration_complete:
+          title: "✅ **Configuração Keras Concluída**"
+          settings_header: "📊 **Configurações:**"
+          what_next: "O que você gostaria de fazer a seguir?"
+          buttons:
+            start_training: "🚀 Iniciar Treinamento"
+            save_template: "💾 Salvar como Template"
+
+      lightgbm:
+        header: "⚡ **Configuração LightGBM**"
+        num_leaves:
+          title: "**Passo 1: Número de Folhas**"
+          description: "LightGBM usa crescimento leaf-wise (mais rápido que XGBoost)."
+          question: "Quantas folhas por árvore?"
+          tip: "💡 **Dica**: 15 = rápido, 31 = balanceado, 63 = complexo"
+          btn_15: "15 folhas (rápido)"
+          btn_31: "31 folhas (recomendado)"
+          btn_63: "63 folhas (complexo)"
+          btn_defaults: "Usar Padrões"
+        n_estimators:
+          title: "**Passo 2/3: Número de Árvores**"
+          question: "Quantas rodadas de boosting?"
+          help: "(Mais árvores = melhor ajuste, mas treinamento mais lento)"
+          status_num_leaves: "✅ Num Folhas: %{value}"
+          btn_50: "50 árvores (rápido)"
+          btn_100: "100 árvores (recomendado)"
+          btn_200: "200 árvores (preciso)"
+          btn_defaults: "Usar Padrões"
+        learning_rate:
+          title: "**Passo 3/3: Taxa de Aprendizado**"
+          question: "Quão rápido o modelo deve aprender?"
+          help: "(Menor = mais estável, Maior = mais rápido mas arriscado)"
+          status_num_leaves: "✅ Num Folhas: %{value}"
+          status_n_estimators: "✅ N Estimadores: %{value}"
+          btn_001: "0.01 (conservador)"
+          btn_005: "0.05 (balanceado)"
+          btn_01: "0.1 (recomendado)"
+          btn_02: "0.2 (agressivo)"
+          btn_defaults: "Usar Padrões"
+        configuration_complete:
+          title: "✅ **Configuração LightGBM Concluída**"
+          model_label: "🎯 **Modelo**:"
+          parameters_label: "⚙️ **Parâmetros**:"
+          param_num_leaves: "• num\\_leaves: %{value}"
+          param_n_estimators: "• n\\_estimators: %{value}"
+          param_learning_rate: "• learning\\_rate: %{value}"
+          param_feature_fraction: "• feature\\_fraction: %{value}"
+          param_bagging_fraction: "• bagging\\_fraction: %{value}"
+          starting_training: "🚀 Iniciando treinamento..."
+
+      xgboost:
+        header: "🧠 **Configuração XGBoost**"
+        n_estimators:
+          title: "**Passo 1/5: Número de Rodadas de Boosting**"
+          question: "Quantas árvores construir?"
+          help: "(Mais árvores = melhor ajuste, mas treinamento mais lento)"
+          btn_50: "50 árvores"
+          btn_100: "100 árvores (recomendado)"
+          btn_200: "200 árvores"
+          btn_custom: "Personalizado"
+        max_depth:
+          title: "**Passo 2/5: Profundidade Máxima da Árvore**"
+          question: "Quão profunda cada árvore deve ser?"
+          help: "(Mais profunda = padrões mais complexos, risco de overfitting)"
+          btn_3: "3 níveis"
+          btn_6: "6 níveis (recomendado)"
+          btn_9: "9 níveis"
+          btn_custom: "Personalizado"
+        learning_rate:
+          title: "**Passo 3/5: Taxa de Aprendizado**"
+          question: "Quão rápido o modelo deve aprender?"
+          help: "(Menor = mais estável, mas precisa de mais árvores)"
+          btn_001: "0.01 (conservador)"
+          btn_01: "0.1 (recomendado)"
+          btn_03: "0.3 (agressivo)"
+          btn_custom: "Personalizado"
+        subsample:
+          title: "**Passo 4/5: Taxa de Subamostragem**"
+          question: "Que fração de dados usar por árvore?"
+          help: "(Menor = árvores mais diversas, previne overfitting)"
+          btn_06: "0.6 (60%)"
+          btn_08: "0.8 (80% - recomendado)"
+          btn_10: "1.0 (100% - todos os dados)"
+          btn_custom: "Personalizado"
+        colsample:
+          title: "**Passo 5/5: Taxa de Subamostragem de Colunas**"
+          question: "Que fração de características usar por árvore?"
+          help: "(Menor = árvores mais diversas, previne overfitting)"
+          btn_06: "0.6 (60%)"
+          btn_08: "0.8 (80% - recomendado)"
+          btn_10: "1.0 (100% - todas características)"
+          btn_custom: "Personalizado"
+        configuration_complete:
+          title: "✅ **Configuração XGBoost Concluída**"
+          model_label: "🎯 **Modelo**:"
+          parameters_label: "⚙️ **Parâmetros**:"
+          param_n_estimators: "• n\\_estimators: %{value}"
+          param_max_depth: "• max\\_depth: %{value}"
+          param_learning_rate: "• learning\\_rate: %{value}"
+          param_subsample: "• subsample: %{value}"
+          param_colsample_bytree: "• colsample\\_bytree: %{value}"
+          starting_training: "🚀 Iniciando treinamento..."
+
+      catboost:
+        header: "🐈 **Configuração CatBoost**"
+        iterations:
+          title: "**Passo 1/4: Número de Rodadas de Boosting**"
+          question: "Quantas iterações (árvores) construir?"
+          help: "(Mais iterações = melhor ajuste, mas treinamento mais lento)"
+          btn_100: "100 iterações (rápido)"
+          btn_500: "500 iterações"
+          btn_1000: "1000 iterações (recomendado)"
+          btn_2000: "2000 iterações (completo)"
+          btn_custom: "Personalizado"
+        depth:
+          title: "**Passo 2/4: Profundidade Máxima da Árvore**"
+          question: "Quão profunda cada árvore deve ser?"
+          help: "(Mais profunda = padrões mais complexos, risco de overfitting)"
+          btn_4: "4 níveis (rápido)"
+          btn_6: "6 níveis (recomendado)"
+          btn_8: "8 níveis (complexo)"
+          btn_custom: "Personalizado"
+        learning_rate:
+          title: "**Passo 3/4: Taxa de Aprendizado**"
+          question: "Quão rápido o modelo deve aprender?"
+          help: "(Menor = mais estável, mas precisa de mais iterações)"
+          btn_001: "0.01 (conservador)"
+          btn_003: "0.03 (recomendado)"
+          btn_01: "0.1 (agressivo)"
+          btn_custom: "Personalizado"
+        l2_leaf_reg:
+          title: "**Passo 4/4: Regularização L2**"
+          question: "Quanto de regularização para prevenir overfitting?"
+          help: "(Maior = modelo mais simples, menor risco de overfitting)"
+          btn_1: "1 (regularização baixa)"
+          btn_3: "3 (recomendado)"
+          btn_5: "5 (regularização alta)"
+          btn_custom: "Personalizado"
+        configuration_complete:
+          title: "✅ **Configuração CatBoost Concluída**"
+          model_label: "🎯 **Modelo**:"
+          parameters_label: "⚙️ **Parâmetros**:"
+          param_iterations: "• iterations: %{value}"
+          param_depth: "• depth: %{value}"
+          param_learning_rate: "• learning\\_rate: %{value}"
+          param_l2_leaf_reg: "• l2\\_leaf\\_reg: %{value}"
+          starting_training: "🚀 Iniciando treinamento..."
+
+    # Especificação de Arquitetura
+    architecture:
+      header: "🏗️ **Configuração de Arquitetura**"
+      choose_prompt: "Escolha a arquitetura:"
+      option_1_default: "1. Template padrão (recomendado)"
+      option_2_custom: "2. JSON personalizado (avançado)"
+      enter_choice: "Digite sua escolha:"
+      default_selected: "✅ **Arquitetura Padrão Selecionada**"
+      input_features: "• Entrada: %{count} características"
+      hidden_layer: "• Oculta: Dense(%{units}, relu)"
+      output_layer: "• Saída: Dense(%{units}, %{activation})"
+      loss_label: "• Perda: %{loss}"
+      optimizer_label: "• Otimizador: %{optimizer}"
+      custom_mode_header: "**Modo de Arquitetura Personalizada**"
+      custom_prompt: "Por favor, envie sua arquitetura como JSON."
+      custom_example_format: "Formato de exemplo:"
+      custom_accepted: "✅ **Arquitetura Personalizada Aceita**"
+      layers_count: "• Camadas: %{count}"
+      invalid_choice: "❌ Escolha inválida. Por favor, digite **1** para template padrão ou **2** para JSON personalizado."
+      enter_number: "Por favor, digite um número (**1** ou **2**)."
+      invalid_json: "❌ **Formato JSON Inválido**\n\nErro: %{error}\n\nPor favor, envie JSON válido ou digite **1** para usar o template padrão."
+      missing_fields: "❌ **Campos Obrigatórios Faltando**\n\nObrigatório: %{fields}\n\nPor favor, inclua todos os campos obrigatórios."
+      architecture_stored: "✅ **Arquitetura Salva**"
+
+    # Coleta de Hiperparâmetros
+    hyperparameters:
+      header: "⚙️ **Parâmetros de Treinamento**"
+      epochs_prompt: "Quantas épocas? (Recomendado: 100-500)"
+      epochs_prompt_dataset: "Quantas épocas? (Recomendado: 100-500 para este tamanho de conjunto de dados)"
+      batch_size_prompt: "Tamanho do lote? (Recomendado: 32-128, padrão: **32**)"
+      epochs_confirmed: "✅ Épocas: **%{epochs}**"
+      invalid_epochs: "⚠️ **Épocas Inválidas**\n\nÉpocas devem estar entre **1** e **10000**.\nRecomendado: 100-500 para a maioria dos conjuntos de dados.\n\nPor favor, insira épocas:"
+      invalid_batch_size: "⚠️ **Tamanho de Lote Inválido**\n\nTamanho do lote deve ser pelo menos **1**.\nRecomendado: 32-128.\n\nPor favor, insira o tamanho do lote:"
+      config_summary: "✅ **Configuração de Treinamento**\n\n• Modelo: %{model_type}\n• Épocas: **%{epochs}**\n• Tamanho do lote: **%{batch_size}**\n• Camadas: %{layers}\n\n🚀 Iniciando treinamento..."
+      invalid_number: "❌ Por favor, insira um número válido para **%{step}**."
+      epochs_set: "✅ **Épocas:** %{value}"
+      batch_size_set: "✅ **Tamanho do Lote:** %{value}"
+      prompt_epochs: "**Inserir épocas** (1-1000, recomendado: 10-100):"
+      prompt_batch_size: "**Inserir batch_size** (1-1024, recomendado: 16-64):"
+
+    # Execução de Treinamento
+    training:
+      starting: "🚀 **Iniciando Treinamento...**"
+      success_header: "🎉 **Treinamento Completo!**"
+      error_header: "❌ **Treinamento Falhou**"
+      error_details: "Erro: %{error}"
+      patience: "Isso pode levar alguns momentos."
+      model_ready: "✅ **Modelo Pronto!**"
+      default_name_display: "📝 **Nome Padrão:**"
+      model_type_display: "🎯 **Tipo:**"
+      ready_for_predictions: "💾 Seu modelo está pronto para previsões!"
+
+
+      completion:
+        header: "✅ **Treinamento Completo!**"
+        model_label: "🎯 **Modelo**"
+        model_id_label: "🆔 **ID do Modelo**"
+        metrics_label: "📊 **Métricas:**"
+        naming_prompt: "Você gostaria de dar um nome personalizado a este modelo?"
+        buttons:
+          name_model: "📝 Nomear Modelo"
+          skip_naming: "⏭️ Pular - Usar Padrão"
+
+      metrics:
+        performance_header: "📊 **Métricas de Desempenho**:"
+
+      naming:
+        header: "📝 **Nomeie Seu Modelo**"
+        description: "Escolha um nome memorável para seu modelo."
+        rules_header: "**Regras:**"
+        rules_length: "• 3-100 caracteres"
+        rules_chars: "• Apenas letras, números, espaços, hífens e sublinhados"
+        examples_header: "**Exemplos:**"
+        example1: "• `Preditor de Preço de Imóveis`"
+        example2: "• `Modelo de Rotatividade de Clientes v2`"
+        example3: "• `Previsão de Vendas 2025`"
+        input_prompt: "💬 **Digite seu nome personalizado:**"
+
+      errors:
+        config_save_failed: "❌ **Falha ao Salvar Configuração**\n\nNão foi possível salvar sua seleção. Por favor, tente novamente."
+        config_save_failed_short: "❌ **Falha ao Salvar Configuração**\n\nPor favor, tente novamente."
+        message_update_error: "❌ **Erro ao Atualizar Mensagem**\n\nPor favor, use /train para reiniciar."
+        config_data_lost: "❌ **Erro de Configuração**\n\nDados de configuração perdidos. Por favor, reinicie com /train"
+        config_data_lost_short: "❌ **Erro de Configuração**\n\nPor favor, reinicie com /train"
+        model_id_not_found: "❌ **Erro de Sessão**\n\nID do modelo não encontrado. Por favor, reinicie com /train"
+
+    # Cancelamento de Workflow
+    cancellation:
+      cancelled: "❌ **Workflow Cancelado**"
+      cleared: "Sessão limpa. Use %{command} para começar novamente."
+
+# Traduções de Workflow de Template
+  templates:
+    save:
+      prompt: "💾 **Salvar como Template**\n\nInsira um nome para este template de configuração:\n\n**Exemplos:** `previsao_habitacao`, `churn_clientes`"
+      invalid_name: "❌ **Nome de Template Inválido**\n\nErro: %{error}"
+      name_exists: "⚠️ **Template Já Existe**\n\nTemplate '%{name}' já existe. Por favor, escolha um nome diferente."
+      missing_config: "❌ Não é possível salvar template: Configuração obrigatória faltando. Por favor, complete a configuração de treinamento primeiro."
+      success: "✅ **Template Salvo**\n\nTemplate '%{name}' salvo com sucesso!"
+      failed: "❌ **Falha ao Salvar Template**\n\nErro: %{error}"
+      continue_training: "**O que você gostaria de fazer a seguir?**"
+      cancel_button: "❌ Cancelar"
+
+    load:
+      no_templates: "⚠️ **Nenhum Template Encontrado**\n\nVocê ainda não tem templates salvos.\n\nUse o fluxo de treinamento e clique em 'Salvar como Template' para criar um!"
+      prompt: "📋 **Carregar Template**\n\nSelecione um template para carregar (%{count} disponível):"
+      not_found: "❌ **Template Não Encontrado**\n\nTemplate '%{name}' não encontrado."
+      summary_header: "📋 **Template: %{name}**"
+      file_path_invalid: "❌ **Caminho de Arquivo Inválido**\n\nCaminho: `%{path}`\nErro: %{error}\n\nPor favor, atualize o template ou escolha um diferente."
+      data_loaded: "✅ **Dados Carregados**\n\nLinhas: %{rows:,} | Colunas: %{columns}"
+      data_deferred: "⏳ **Carregamento de Dados Adiado**\n\nOs dados serão carregados quando o treinamento iniciar."
+      load_failed: "❌ **Falha ao Carregar Template**\n\nErro: %{error}"
+      back_button: "🔙 Voltar"
+      use_template_button: "✅ Usar Este Template"
+      back_to_list_button: "🔙 Voltar aos Templates"
+
+    messages:
+      run_prediction_button: "🚀 Executar Previsão"
+
+    cancel:
+      cancelled: "❌ Operação de template cancelada."
+      no_previous_state: "❌ Não é possível cancelar: Nenhum estado anterior disponível."
+
+  # Traduções do Navegador de Modelos
+  models_browser:
+  list_header: "📚 **Catálogo de Modelos ML**"
+  browse_message: "Navegue por %{total_models} modelos disponíveis para treinamento."
+  page_info: "**Página %{current}/%{total}**"
+  closed: "✅ **Navegador de Modelos Fechado**\n\nUse /models para navegar pelos modelos novamente."
+  invalid_selection: "❌ **Erro**\n\nSeleção de modelo inválida. Por favor, tente /models novamente."
+  model_not_found: "❌ **Modelo Não Encontrado**\n\nModelo `%{model_id}` não encontrado no catálogo."
+  malformed_update: "❌ **Solicitação Inválida**\n\nPor favor, tente %{command} novamente."
+
+  # Botões de navegação
+  navigation:
+    back_button: "← Voltar aos Modelos"
+    cancel_button: "✖️ Cancelar"
+    prev_button: "← Anterior"
+    next_button: "Próximo →"
+
+  # Erros de Workflow de Previsão (adicional aos existentes)
+  prediction:
+    errors:
+      malformed_update: "❌ **Solicitação Inválida**\n\nPor favor, reinicie com /predict"
+      invalid_state: "❌ **Estado Inválido**\n\nEstado esperado: `%{expected}`\nEstado atual: `%{current}`\n\nPor favor, use /predict para reiniciar o workflow."
+      transition_failed: "❌ **Falha na Transição**\n\nErro: %{error}\nFaltando: %{missing}\n\nPor favor, tente novamente ou use /predict para reiniciar."
+      session_expired: "❌ Sessão não encontrada. Por favor, inicie uma nova sessão com /predict."
+      model_loading_error: "❌ **Erro ao Carregar Modelo**\n\nFalha ao carregar modelos compatíveis: %{error}\n\n**Causas possíveis:**\n• Nenhum modelo treinado disponível\n• Metadados do modelo corrompidos\n• Problemas de permissão de arquivo\n\n**Solução:** Use /train para criar um modelo primeiro, depois tente /predict novamente."
+      invalid_selection: "❌ **Seleção Inválida**\n\nPor favor, tente novamente ou use /predict para reiniciar."
+      model_not_found: "❌ **Modelo Não Encontrado**\n\nPor favor, tente novamente."
+      model_display_error: "❌ Erro ao exibir lista de modelos devido a problema de formatação.\n\nEncontrados %{count} modelo(s) compatível(is) mas não é possível exibir detalhes.\n\nPor favor, entre em contato com o suporte ou tente /predict novamente."
+      session_error_no_pending_path: "❌ **Erro de Sessão**\n\nNenhum caminho pendente encontrado. Por favor, tente /predict novamente."
+
+    # Erros de Seleção de Características
+    features:
+      invalid_format: |
+        ❌ **Formato Inválido**
+
+        **Para previsões, forneça APENAS características - não o alvo!**
+
+        A coluna alvo já foi definida quando o modelo foi treinado. Aqui você seleciona apenas quais características (colunas de entrada) usar para fazer previsões.
+
+        **Formato correto:**
+        `Atributo1, Atributo2, Atributo3`
+
+        **NÃO inclua:**
+        • Prefixo `target:` - previsões não selecionam alvos
+        • Prefixo `features:` - apenas liste os nomes das colunas
+
+        💡 **Dica:** Verifique as características exigidas pelo seu modelo e forneça os mesmos nomes de colunas do seu novo conjunto de dados.
+      auto_corrected: "ℹ️ **Formato Auto-Corrigido**\n\nDetectado formato de fluxo de treinamento. Para previsões, apenas liste os nomes das características sem o prefixo 'features:'.\n\n**Processando:** %{features}"
+      validation_error: "❌ **Erro de Validação de Característica**\n\n%{error}\n\n**Características inválidas:** %{invalid_list}"
+      selected: "✅ **Características Selecionadas:** %{count} colunas"
+
+    # Seleção de Modelo
+    model:
+      no_models: "⚠️ **Nenhum Modelo Treinado**\n\nVocê ainda não tem nenhum modelo treinado.\n\n**Comece:**\nUse /train para criar seu primeiro modelo!"
+      selected: "✅ **Modelo Selecionado**\n\nModelo: `%{model_id}`\nTipo: %{model_type}\nAlvo: %{target}"
+      feature_mismatch: "❌ **Incompatibilidade de Características**\n\nModelo espera: %{model_features}\nVocê selecionou: %{selected_features}\n\nPor favor, selecione as mesmas características usadas durante o treinamento."
+
+    # Deletar Modelos
+    delete_models:
+      button: "🗑️ Deletar modelos"
+      title: "🗑️ Selecione Modelos para Deletar\n\nClique nos modelos para selecionar/deselecionar.\nModelos selecionados serão permanentemente deletados."
+      confirm_button: "🗑️ Confirmar exclusão"
+      cancel_button: "❌ Cancelar"
+      success: "✅ %{count} modelo(s) deletado(s)\n\nRetornando à seleção de modelos..."
+      none_selected: "⚠️ Nenhum Modelo Selecionado\n\nPor favor, selecione pelo menos um modelo para deletar."
+      selected_prefix: "✅ "
+      unselected_prefix: "⬜ "
+
+    # Confirmação de Coluna
+    column:
+      conflict: "❌ **Conflito de Nome de Coluna**\n\nColuna `%{column}` já existe no seu conjunto de dados.\n\n**Colunas existentes:** %{columns}\n\n**Solução:** Por favor, reinicie /predict e escolha um nome de coluna diferente."
+      confirmed: "✅ **Nome de Coluna Confirmado:** `%{column}`"
+
+    # Execução
+    running: "🔮 **Executando Previsão...**\n\n⏳ Carregando modelo, processando dados, gerando previsões..."
+    data_not_found: "❌ **Dados Não Encontrados**\n\nDados de previsão estão faltando na sessão. Isso pode acontecer se:\n• Sessão expirou\n• Carregamento de dados falhou silenciosamente\n• Limite de memória excedido\n\n**Solução:** Por favor, recarregue o template ou reinicie com /predict"
+    column_conflict_deferred: "❌ **Conflito de Nome de Coluna**\n\nColuna `%{column}` já existe no seu conjunto de dados.\n\n**Colunas existentes:** %{columns_preview}...\n\n**Solução:** Por favor, reinicie /predict e escolha um nome de coluna diferente."
+
+    # Opções de Saída
+    output:
+      prompt: "**📁 Escolher Método de Saída**\n\nComo você gostaria de receber os resultados da previsão?\n\n**💾 Salvar em Arquivo**: Salvar diretamente no seu sistema de arquivos\n• Melhor para: Grandes conjuntos de dados, fluxos automatizados\n\n**📥 Download via Telegram**: Enviar arquivo pelo chat\n• Máx: 50MB | Melhor para: Downloads rápidos\n\n**✅ Concluído**: Pular saída e finalizar"
+      preparing_download: "📥 **Preparando download...**"
+      download_complete: "📥 **Download Completo de Resultados**"
+
+    # Salvamento de Arquivo
+    save:
+      validating_path: "🔍 **Validando caminho...**"
+      saving: "💾 **Salvando arquivo...**"
+      success: "✅ **Arquivo Salvo com Sucesso**\n\nLocalização: `%{path}`\nLinhas: %{rows:,}\n\n**O que vem a seguir?**\nVocê pode:\n• Fazer mais previsões: /predict\n• Treinar novos modelos: /train\n• Ver modelos: /models"
+      error: "❌ **%{error_type}**\n\n%{details}\n\n**Solução:** Por favor, tente novamente ou use /predict para reiniciar."
+      custom_filename_prompt: "✏️ **Nome de Arquivo Personalizado**\n\nInsira o nome de arquivo desejado (inclua extensão .csv):\n\n**Exemplo:** `minhas_previsoes.csv`"
+      filename_confirmation: "**Confirmação de Nome de Arquivo**\n\n**Padrão:** `%{filename}`\n**Diretório:** `%{directory}`\n\n**Opções:**\n• Usar nome padrão\n• Inserir nome personalizado"
+
+    # Salvamento de Template
+    template_save:
+      prompt: "**O que você gostaria de fazer a seguir?**\n\nVocê pode salvar esta configuração de previsão como template para reutilização rápida, ou pular diretamente para as opções de saída."
+      skipped: "⏭️ **Salvamento de Template Pulado**\n\nProsseguindo para opções de saída..."
+      button_save: "💾 Salvar como Template"
+      button_skip: "✅ Concluído"
+
+    # Navegação
+    navigation:
+      going_back: "⬅️ **Voltando**\n\nVamos selecionar um modelo diferente."
+      workflow_cancelled: "❌ **Workflow Cancelado**\n\nSeu workflow de previsão foi cancelado.\n\n**Começar Novamente:**\n• /predict - Iniciar nova previsão\n• /train - Treinar um novo modelo"
+
+  # Erros de Treinamento ML de Caminho Local
+ml_training_local_path:
+  errors:
+    invalid_request: "❌ **Solicitação Inválida**\n\nPor favor, reinicie com /train"
+    malformed_update: "❌ **Solicitação Inválida**\n\nPor favor, tente /train novamente."
+    state_transition_failed: "❌ Falha na transição de estado: %{error}"
+    session_expired: "❌ Sessão expirou. Por favor, reinicie com /train"
+
+  # Seleção de Fonte de Dados
+  data_source:
+    telegram_selected: "✅ **Upload via Telegram**\n\n📤 Por favor, envie seu arquivo.\n\n**Formatos:** CSV, Excel, Parquet | **Máx:** 10MB"
+    path_validated: "✅ **Caminho Validado**"
+
+  # Processamento de Caminho de Arquivo
+  path:
+    validating: "🔍 **Validando caminho...**"
+    loading: "🔄 **Carregando dados...**"
+    validation_error: "❌ **Erro de Validação**\n\n%{error}"
+    unexpected_error: "❌ **Erro Inesperado**\n\n%{details}"
+
+  # Seleção de Opção de Carregamento
+  load_option:
+    immediate_loading: "🔄 **Carregando Agora**"
+    deferred_loading: "⏳ **Carregamento Adiado**"
+
+  # Processamento de Esquema
+  schema:
+    detected: "✅ **Dados Carregados com Sucesso**"
+    accepted: "✅ **Esquema Aceito!**"
+    rejected: "❌ **Esquema Rejeitado**\n\nPor favor, forneça um caminho de arquivo diferente."
+    parse_error: "❌ **Erro de Análise de Esquema**\n\n%{error}\n\nPor favor, tente novamente com o formato correto."
+    dataset_summary_header: "📊 **Resumo do Dataset**"
+    rows: "Linhas"
+    columns: "Colunas"
+    quality_score: "Pontuação de Qualidade"
+
+  # Proteção por Senha
+  password:
+    prompt: "🔐 **Senha Necessária**\n\nO caminho que você digitou não está nos diretórios permitidos:\n`%{path}`\n\n**Resolvido para:** `%{resolved}`\n\nPara acessar este diretório, por favor digite a senha.\n\n⚠️ **Nota de Segurança:** Isso concederá acesso a TODOS os arquivos neste diretório apenas para a sessão atual."
+    success: "✅ **Acesso Concedido**\n\nDiretório adicionado aos caminhos permitidos para esta sessão:\n`%{directory}`\n\nVocê agora pode acessar qualquer arquivo neste diretório."
+    failure: "❌ **Senha Incorreta**\n\n%{error}\n\nPor favor, tente novamente."
+    lockout: "🔒 **Acesso Bloqueado**\n\nMuitas tentativas de senha falhadas.\n\nPor favor, aguarde %{seconds} segundos antes de tentar novamente, ou escolha um caminho diferente da lista de permissões."
+    timeout: "⏱️ **Tempo Esgotado da Sessão**\n\nO prompt de senha expirou (limite de 5 minutos).\n\nPor favor, reinicie com /train ou /predict para tentar novamente."
+    session_error: "❌ **Erro de Sessão**\n\nNenhum caminho pendente encontrado. Por favor, tente /predict novamente."
+
+  # Nomeação de Modelo
+  model_naming:
+    prompt: "✏️ **Nome de Modelo Personalizado**\n\nInsira um nome descritivo para seu modelo:\n\n**Exemplos:** `preditor_habitacao`, `churn_clientes_v2`\n\n**Regras:**\n• Apenas letras, números e sublinhados\n• 3-50 caracteres\n• Deve ser único"
+    invalid: "❌ **Nome de Modelo Inválido**\n\n%{error}\n\nPor favor, tente novamente."
+    already_exists: "❌ **Nome de Modelo Já Existe**\n\nVocê já tem um modelo chamado '%{name}'.\n\nPor favor, escolha um nome diferente."
+    confirmed: "✅ **Nome do Modelo:** `%{name}`"

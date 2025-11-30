@@ -95,6 +95,7 @@ class MLPredictionState(Enum):
 
     # NEW: Local file save workflow states
     AWAITING_SAVE_PATH = "awaiting_save_path"              # User provides output directory
+    AWAITING_SAVE_PASSWORD = "awaiting_save_password"      # Password entry for non-whitelisted save path
     CONFIRMING_SAVE_FILENAME = "confirming_save_filename"  # User confirms filename
 
     # NEW: Prediction template workflow states
@@ -148,6 +149,11 @@ class UserSession:
 
     # NEW: Prediction workflow - compatible models list for button index lookup
     compatible_models: Optional[List[Dict[str, Any]]] = None  # Stores models for index-based button selection
+
+    # NEW: i18n support - user language preference
+    language: str = "en"  # User's preferred language (ISO 639-1: en, pt)
+    language_detected_at: Optional[datetime] = None  # When language was detected
+    language_detection_confidence: float = 0.0  # Detection confidence (0-1)
 
     # NEW: Password-protected path access
     dynamic_allowed_directories: List[str] = field(default_factory=list)  # Session-scoped whitelist expansion
@@ -441,7 +447,12 @@ ML_PREDICTION_TRANSITIONS: Dict[Optional[str], Set[str]] = {
         MLPredictionState.SAVING_PRED_TEMPLATE.value     # NEW: User chooses "Save as Template"
     },
     MLPredictionState.AWAITING_SAVE_PATH.value: {
-        MLPredictionState.CONFIRMING_SAVE_FILENAME.value # Path validated, confirm filename
+        MLPredictionState.AWAITING_SAVE_PASSWORD.value,   # NEW: Path not in whitelist
+        MLPredictionState.CONFIRMING_SAVE_FILENAME.value  # Path validated, confirm filename
+    },
+    MLPredictionState.AWAITING_SAVE_PASSWORD.value: {
+        MLPredictionState.CONFIRMING_SAVE_FILENAME.value,  # Password correct
+        MLPredictionState.AWAITING_SAVE_PATH.value         # Password cancel, retry
     },
     MLPredictionState.CONFIRMING_SAVE_FILENAME.value: {
         MLPredictionState.COMPLETE.value                 # File saved, back to complete

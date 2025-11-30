@@ -17,6 +17,7 @@ from src.core.training_template import TemplateConfig
 from src.bot.messages import template_messages
 from src.processors.data_loader import DataLoader
 from src.utils.path_validator import PathValidator
+from src.utils.i18n_manager import I18nManager
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +80,9 @@ class TemplateHandlers:
             await query.edit_message_text(f"❌ {error_msg}")
             return
 
-        # Prompt for template name
-        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="cancel_template")]]
+        # Prompt for template name with i18n
+        locale = session.language if session.language else None
+        keyboard = [[InlineKeyboardButton(I18nManager.t('workflow_state.buttons.cancel', locale=locale), callback_data="cancel_template")]]
         await query.edit_message_text(
             template_messages.TEMPLATE_SAVE_PROMPT,
             parse_mode="Markdown",
@@ -153,10 +155,11 @@ class TemplateHandlers:
                 parse_mode="Markdown"
             )
 
-            # Offer to continue training or finish
+            # Offer to continue training or finish with i18n
+            locale = session.language if session.language else None
             keyboard = [
-                [InlineKeyboardButton("🚀 Start Training Now", callback_data="start_training")],
-                [InlineKeyboardButton("✅ Done (Exit)", callback_data="complete")]
+                [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.start_training', locale=locale), callback_data="start_training")],
+                [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.done_exit', locale=locale), callback_data="complete")]
             ]
             await update.message.reply_text(
                 template_messages.TEMPLATE_CONTINUE_TRAINING,
@@ -214,14 +217,15 @@ class TemplateHandlers:
             )
             return
 
-        # Display templates as buttons
+        # Display templates as buttons with i18n
+        locale = session.language if session.language else None
         keyboard = []
         for template in templates:
             button_text = f"📄 {template.template_name}"
             callback_data = f"load_template:{template.template_name}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
 
-        keyboard.append([InlineKeyboardButton("🔙 Back", callback_data="back")])
+        keyboard.append([InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back', locale=locale), callback_data="back")])
 
         await query.edit_message_text(
             template_messages.TEMPLATE_LOAD_PROMPT.format(count=len(templates)),
@@ -306,11 +310,12 @@ class TemplateHandlers:
             created_at=template.created_at
         )
 
-        # Ask about loading data
+        # Ask about loading data with i18n
+        locale = session.language if session.language else None
         keyboard = [
-            [InlineKeyboardButton("📥 Load Data Now", callback_data="template_load_now")],
-            [InlineKeyboardButton("⏳ Defer Loading", callback_data="template_defer")],
-            [InlineKeyboardButton("🔙 Back to Templates", callback_data="back")]
+            [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.load_now', locale=locale), callback_data="template_load_now")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.defer_loading', locale=locale), callback_data="template_defer")],
+            [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back_to_templates', locale=locale), callback_data="back")]
         ]
 
         await query.edit_message_text(
@@ -371,12 +376,13 @@ class TemplateHandlers:
                     parse_mode="Markdown"
                 )
 
-                # Offer training action (Bug #10 fix)
+                # Offer training action (Bug #10 fix) with i18n
+                locale = session.language if session.language else None
                 keyboard = [
-                    [InlineKeyboardButton("🚀 Start Training Now", callback_data="start_training")]
+                    [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.start_training', locale=locale), callback_data="start_training")]
                 ]
                 await query.message.reply_text(
-                    "What would you like to do?",
+                    I18nManager.t('workflows.ml_training.what_next', locale=locale),
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
 

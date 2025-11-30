@@ -1,0 +1,10 @@
+{
+  "feature_names": [
+    "feature_1",
+    "feature_2",
+    "feature_3",
+    "feature_4",
+    "feature_5"
+  ],
+  "n_features": 5
+}
