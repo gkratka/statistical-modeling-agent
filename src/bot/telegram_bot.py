@@ -30,13 +30,17 @@ from telegram.ext import (
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.bot import handlers
+# Local Worker imports (must be after sys.path.insert)
+from src.worker.websocket_server import WebSocketServer
+from src.worker.http_server import HTTPServer
+
+from src.bot import main_handlers as handlers
 from src.bot.ml_handlers.ml_training_local_path import register_local_path_handlers
 from src.bot.ml_handlers.prediction_handlers import register_prediction_handlers
 from src.bot.ml_handlers.prediction_template_handlers import PredictionTemplateHandlers
 from src.bot.ml_handlers.models_browser_handler import ModelsBrowserHandler
 
-# Import handler functions from handlers.py file
+# Import handler functions from main_handlers.py file
 start_handler = handlers.start_handler
 help_handler = handlers.help_handler
 pt_handler = handlers.pt_handler
@@ -106,6 +110,11 @@ class StatisticalModelingBot:
         self.application: Optional[Application] = None
         self.logger = get_logger(__name__)
         self._shutdown_requested = False
+
+        # Local Worker servers
+        self._websocket_server: Optional[WebSocketServer] = None
+        self._http_server: Optional[HTTPServer] = None
+        self._worker_enabled = False
 
     def _load_configuration(self) -> Dict[str, str]:
         """
@@ -219,6 +228,19 @@ class StatisticalModelingBot:
         self.application.add_handler(CommandHandler("version", version_handler))
         self.application.add_handler(CommandHandler("diagnostic", diagnostic_handler))
         self.application.add_handler(CommandHandler("cancel", cancel_handler))
+
+        # Local worker command handlers
+        from src.bot.handlers.connect_handler import (
+            handle_connect_command,
+            handle_worker_connect_button,
+            handle_worker_autostart_command
+        )
+        from telegram.ext import CallbackQueryHandler
+        self.application.add_handler(CommandHandler("connect", handle_connect_command))
+        self.application.add_handler(CommandHandler("worker", handle_worker_autostart_command))
+        self.application.add_handler(
+            CallbackQueryHandler(handle_worker_connect_button, pattern="^worker_connect$")
+        )
 
         # Register local path training handlers (NEW)
         # This replaces the old train_handler with the enhanced version
@@ -387,6 +409,70 @@ class StatisticalModelingBot:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
+    async def _setup_worker_servers(self, yaml_config: Dict[str, Any]) -> None:
+        """Set up WebSocket and HTTP servers for local worker connections.
+
+        Args:
+            yaml_config: YAML configuration dict
+        """
+        worker_config = yaml_config.get("worker", {})
+        self._worker_enabled = worker_config.get("enabled", False)
+
+        if not self._worker_enabled:
+            self.logger.info("Local Worker feature: DISABLED")
+            return
+
+        # Get server configuration
+        ws_host = worker_config.get("websocket_host", "0.0.0.0")
+        ws_port = worker_config.get("websocket_port", 8765)
+        http_host = worker_config.get("http_host", "0.0.0.0")
+        http_port = worker_config.get("http_port", 8080)
+        worker_script_path = Path(worker_config.get("script_path", "worker/statsbot_worker.py"))
+
+        # Create WebSocket server
+        self._websocket_server = WebSocketServer(
+            host=ws_host,
+            port=ws_port,
+        )
+
+        # Create HTTP server for worker script
+        self._http_server = HTTPServer(
+            host=http_host,
+            port=http_port,
+            worker_script_path=worker_script_path,
+        )
+
+        # Setup worker connection callbacks
+        from src.bot.handlers.connect_handler import notify_worker_connected, notify_worker_disconnected
+
+        async def on_worker_connect(user_id: int, machine_name: str):
+            """Callback when worker connects."""
+            if self.application:
+                await notify_worker_connected(self.application.bot, user_id, machine_name)
+
+        async def on_worker_disconnect(user_id: int):
+            """Callback when worker disconnects."""
+            if self.application:
+                await notify_worker_disconnected(self.application.bot, user_id)
+
+        self._websocket_server.worker_manager.on_connect(on_worker_connect)
+        self._websocket_server.worker_manager.on_disconnect(on_worker_disconnect)
+
+        # Start servers
+        await self._websocket_server.start()
+        await self._http_server.start()
+
+        # Store in bot_data for handler access
+        if self.application:
+            self.application.bot_data['websocket_server'] = self._websocket_server
+            self.application.bot_data['worker_enabled'] = True
+            # Store worker HTTP URL for /connect command
+            self.application.bot_data['worker_http_url'] = f"http://{http_host}:{http_port}"
+
+        self.logger.info(f"Local Worker feature: ENABLED")
+        self.logger.info(f"  WebSocket server: ws://{ws_host}:{ws_port}")
+        self.logger.info(f"  HTTP server: http://{http_host}:{http_port}/worker")
+
     async def start(self) -> NoReturn:
         """
         Start the bot application.
@@ -413,6 +499,10 @@ class StatisticalModelingBot:
 
             # Setup handlers
             self._setup_handlers()
+
+            # Setup Local Worker servers (WebSocket + HTTP)
+            yaml_config = self._load_yaml_config()
+            await self._setup_worker_servers(yaml_config)
 
             # Setup signal handlers for graceful shutdown
             self._setup_signal_handlers()
@@ -485,6 +575,21 @@ class StatisticalModelingBot:
     async def _shutdown(self) -> None:
         """Perform graceful shutdown of the bot."""
         self.logger.info("Shutting down bot...")
+
+        # Stop Local Worker servers
+        if self._websocket_server:
+            try:
+                await self._websocket_server.stop()
+                self.logger.info("WebSocket server stopped")
+            except Exception as e:
+                self.logger.error(f"Error stopping WebSocket server: {e}")
+
+        if self._http_server:
+            try:
+                await self._http_server.stop()
+                self.logger.info("HTTP server stopped")
+            except Exception as e:
+                self.logger.error(f"Error stopping HTTP server: {e}")
 
         if self.application:
             try:
