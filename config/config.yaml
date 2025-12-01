@@ -122,6 +122,18 @@ templates:
   allowed_name_pattern: "^[a-zA-Z0-9_]{1,32}$"  # Template name validation regex
   name_max_length: 32               # Maximum template name length
 
+# Local Worker Configuration (Hybrid ML Execution)
+worker:
+  enabled: true                       # Feature flag: enable/disable local worker
+  websocket_host: 0.0.0.0             # WebSocket server host
+  websocket_port: 8765                # WebSocket server port
+  http_host: 0.0.0.0                  # HTTP server host (for /worker endpoint)
+  http_port: 8080                     # HTTP server port
+  script_path: worker/statsbot_worker.py  # Path to worker script
+  token_expiry_seconds: 300           # Token expiry (5 minutes)
+  reconnect_cooldown_seconds: 5       # Cooldown between reconnection attempts
+  max_workers_per_user: 1             # Maximum workers per user (MVP: 1)
+
 # Internationalization (i18n) Configuration
 i18n:
   enabled: true                     # Feature flag: enable/disable i18n
