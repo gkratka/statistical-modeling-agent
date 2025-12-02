@@ -101,13 +101,14 @@ async def handle_connect_command(
     # For Railway deployment, this will be the public URL
     # For local development, this will be localhost
     server_url = context.bot_data.get('worker_http_url', 'http://localhost:8080')
+    ws_url = context.bot_data.get('worker_ws_url', 'ws://localhost:8765/ws')
 
     # Build connection commands
     mac_linux_command = (
-        f"curl -s {server_url}/worker | python3 - --token={token}"
+        f"curl -s {server_url}/worker | python3 - --token={token} --ws-url={ws_url}"
     )
     windows_command = (
-        f"irm {server_url}/worker | python - --token={token}"
+        f"irm {server_url}/worker | python - --token={token} --ws-url={ws_url}"
     )
 
     # Send instructions
@@ -310,9 +311,10 @@ async def handle_worker_connect_button(
     token = token_manager.generate_token(user_id)
 
     server_url = context.bot_data.get('worker_http_url', 'http://localhost:8080')
+    ws_url = context.bot_data.get('worker_ws_url', 'ws://localhost:8765/ws')
 
-    mac_linux_command = f"curl -s {server_url}/worker | python3 - --token={token}"
-    windows_command = f"irm {server_url}/worker | python - --token={token}"
+    mac_linux_command = f"curl -s {server_url}/worker | python3 - --token={token} --ws-url={ws_url}"
+    windows_command = f"irm {server_url}/worker | python - --token={token} --ws-url={ws_url}"
 
     message = (
         "🔌 **Connect Local Worker**\n\n"

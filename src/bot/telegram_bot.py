@@ -471,6 +471,9 @@ class StatisticalModelingBot:
             display_host = "localhost" if http_host == "0.0.0.0" else http_host
             default_http_url = f"http://{display_host}:{http_port}"
             self.application.bot_data['worker_http_url'] = os.environ.get('WORKER_HTTP_URL', default_http_url)
+            # Store worker WebSocket URL for /connect command
+            default_ws_url = f"ws://{display_host}:{ws_port}/ws"
+            self.application.bot_data['worker_ws_url'] = os.environ.get('WORKER_WS_URL', default_ws_url)
 
         self.logger.info(f"Local Worker feature: ENABLED")
         self.logger.info(f"  WebSocket server: ws://{ws_host}:{ws_port}")
