@@ -87,8 +87,15 @@ async def handle_connect_command(
         return
 
     # Generate one-time token
+    # DEBUG: Print object IDs for verification
+    print(f"📱 CONNECT HANDLER: Getting token_manager from websocket_server", flush=True)
+    print(f"📱 WebSocketServer id: {id(websocket_server)}", flush=True)
+    print(f"📱 TokenManager id: {id(websocket_server.token_manager)}", flush=True)
+
     token_manager = websocket_server.token_manager
     token = token_manager.generate_token(user_id)
+
+    print(f"📱 Token generated: {token[:8]}...", flush=True)
 
     # Get server URL (from config or environment)
     # For Railway deployment, this will be the public URL

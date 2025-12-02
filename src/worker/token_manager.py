@@ -95,6 +95,11 @@ class TokenManager:
         self._tokens[token_value] = token
         self._user_tokens[user_id] = token_value
 
+        # DEBUG: Print for visibility (bypasses log level filtering)
+        print(f"🔑 TOKEN GENERATED: {token_value[:8]}... for user {user_id}", flush=True)
+        print(f"🔑 Total tokens in memory: {len(self._tokens)}", flush=True)
+        print(f"🔑 TokenManager id: {id(self)}", flush=True)
+
         logger.info(
             f"Generated token for user {user_id}, "
             f"expires at {token.expires_at.isoformat()}"
@@ -114,9 +119,15 @@ class TokenManager:
         Returns:
             The user_id if token is valid, None otherwise
         """
+        # DEBUG: Print validation attempt
+        print(f"🔐 VALIDATING TOKEN: {token_value[:8]}...", flush=True)
+        print(f"🔐 Known tokens: {[t[:8] + '...' for t in list(self._tokens.keys())[:5]]}", flush=True)
+        print(f"🔐 TokenManager id: {id(self)}", flush=True)
+
         token = self._tokens.get(token_value)
 
         if token is None:
+            print(f"❌ TOKEN NOT FOUND in _tokens dict!", flush=True)
             logger.warning(f"Token validation failed: unknown token")
             return None
 

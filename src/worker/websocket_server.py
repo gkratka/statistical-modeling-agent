@@ -282,6 +282,14 @@ class WebSocketServer:
         Returns:
             User ID if valid, None otherwise
         """
+        # DEBUG: Print validation path
+        print(f"🌐 WS _validate_token called for: {token[:8]}...", flush=True)
+        print(f"🌐 Using custom validator: {self._token_validator is not None}", flush=True)
+        print(f"🌐 TokenManager available: {self.token_manager is not None}", flush=True)
+        print(f"🌐 WebSocketServer id: {id(self)}", flush=True)
+        if self.token_manager:
+            print(f"🌐 TokenManager id in WS: {id(self.token_manager)}", flush=True)
+
         if self._token_validator:
             return self._token_validator(token)
         # Use internal token_manager
