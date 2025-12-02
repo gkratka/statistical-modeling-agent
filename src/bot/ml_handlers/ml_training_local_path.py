@@ -3567,25 +3567,46 @@ class LocalPathMLTrainingHandler:
                 'n_features': n_features
             }
 
-            # Call ML Engine to train (wrapped in executor to prevent blocking event loop)
-            # FIX: ml_engine.train_model() is synchronous and would block the async event loop
-            # during training (several minutes for 100 epochs). Using run_in_executor() runs
-            # the blocking call in a separate thread, keeping the event loop responsive.
-            import asyncio
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,  # Use default ThreadPoolExecutor
-                lambda: self.ml_engine.train_model(
-                    file_path=file_path,  # Lazy loading from deferred file
+            # WORKER ROUTING: Check if user has connected worker
+            websocket_server = context.bot_data.get('websocket_server')
+            worker_manager = websocket_server.worker_manager if websocket_server else None
+
+            if worker_manager and worker_manager.is_user_connected(user_id):
+                # Route to local worker
+                print(f"🖥️ DEBUG: User has connected worker, routing to local worker")
+                result = await self._execute_training_on_worker(
+                    user_id=user_id,
+                    file_path=file_path,
                     task_type='neural_network',
-                    model_type=model_type,  # 'keras_binary_classification'
+                    model_type=model_type,
                     target_column=target,
                     feature_columns=features,
-                    user_id=user_id,
-                    hyperparameters=hyperparameters,  # Complete hyperparameters with architecture
-                    test_size=1.0 - config.get('validation_split', 0.2)
+                    hyperparameters=hyperparameters,
+                    test_size=1.0 - config.get('validation_split', 0.2),
+                    context=context
                 )
-            )
+            else:
+                # Execute on bot (original code path)
+                print(f"🤖 DEBUG: No worker connected, executing on bot")
+                # Call ML Engine to train (wrapped in executor to prevent blocking event loop)
+                # FIX: ml_engine.train_model() is synchronous and would block the async event loop
+                # during training (several minutes for 100 epochs). Using run_in_executor() runs
+                # the blocking call in a separate thread, keeping the event loop responsive.
+                import asyncio
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None,  # Use default ThreadPoolExecutor
+                    lambda: self.ml_engine.train_model(
+                        file_path=file_path,  # Lazy loading from deferred file
+                        task_type='neural_network',
+                        model_type=model_type,  # 'keras_binary_classification'
+                        target_column=target,
+                        feature_columns=features,
+                        user_id=user_id,
+                        hyperparameters=hyperparameters,  # Complete hyperparameters with architecture
+                        test_size=1.0 - config.get('validation_split', 0.2)
+                    )
+                )
 
             print(f"🚀 DEBUG: Training result = {result}")
 
@@ -3937,6 +3958,117 @@ class LocalPathMLTrainingHandler:
             # Cancel workflow after naming error
             await self.state_manager.cancel_workflow(session)
 
+    async def _execute_training_on_worker(
+        self,
+        user_id: int,
+        file_path: str,
+        task_type: str,
+        model_type: str,
+        target_column: str,
+        feature_columns: list,
+        hyperparameters: dict,
+        test_size: float,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> dict:
+        """Execute training on connected local worker.
+
+        Creates a job and dispatches it to the worker, then waits for result.
+
+        Args:
+            user_id: User ID
+            file_path: Path to training data on worker machine
+            task_type: ML task type (regression, classification, neural_network)
+            model_type: Model type
+            target_column: Target column name
+            feature_columns: List of feature column names
+            hyperparameters: Model hyperparameters
+            test_size: Test set size
+            context: Bot context
+
+        Returns:
+            Training result dict with success, model_id, metrics
+        """
+        from src.worker.job_queue import JobType
+        import asyncio
+
+        # Get job queue from context
+        websocket_server = context.bot_data.get('websocket_server')
+        job_queue = websocket_server.job_queue if websocket_server else None
+
+        if not job_queue:
+            logger.error("Job queue not available")
+            return {
+                'success': False,
+                'error': 'Worker system not available'
+            }
+
+        # Create job parameters
+        job_params = {
+            'file_path': file_path,
+            'task_type': task_type,
+            'model_type': model_type,
+            'target_column': target_column,
+            'feature_columns': feature_columns,
+            'hyperparameters': hyperparameters,
+            'test_size': test_size
+        }
+
+        # Create job
+        job_id = await job_queue.create_job(
+            user_id=user_id,
+            job_type=JobType.TRAIN,
+            params=job_params,
+            timeout=600.0  # 10 minutes timeout for training
+        )
+
+        logger.info(f"Created training job {job_id} for user {user_id}")
+
+        # Wait for job to complete (poll job status)
+        max_wait = 600  # 10 minutes
+        poll_interval = 2  # 2 seconds
+        elapsed = 0
+
+        while elapsed < max_wait:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+            job = job_queue.get_job(job_id)
+            if not job:
+                return {
+                    'success': False,
+                    'error': 'Job not found'
+                }
+
+            # Check if completed
+            from src.worker.job_queue import JobStatus
+            if job.status == JobStatus.COMPLETED:
+                logger.info(f"Training job {job_id} completed successfully")
+                return {
+                    'success': True,
+                    'model_id': job.result.get('model_id'),
+                    'metrics': job.result.get('metrics', {}),
+                    'training_time': job.result.get('training_time', 0)
+                }
+            elif job.status == JobStatus.FAILED:
+                logger.error(f"Training job {job_id} failed: {job.error}")
+                return {
+                    'success': False,
+                    'error': job.error
+                }
+            elif job.status == JobStatus.TIMEOUT:
+                logger.error(f"Training job {job_id} timed out")
+                return {
+                    'success': False,
+                    'error': 'Training timed out'
+                }
+
+        # Timeout reached
+        logger.error(f"Training job {job_id} exceeded wait time")
+        return {
+            'success': False,
+            'error': 'Training exceeded maximum wait time'
+        }
+
     def _format_keras_metrics(self, metrics: dict) -> str:
         """
         Format Keras training metrics for display.
@@ -4258,7 +4390,7 @@ def register_local_path_handlers(
     )
 
     # Universal back button handler (Phase 2: Workflow Back Button)
-    from src.bot.handlers import handle_workflow_back
+    from src.bot.main_handlers import handle_workflow_back
     application.add_handler(
         CallbackQueryHandler(
             handle_workflow_back,
