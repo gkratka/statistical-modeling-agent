@@ -467,6 +467,7 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
         feature_columns = params.get("feature_columns")
         model_type = params.get("model_type")
         task_type = params.get("task_type", "regression")
+        hyperparameters = params.get("hyperparameters", {})
 
         if not target_column or not feature_columns:
             return create_result_message(
