@@ -33,6 +33,7 @@ sys.path.insert(0, str(project_root))
 # Local Worker imports (must be after sys.path.insert)
 from src.worker.websocket_server import WebSocketServer
 from src.worker.http_server import HTTPServer
+from src.worker.job_queue import JobQueue
 
 from src.bot import main_handlers as handlers
 from src.bot.ml_handlers.ml_training_local_path import register_local_path_handlers
@@ -433,6 +434,21 @@ class StatisticalModelingBot:
         self._websocket_server = WebSocketServer(
             host=ws_host,
             port=ws_port,
+        )
+
+        # Create job queue and attach to websocket server
+        job_queue = JobQueue(default_timeout=300.0)
+        job_queue.set_worker_manager(self._websocket_server.worker_manager)
+        self._websocket_server.job_queue = job_queue
+
+        # Register message handlers for job progress/results
+        self._websocket_server.register_message_handler(
+            "progress",
+            lambda user_id, msg: asyncio.create_task(job_queue.handle_progress(user_id, msg))
+        )
+        self._websocket_server.register_message_handler(
+            "result",
+            lambda user_id, msg: asyncio.create_task(job_queue.handle_result(user_id, msg))
         )
 
         # Create HTTP server for worker script
