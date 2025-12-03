@@ -157,8 +157,10 @@ class MLEngine:
                     raise ValueError(f"Unsupported file format: {file_ext}")
 
             except Exception as e:
+                # Escape underscores for Telegram Markdown (prevents italic stripping)
+                escaped_path = file_path.replace('_', '\\_')
                 raise DataValidationError(
-                    f"Failed to load data from `{file_path}`: {str(e)}"
+                    f"Failed to load data from {escaped_path}: {str(e)}"
                 )
 
         # Validate that we have data one way or another

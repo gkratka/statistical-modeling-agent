@@ -1698,22 +1698,41 @@ class LocalPathMLTrainingHandler:
                     hyperparameters = get_template(model_type)
                     print(f"⚡ DEBUG: Using LightGBM template hyperparameters: {hyperparameters}")
 
-            # Call ML Engine to train (wrapped in executor to prevent blocking event loop)
-            import asyncio
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,  # Use default ThreadPoolExecutor
-                lambda: self.ml_engine.train_model(
-                    file_path=file_path,  # Lazy loading from deferred file
+            # Check data source to determine execution path
+            # local_path files exist on user's machine → must route through JobQueue to worker
+            # uploaded files are available on server → can execute directly
+            if session.data_source == "local_path":
+                print(f"🔍 DEBUG: Routing sklearn training through JobQueue (local_path)")
+                # Route through JobQueue to worker (file is on user's machine)
+                result = await self._train_via_jobqueue(
+                    user_id=user_id,
+                    file_path=file_path,
                     task_type=task_type,
                     model_type=model_type,
                     target_column=target,
                     feature_columns=features,
-                    user_id=user_id,
                     hyperparameters=hyperparameters,
-                    test_size=0.2  # Default test split
+                    test_size=0.2,
+                    context=context
                 )
-            )
+            else:
+                # Direct execution for uploaded files (existing code path)
+                print(f"🔍 DEBUG: Executing sklearn training directly (uploaded file)")
+                import asyncio
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None,  # Use default ThreadPoolExecutor
+                    lambda: self.ml_engine.train_model(
+                        file_path=file_path,  # Lazy loading from deferred file
+                        task_type=task_type,
+                        model_type=model_type,
+                        target_column=target,
+                        feature_columns=features,
+                        user_id=user_id,
+                        hyperparameters=hyperparameters,
+                        test_size=0.2  # Default test split
+                    )
+                )
 
             print(f"🚀 DEBUG: Training result = {result}")
 
