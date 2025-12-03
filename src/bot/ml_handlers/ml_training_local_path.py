@@ -1704,7 +1704,7 @@ class LocalPathMLTrainingHandler:
             if session.data_source == "local_path":
                 print(f"🔍 DEBUG: Routing sklearn training through JobQueue (local_path)")
                 # Route through JobQueue to worker (file is on user's machine)
-                result = await self._train_via_jobqueue(
+                result = await self._execute_training_on_worker(
                     user_id=user_id,
                     file_path=file_path,
                     task_type=task_type,
