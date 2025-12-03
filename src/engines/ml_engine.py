@@ -158,7 +158,7 @@ class MLEngine:
 
             except Exception as e:
                 raise DataValidationError(
-                    f"Failed to load data from {file_path}: {str(e)}"
+                    f"Failed to load data from `{file_path}`: {str(e)}"
                 )
 
         # Validate that we have data one way or another
