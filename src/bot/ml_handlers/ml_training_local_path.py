@@ -327,6 +327,7 @@ class LocalPathMLTrainingHandler:
                 return
 
             print(f"📥 DEBUG: Unified text handler called with: {text_input[:50]}...")
+            print(f"🔍 PATH_DEBUG: Raw text_input from Telegram = '{text_input}'")
 
             # Get or create session - prevents false "Session Expired" errors
             session = await self.state_manager.get_or_create_session(user_id, str(chat_id))
@@ -631,6 +632,7 @@ class LocalPathMLTrainingHandler:
 
             # Store file path and get size
             session.file_path = pending_path
+            print(f"🔍 PATH_DEBUG: session.file_path AFTER password = '{session.file_path}'")
 
             # Check if worker is connected (for prod where file is on user's machine)
             websocket_server = context.bot_data.get('websocket_server')
@@ -799,6 +801,7 @@ class LocalPathMLTrainingHandler:
             self.logger.info(f"[LOAD_NOW] User {user_id} selected: {choice}")
             self.logger.info(f"[LOAD_NOW] Session state: {session.current_state}")
             self.logger.info(f"[LOAD_NOW] File path: {session.file_path}")
+            print(f"🔍 PATH_DEBUG: session.file_path at LOAD_NOW = '{session.file_path}'")
 
             loading_msg = await query.edit_message_text(
                 I18nManager.t('workflows.ml_training_local_path.path.loading', locale=locale)
@@ -3570,7 +3573,9 @@ class LocalPathMLTrainingHandler:
             config = session.selections.get('keras_config', {})
 
             print(f"🚀 DEBUG: Training params - target={target}, features={features}, model={model_type}")
-            print(f"🚀 DEBUG: File path={file_path}, config={config}")
+            print(f"🔍 PATH_DEBUG: session.file_path BEFORE training = '{session.file_path}'")
+            print(f"🔍 PATH_DEBUG: file_path variable = '{file_path}'")
+            print(f"🚀 DEBUG: config={config}")
 
             # Calculate number of features
             n_features = len(features)
@@ -4037,6 +4042,7 @@ class LocalPathMLTrainingHandler:
             'hyperparameters': hyperparameters,
             'test_size': test_size
         }
+        print(f"🔍 PATH_DEBUG: file_path in job_params = '{job_params['file_path']}'")
 
         # Create job
         job_id = await job_queue.create_job(
