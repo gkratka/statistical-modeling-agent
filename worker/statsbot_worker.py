@@ -498,27 +498,120 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             )
         )
 
-        # Train model (simplified - for full implementation, use ML engine)
-        from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-        from sklearn.linear_model import LinearRegression, LogisticRegression
+        # Train model - comprehensive support for all model types
         import pickle
+        hp = hyperparameters or {}
+        model = None
 
-        if task_type == "regression":
-            if model_type == "random_forest":
-                model = RandomForestRegressor(n_estimators=100, random_state=42)
-            elif model_type == "linear":
+        # LightGBM models
+        if model_type.startswith("lightgbm"):
+            from lightgbm import LGBMClassifier, LGBMRegressor
+            if "regression" in model_type:
+                model = LGBMRegressor(**hp)
+            else:
+                model = LGBMClassifier(**hp)
+
+        # XGBoost models
+        elif model_type.startswith("xgboost"):
+            from xgboost import XGBClassifier, XGBRegressor
+            if "regression" in model_type:
+                model = XGBRegressor(**hp)
+            else:
+                model = XGBClassifier(**hp)
+
+        # CatBoost models
+        elif model_type.startswith("catboost"):
+            from catboost import CatBoostClassifier, CatBoostRegressor
+            if "regression" in model_type:
+                model = CatBoostRegressor(**hp, verbose=0)
+            else:
+                model = CatBoostClassifier(**hp, verbose=0)
+
+        # Keras models
+        elif model_type.startswith("keras"):
+            from tensorflow import keras
+            architecture = hp.get("architecture", [64, 32])
+            epochs = hp.get("epochs", 50)
+            batch_size = hp.get("batch_size", 32)
+
+            model = keras.Sequential()
+            model.add(keras.layers.Input(shape=(X_train.shape[1],)))
+            for units in architecture:
+                model.add(keras.layers.Dense(units, activation="relu"))
+
+            if "regression" in model_type:
+                model.add(keras.layers.Dense(1))
+                model.compile(optimizer="adam", loss="mse", metrics=["mae"])
+            else:
+                n_classes = len(y_train.unique())
+                if n_classes == 2:
+                    model.add(keras.layers.Dense(1, activation="sigmoid"))
+                    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+                else:
+                    model.add(keras.layers.Dense(n_classes, activation="softmax"))
+                    model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+
+            model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=0, validation_split=0.1)
+            # Skip the fit below for Keras
+            model._already_fitted = True
+
+        # sklearn regression models
+        elif model_type in ["linear", "ridge", "lasso", "elasticnet", "polynomial"]:
+            from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+            from sklearn.preprocessing import PolynomialFeatures
+            from sklearn.pipeline import Pipeline
+
+            if model_type == "linear":
                 model = LinearRegression()
-            else:
-                return create_result_message(job_id, False, error=f"Unknown model type: {model_type}")
-        else:  # classification
-            if model_type == "random_forest":
-                model = RandomForestClassifier(n_estimators=100, random_state=42)
-            elif model_type == "logistic":
-                model = LogisticRegression(max_iter=1000)
-            else:
-                return create_result_message(job_id, False, error=f"Unknown model type: {model_type}")
+            elif model_type == "ridge":
+                model = Ridge(**hp)
+            elif model_type == "lasso":
+                model = Lasso(**hp)
+            elif model_type == "elasticnet":
+                model = ElasticNet(**hp)
+            elif model_type == "polynomial":
+                degree = hp.get("degree", 2)
+                model = Pipeline([
+                    ("poly", PolynomialFeatures(degree=degree)),
+                    ("linear", LinearRegression())
+                ])
 
-        model.fit(X_train, y_train)
+        # sklearn classification models
+        elif model_type in ["logistic", "decision_tree", "random_forest", "gradient_boosting", "svm", "naive_bayes"]:
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.tree import DecisionTreeClassifier
+            from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+            from sklearn.svm import SVC
+            from sklearn.naive_bayes import GaussianNB
+
+            if model_type == "logistic":
+                model = LogisticRegression(max_iter=1000, **hp)
+            elif model_type == "decision_tree":
+                model = DecisionTreeClassifier(**hp)
+            elif model_type == "random_forest":
+                model = RandomForestClassifier(n_estimators=100, **hp)
+            elif model_type == "gradient_boosting":
+                model = GradientBoostingClassifier(**hp)
+            elif model_type == "svm":
+                model = SVC(**hp)
+            elif model_type == "naive_bayes":
+                model = GaussianNB()
+
+        # MLP neural networks
+        elif model_type in ["mlp_regression", "mlp_classification"]:
+            from sklearn.neural_network import MLPRegressor, MLPClassifier
+            hidden_layers = hp.get("hidden_layer_sizes", (100, 50))
+            if model_type == "mlp_regression":
+                model = MLPRegressor(hidden_layer_sizes=hidden_layers, max_iter=500, **{k:v for k,v in hp.items() if k != "hidden_layer_sizes"})
+            else:
+                model = MLPClassifier(hidden_layer_sizes=hidden_layers, max_iter=500, **{k:v for k,v in hp.items() if k != "hidden_layer_sizes"})
+
+        else:
+            return create_result_message(job_id, False, error=f"Unknown model type: {model_type}")
+
+        # Fit model (skip if Keras already fitted)
+        if not getattr(model, "_already_fitted", False):
+            model.fit(X_train, y_train)
 
         # Evaluate
         from sklearn.metrics import r2_score, mean_squared_error, accuracy_score
