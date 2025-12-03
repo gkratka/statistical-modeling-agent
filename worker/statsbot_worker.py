@@ -334,6 +334,40 @@ def create_result_message(
 # ============================================================================
 
 
+def execute_file_info_job(job_id: str, params: Dict[str, Any]) -> str:
+    """
+    Get file metadata from local filesystem.
+
+    Args:
+        job_id: Job identifier
+        params: Parameters with 'file_path' key
+
+    Returns:
+        JSON-encoded result message
+    """
+    try:
+        file_path = params.get('file_path')
+        if not file_path:
+            return create_result_message(job_id, False, error="Missing file_path parameter")
+
+        path = Path(file_path).expanduser().resolve()
+
+        if not path.exists():
+            return create_result_message(job_id, False, error=f"File not found: {file_path}")
+        if not path.is_file():
+            return create_result_message(job_id, False, error=f"Not a file: {file_path}")
+
+        stat = path.stat()
+        return create_result_message(job_id, True, data={
+            'exists': True,
+            'size_bytes': stat.st_size,
+            'size_mb': round(stat.st_size / (1024 * 1024), 2),
+            'file_path': str(path)
+        })
+    except Exception as e:
+        return create_result_message(job_id, False, error=str(e))
+
+
 def execute_list_models_job(job_id: str) -> str:
     """
     Execute list_models job.
@@ -804,6 +838,8 @@ class WorkerClient:
             result = execute_train_job(job_id, params, self.send_message)
         elif action == "predict":
             result = execute_predict_job(job_id, params, self.send_message)
+        elif action == "file_info":
+            result = execute_file_info_job(job_id, params)
         else:
             result = create_result_message(job_id, False, error=f"Unknown action: {action}")
 

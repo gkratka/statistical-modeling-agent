@@ -33,6 +33,7 @@ class JobType(str, Enum):
     TRAIN = "train"
     PREDICT = "predict"
     LIST_MODELS = "list_models"
+    FILE_INFO = "file_info"
 
 
 class JobStatus(str, Enum):

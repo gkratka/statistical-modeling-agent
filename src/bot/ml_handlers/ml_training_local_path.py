@@ -1,7 +1,7 @@
 """Telegram bot handlers for ML training with local file path workflow."""
 
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 import telegram
@@ -631,7 +631,32 @@ class LocalPathMLTrainingHandler:
 
             # Store file path and get size
             session.file_path = pending_path
-            size_mb = get_file_size_mb(Path(pending_path))
+
+            # Check if worker is connected (for prod where file is on user's machine)
+            websocket_server = context.bot_data.get('websocket_server')
+            worker_connected = (
+                websocket_server and
+                websocket_server.worker_manager.is_user_connected(user_id)
+            )
+
+            if worker_connected:
+                # Use worker (for prod where file is on user's machine)
+                file_info = await self._get_file_info_from_worker(user_id, pending_path, context)
+                if file_info and file_info.get('exists'):
+                    size_mb = file_info.get('size_mb', 0)
+                else:
+                    await update.message.reply_text(
+                        "❌ **File Not Accessible**\n\n"
+                        "The worker couldn't access the file. Please verify:\n"
+                        "• The file path is correct\n"
+                        "• The worker is still connected\n"
+                        "• The file exists on your machine",
+                        parse_mode="Markdown"
+                    )
+                    return
+            else:
+                # Use local (for dev where file is on same machine as bot)
+                size_mb = get_file_size_mb(Path(pending_path))
 
             # Transition to load options
             session.save_state_snapshot()
@@ -4068,6 +4093,66 @@ class LocalPathMLTrainingHandler:
             'success': False,
             'error': 'Training exceeded maximum wait time'
         }
+
+    async def _get_file_info_from_worker(
+        self,
+        user_id: int,
+        file_path: str,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> Optional[Dict[str, Any]]:
+        """Get file info from worker. Returns None if no worker or error.
+
+        Used for backwards-compatible file size checking:
+        - If worker is connected, uses worker to check file on user's machine
+        - If no worker, caller should fall back to local file access
+
+        Args:
+            user_id: Telegram user ID
+            file_path: Path to file on user's machine
+            context: Bot context
+
+        Returns:
+            Dict with file info if successful, None otherwise
+        """
+        from src.worker.job_queue import JobType, JobStatus
+        import asyncio
+
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return None
+
+        job_queue = getattr(websocket_server, 'job_queue', None)
+        worker_manager = websocket_server.worker_manager
+
+        if not job_queue or not worker_manager.is_user_connected(user_id):
+            return None
+
+        try:
+            job_id = await job_queue.create_job(
+                user_id=user_id,
+                job_type=JobType.FILE_INFO,
+                params={'file_path': file_path},
+                timeout=30.0
+            )
+
+            # Poll for result
+            max_wait, poll_interval, elapsed = 30, 0.5, 0
+            while elapsed < max_wait:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                job = job_queue.get_job(job_id)
+                if not job:
+                    return None
+                if job.status == JobStatus.COMPLETED:
+                    return job.result
+                elif job.status in (JobStatus.FAILED, JobStatus.TIMEOUT):
+                    return None
+
+            return None
+        except Exception as e:
+            logger.error(f"Error getting file info from worker: {e}")
+            return None
 
     def _format_keras_metrics(self, metrics: dict) -> str:
         """
