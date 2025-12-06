@@ -383,9 +383,14 @@ class JobQueue:
             user_id: User ID of the worker
             message: Result message
         """
+        job_id = message.get("job_id", "unknown")
+        print(f"📥 JobQueue.handle_result called: job={job_id}, user={user_id}", flush=True)
+        logger.info(f"JobQueue.handle_result: job={job_id}, user={user_id}")
+
         # Validate message
         is_valid, error = validate_result_message(message)
         if not is_valid:
+            print(f"❌ Invalid result message: {error}", flush=True)
             logger.warning(f"Invalid result message from user {user_id}: {error}")
             return
 
@@ -406,10 +411,12 @@ class JobQueue:
             job.status = JobStatus.COMPLETED
             job.progress = 100
             job.result = message.get("data", {})
+            print(f"✅ Job {job_id} marked COMPLETED (result keys: {list(job.result.keys()) if job.result else 'none'})", flush=True)
             logger.info(f"Job completed: {job_id}")
         else:
             job.status = JobStatus.FAILED
             job.error = message.get("error", "Unknown error")
+            print(f"❌ Job {job_id} marked FAILED: {job.error}", flush=True)
             logger.warning(f"Job failed: {job_id} - {job.error}")
 
         # Mark worker as idle

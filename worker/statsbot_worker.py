@@ -917,6 +917,59 @@ class WorkerClient:
         if self.ws:
             await self.ws.send(message)
 
+    async def send_message_with_retry(self, message: str, max_retries: int = 3) -> bool:
+        """
+        Send message with retry logic to handle connection drops.
+
+        Args:
+            message: JSON-encoded message to send
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            True if message was sent successfully, False otherwise
+        """
+        for attempt in range(max_retries):
+            try:
+                if not self.ws or self.ws.closed:
+                    print(f"⚠️ WebSocket closed, reconnecting... (attempt {attempt + 1})")
+                    if not await self.connect() or not await self.authenticate():
+                        raise ConnectionError("Reconnection failed")
+
+                await self.ws.send(message)
+                print(f"📤 Message sent successfully (attempt {attempt + 1})")
+                return True
+
+            except Exception as e:
+                print(f"❌ Send failed (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                    # Reset connection for next attempt
+                    self.ws = None
+
+        print(f"❌ All {max_retries} send attempts failed")
+        return False
+
+    async def _keep_alive_ping(self, job_id: str) -> None:
+        """
+        Send periodic pings to keep WebSocket connection alive during long jobs.
+
+        Args:
+            job_id: Job ID for logging
+        """
+        try:
+            while True:
+                await asyncio.sleep(20)  # Ping every 20 seconds
+                if self.ws and not self.ws.closed:
+                    await self.ws.ping()
+                    print(f"📡 Ping sent (job: {job_id})")
+                else:
+                    print(f"⚠️ WebSocket closed during job {job_id}")
+                    break
+        except asyncio.CancelledError:
+            pass  # Normal cancellation when job completes
+        except Exception as e:
+            print(f"⚠️ Ping error: {e}")
+
     async def listen_for_jobs(self) -> None:
         """Listen for incoming jobs and execute them."""
         self.running = True
@@ -944,6 +997,9 @@ class WorkerClient:
         """
         Handle incoming job.
 
+        Uses heartbeat pings to keep connection alive during long-running jobs
+        and retry logic for sending results.
+
         Args:
             job: Job message
         """
@@ -953,21 +1009,36 @@ class WorkerClient:
 
         print(f"\n📋 Received job: {job_id} (action: {action})")
 
-        # Execute based on action
-        if action == "list_models":
-            result = execute_list_models_job(job_id)
-        elif action == "train":
-            result = execute_train_job(job_id, params, self.send_message)
-        elif action == "predict":
-            result = execute_predict_job(job_id, params, self.send_message)
-        elif action == "file_info":
-            result = execute_file_info_job(job_id, params)
-        else:
-            result = create_result_message(job_id, False, error=f"Unknown action: {action}")
+        # Start heartbeat ping task for long-running jobs
+        ping_task = asyncio.create_task(self._keep_alive_ping(job_id))
 
-        # Send result
-        await self.send_message(result)
-        print(f"✅ Job {job_id} completed")
+        try:
+            # Execute based on action
+            if action == "list_models":
+                result = execute_list_models_job(job_id)
+            elif action == "train":
+                result = execute_train_job(job_id, params, self.send_message)
+            elif action == "predict":
+                result = execute_predict_job(job_id, params, self.send_message)
+            elif action == "file_info":
+                result = execute_file_info_job(job_id, params)
+            else:
+                result = create_result_message(job_id, False, error=f"Unknown action: {action}")
+        finally:
+            # Cancel heartbeat task when job completes
+            ping_task.cancel()
+            try:
+                await ping_task
+            except asyncio.CancelledError:
+                pass
+
+        # Send result with retry logic for reliability
+        print(f"📤 Sending result for job {job_id}...")
+        success = await self.send_message_with_retry(result, max_retries=3)
+        if success:
+            print(f"✅ Job {job_id} completed and result sent")
+        else:
+            print(f"❌ Job {job_id} completed but failed to send result")
 
     async def run(self) -> None:
         """Run worker client with reconnection."""

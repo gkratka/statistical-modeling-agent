@@ -307,6 +307,11 @@ class WebSocketServer:
         try:
             message = json.loads(raw_message)
             message_type = message.get("type")
+            job_id = message.get("job_id", "unknown")
+
+            # Debug logging for message reception
+            print(f"📨 WS received: type={message_type}, job={job_id}, user={user_id}", flush=True)
+            logger.info(f"WS message received: type={message_type}, job_id={job_id}, user={user_id}")
 
             if not message_type:
                 logger.warning(f"Message without type from user {user_id}")
@@ -314,7 +319,9 @@ class WebSocketServer:
 
             handler = self._message_handlers.get(message_type)
             if handler:
+                print(f"🔄 Calling handler for {message_type} (job={job_id})", flush=True)
                 await handler(user_id, message)
+                print(f"✅ Handler completed for {message_type} (job={job_id})", flush=True)
             else:
                 logger.debug(f"No handler for message type: {message_type}")
 
@@ -322,3 +329,4 @@ class WebSocketServer:
             logger.warning(f"Invalid JSON from user {user_id}")
         except Exception as e:
             logger.error(f"Error handling message from user {user_id}: {e}")
+            print(f"❌ Handler error: {e}", flush=True)
