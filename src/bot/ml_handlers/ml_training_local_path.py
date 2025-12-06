@@ -1799,7 +1799,7 @@ class LocalPathMLTrainingHandler:
                 logger.error(f"Training failed: {error_msg}")
                 await update.effective_message.reply_text(
                     f"❌ **Training Failed**\n\n"
-                    f"Error: {error_msg}\n\n"
+                    f"Error: {escape_markdown_v1(str(error_msg))}\n\n"
                     f"Please try again with /train",
                     parse_mode="Markdown"
                 )
@@ -1819,7 +1819,7 @@ class LocalPathMLTrainingHandler:
             logger.error(f"Error during sklearn/XGBoost training: {e}", exc_info=True)
             await update.effective_message.reply_text(
                 f"❌ **Training Error**\n\n"
-                f"An unexpected error occurred: {str(e)}\n\n"
+                f"An unexpected error occurred: {escape_markdown_v1(str(e))}\n\n"
                 f"Please try again with /train",
                 parse_mode="Markdown"
             )

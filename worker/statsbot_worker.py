@@ -492,6 +492,16 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             X, y, test_size=0.2, random_state=42
         )
 
+        # Encode categorical columns for all ML models
+        from sklearn.preprocessing import LabelEncoder
+        encoders = {}
+        for col in X_train.columns:
+            if X_train[col].dtype == 'object':
+                le = LabelEncoder()
+                X_train[col] = le.fit_transform(X_train[col].astype(str))
+                X_test[col] = le.transform(X_test[col].astype(str))
+                encoders[col] = le
+
         # Send progress update
         asyncio.create_task(
             ws_send_callback(
@@ -649,6 +659,12 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
         with open(model_file, "wb") as f:
             pickle.dump(model, f)
 
+        # Save encoders if any categorical columns were encoded
+        if encoders:
+            encoders_file = model_dir / "encoders.pkl"
+            with open(encoders_file, "wb") as f:
+                pickle.dump(encoders, f)
+
         # Save metadata
         metadata = {
             "model_id": model_id,
@@ -741,6 +757,13 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
         with open(model_file, "rb") as f:
             model = pickle.load(f)
 
+        # Load encoders if available (for categorical columns)
+        encoders = {}
+        encoders_file = model_dir / "encoders.pkl"
+        if encoders_file.exists():
+            with open(encoders_file, "rb") as f:
+                encoders = pickle.load(f)
+
         # Validate file path
         is_valid, error, resolved_path = validate_file_path(file_path)
         if not is_valid:
@@ -765,7 +788,12 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
 
         # Extract features
         feature_columns = metadata["feature_columns"]
-        X = df[feature_columns]
+        X = df[feature_columns].copy()
+
+        # Apply encoders to categorical columns if available
+        for col, encoder in encoders.items():
+            if col in X.columns:
+                X[col] = encoder.transform(X[col].astype(str))
 
         # Send progress update
         asyncio.create_task(
