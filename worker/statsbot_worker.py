@@ -921,6 +921,9 @@ class WorkerClient:
         """
         Send message with retry logic to handle connection drops.
 
+        Uses EAFP pattern (try/except) since websockets 15.x doesn't have
+        .open or .closed attributes on ClientConnection.
+
         Args:
             message: JSON-encoded message to send
             max_retries: Maximum number of retry attempts
@@ -928,10 +931,12 @@ class WorkerClient:
         Returns:
             True if message was sent successfully, False otherwise
         """
+        import websockets
+
         for attempt in range(max_retries):
             try:
-                if not self.ws or not self.ws.open:
-                    print(f"⚠️ WebSocket closed, reconnecting... (attempt {attempt + 1})")
+                if not self.ws:
+                    print(f"⚠️ No WebSocket, reconnecting... (attempt {attempt + 1})")
                     if not await self.connect() or not await self.authenticate():
                         raise ConnectionError("Reconnection failed")
 
@@ -939,11 +944,15 @@ class WorkerClient:
                 print(f"📤 Message sent successfully (attempt {attempt + 1})")
                 return True
 
+            except websockets.ConnectionClosed as e:
+                print(f"⚠️ Connection closed: {e}, reconnecting... (attempt {attempt + 1})")
+                self.ws = None
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
             except Exception as e:
                 print(f"❌ Send failed (attempt {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(1)
-                    # Reset connection for next attempt
                     self.ws = None
 
         print(f"❌ All {max_retries} send attempts failed")
@@ -953,17 +962,26 @@ class WorkerClient:
         """
         Send periodic pings to keep WebSocket connection alive during long jobs.
 
+        Uses EAFP pattern (try/except) since websockets 15.x doesn't have
+        .open or .closed attributes on ClientConnection.
+
         Args:
             job_id: Job ID for logging
         """
+        import websockets
+
         try:
             while True:
                 await asyncio.sleep(20)  # Ping every 20 seconds
-                if self.ws and self.ws.open:
-                    await self.ws.ping()
-                    print(f"📡 Ping sent (job: {job_id})")
+                if self.ws:
+                    try:
+                        await self.ws.ping()
+                        print(f"📡 Ping sent (job: {job_id})")
+                    except websockets.ConnectionClosed:
+                        print(f"⚠️ WebSocket closed during job {job_id}")
+                        break
                 else:
-                    print(f"⚠️ WebSocket closed during job {job_id}")
+                    print(f"⚠️ No WebSocket during job {job_id}")
                     break
         except asyncio.CancelledError:
             pass  # Normal cancellation when job completes
