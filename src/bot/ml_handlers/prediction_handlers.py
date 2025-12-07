@@ -775,9 +775,22 @@ class PredictionHandler:
         # DEFENSIVE: Log model loading attempt
         logger.info(f"Loading models for user {user_id} with {len(selected_features)} features")
 
-        # List all user models
-        all_models = self.ml_engine.list_models(user_id=user_id)
-        logger.debug(f"Found {len(all_models)} total models for user {user_id}")
+        # Check if worker is connected for model listing
+        websocket_server = context.bot_data.get('websocket_server')
+        worker_connected = (
+            websocket_server and
+            websocket_server.worker_manager.is_user_connected(user_id)
+        )
+
+        # List all user models (route through worker if connected)
+        if worker_connected:
+            # Use worker (for prod where models are on user's machine)
+            all_models = await self._list_models_from_worker(user_id, context)
+            logger.info(f"Listed {len(all_models)} models from worker for user {user_id}")
+        else:
+            # Use local ml_engine (for dev mode)
+            all_models = self.ml_engine.list_models(user_id=user_id)
+            logger.debug(f"Found {len(all_models)} total models for user {user_id}")
 
         if not all_models:
             await update.effective_message.reply_text(
@@ -2509,6 +2522,63 @@ class PredictionHandler:
         except Exception as e:
             logger.error(f"Error getting file info from worker: {e}")
             return None
+
+    async def _list_models_from_worker(
+        self,
+        user_id: int,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> List[Dict[str, Any]]:
+        """List user models from worker. Returns empty list if no worker or error.
+
+        Used for listing models when worker is connected - models are stored
+        on user's local machine, not on the bot server.
+
+        Args:
+            user_id: Telegram user ID
+            context: Bot context
+
+        Returns:
+            List of model dicts if successful, empty list otherwise
+        """
+        from src.worker.job_queue import JobType, JobStatus
+        import asyncio
+
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return []
+
+        job_queue = getattr(websocket_server, 'job_queue', None)
+        worker_manager = websocket_server.worker_manager
+
+        if not job_queue or not worker_manager.is_user_connected(user_id):
+            return []
+
+        try:
+            job_id = await job_queue.create_job(
+                user_id=user_id,
+                job_type=JobType.LIST_MODELS,
+                params={},
+                timeout=30.0
+            )
+
+            # Poll for result
+            max_wait, poll_interval, elapsed = 30, 0.5, 0
+            while elapsed < max_wait:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                job = job_queue.get_job(job_id)
+                if not job:
+                    return []
+                if job.status == JobStatus.COMPLETED:
+                    return job.result.get('models', [])
+                elif job.status in (JobStatus.FAILED, JobStatus.TIMEOUT):
+                    return []
+
+            return []
+        except Exception as e:
+            logger.error(f"Error listing models from worker: {e}")
+            return []
 
     async def _execute_prediction_on_worker(
         self,
