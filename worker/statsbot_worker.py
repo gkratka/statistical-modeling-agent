@@ -930,7 +930,7 @@ class WorkerClient:
         """
         for attempt in range(max_retries):
             try:
-                if not self.ws or self.ws.closed:
+                if not self.ws or not self.ws.open:
                     print(f"⚠️ WebSocket closed, reconnecting... (attempt {attempt + 1})")
                     if not await self.connect() or not await self.authenticate():
                         raise ConnectionError("Reconnection failed")
@@ -959,7 +959,7 @@ class WorkerClient:
         try:
             while True:
                 await asyncio.sleep(20)  # Ping every 20 seconds
-                if self.ws and not self.ws.closed:
+                if self.ws and self.ws.open:
                     await self.ws.ping()
                     print(f"📡 Ping sent (job: {job_id})")
                 else:
