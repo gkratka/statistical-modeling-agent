@@ -1740,6 +1740,7 @@ class LocalPathMLTrainingHandler:
             if result.get('success'):
                 model_id = result.get('model_id', 'N/A')
                 metrics = result.get('metrics', {})
+                model_info = result.get('model_info', {})  # For local worker training
 
                 # Transition to TRAINING_COMPLETE state
                 print(f"🔍 DEBUG: Transitioning to TRAINING_COMPLETE state")
@@ -1758,8 +1759,9 @@ class LocalPathMLTrainingHandler:
 
                 print(f"✅ DEBUG: State transition to TRAINING_COMPLETE successful, state={session.current_state}")
 
-                # Store model_id in session for naming workflow
+                # Store model_id and model_info in session for naming workflow
                 session.selections['pending_model_id'] = model_id
+                session.selections['pending_model_info'] = model_info  # For local worker: use instead of filesystem lookup
                 await self.state_manager.update_session(session)
 
                 # Get locale from session
@@ -3662,6 +3664,7 @@ class LocalPathMLTrainingHandler:
             # Send success message with metrics and transition to naming workflow
             if result.get('success'):
                 model_id = result.get('model_id', 'N/A')
+                model_info = result.get('model_info', {})  # For local worker training
                 metrics_text = self._format_keras_metrics(result.get('metrics', {}))
 
                 # Transition to TRAINING_COMPLETE state
@@ -3681,8 +3684,9 @@ class LocalPathMLTrainingHandler:
 
                 print(f"✅ DEBUG: State transition to TRAINING_COMPLETE successful, state={session.current_state}")
 
-                # Store model_id in session for naming workflow
+                # Store model_id and model_info in session for naming workflow
                 session.selections['pending_model_id'] = model_id
+                session.selections['pending_model_info'] = model_info  # For local worker: use instead of filesystem lookup
                 await self.state_manager.update_session(session)
 
                 # Get locale from session
@@ -3862,16 +3866,24 @@ class LocalPathMLTrainingHandler:
 
         # Set custom name using ML Engine
         try:
-            self.ml_engine.set_model_name(user_id, model_id, custom_name)
+            # For local worker training, use session metadata and skip filesystem operations
+            session_model_info = session.selections.get('pending_model_info', {})
+
+            if session_model_info:
+                # Local worker training: use session metadata
+                # Skip set_model_name() - model is on user's machine, not server
+                # The custom name is for display purposes only
+                model_info = session_model_info
+            else:
+                # Normal training: model is on server
+                self.ml_engine.set_model_name(user_id, model_id, custom_name)
+                model_info = self.ml_engine.get_model_info(user_id, model_id)
 
             # Transition to MODEL_NAMED state
             await self.state_manager.transition_state(
                 session,
                 MLTrainingState.MODEL_NAMED.value
             )
-
-            # Get model info for confirmation
-            model_info = self.ml_engine.get_model_info(user_id, model_id)
 
             # Send success confirmation
             await update.message.reply_text(
@@ -3965,18 +3977,27 @@ class LocalPathMLTrainingHandler:
             return
 
         try:
-            # Get model info to generate default name
-            model_info = self.ml_engine.get_model_info(user_id, model_id)
+            # For local worker training, use metadata from session instead of filesystem lookup
+            model_info = session.selections.get('pending_model_info', {})
 
-            # Generate default name
-            default_name = self.ml_engine._generate_default_name(
-                model_type=model_info.get('model_type', 'model'),
-                task_type=model_info.get('task_type', 'unknown'),
-                created_at=model_info.get('created_at', '')
-            )
-
-            # Set default name
-            self.ml_engine.set_model_name(user_id, model_id, default_name)
+            if model_info:
+                # Local worker training: use session metadata
+                default_name = self.ml_engine._generate_default_name(
+                    model_type=model_info.get('model_type', 'model'),
+                    task_type=model_info.get('task_type', 'unknown'),
+                    created_at=model_info.get('created_at', '')
+                )
+                # Skip set_model_name() - model is on user's machine, not server
+                # The name is for display purposes only
+            else:
+                # Normal training: model is on server, use filesystem lookup
+                model_info = self.ml_engine.get_model_info(user_id, model_id)
+                default_name = self.ml_engine._generate_default_name(
+                    model_type=model_info.get('model_type', 'model'),
+                    task_type=model_info.get('task_type', 'unknown'),
+                    created_at=model_info.get('created_at', '')
+                )
+                self.ml_engine.set_model_name(user_id, model_id, default_name)
 
             # Transition to MODEL_NAMED state
             await self.state_manager.transition_state(

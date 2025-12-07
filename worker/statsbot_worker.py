@@ -686,7 +686,17 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
         )
 
         return create_result_message(
-            job_id, True, data={"model_id": model_id, "metrics": metrics}
+            job_id, True, data={
+                "model_id": model_id,
+                "metrics": metrics,
+                "model_info": {
+                    "model_type": model_type,
+                    "task_type": task_type,
+                    "created_at": metadata["created_at"],
+                    "target_column": target_column,
+                    "feature_columns": feature_columns,
+                }
+            }
         )
 
     except Exception as e:
