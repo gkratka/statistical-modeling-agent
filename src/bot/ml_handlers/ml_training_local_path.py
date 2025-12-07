@@ -4118,7 +4118,8 @@ class LocalPathMLTrainingHandler:
                     'success': True,
                     'model_id': job.result.get('model_id'),
                     'metrics': job.result.get('metrics', {}),
-                    'training_time': job.result.get('training_time', 0)
+                    'training_time': job.result.get('training_time', 0),
+                    'model_info': job.result.get('model_info', {})  # For local worker naming
                 }
             elif job.status == JobStatus.FAILED:
                 logger.error(f"Training job {job_id} failed: {job.error}")
