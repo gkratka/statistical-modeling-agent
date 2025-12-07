@@ -1547,85 +1547,143 @@ class PredictionHandler:
         logger.debug(f"Load deferred: {getattr(session, 'load_deferred', False)}")
 
         try:
-            # Check if data loading was deferred
-            if getattr(session, 'load_deferred', False):
-                loading_msg = await update.effective_message.reply_text(
-                    PredictionMessages.loading_deferred_data_message(session.file_path, locale=locale),
-                    parse_mode="Markdown"
-                )
-
-                try:
-                    # Load deferred data from file path
-                    # Pass session to merge static + dynamic whitelists (password-authenticated paths)
-                    df = await self.data_loader.load_from_local_path(
-                        file_path=session.file_path,
-                        detect_schema_flag=False,
-                        session=session
-                    )
-                    session.uploaded_data = df[0] if isinstance(df, tuple) else df
-
-                    await safe_delete_message(loading_msg)
-
-                except Exception as e:
-                    logger.error(f"Error loading deferred data: {e}")
-                    await loading_msg.edit_text(
-                        PredictionMessages.file_loading_error(session.file_path, str(e), locale=locale),
-                        parse_mode="Markdown"
-                    )
-                    return
-
             # Extract parameters
             model_id = session.selections.get('selected_model_id')
             selected_features = session.selections.get('selected_features', [])
             prediction_column = session.selections.get('prediction_column_name')
 
-            # PHASE 3: Explicit data validation before prediction execution
-            if session.uploaded_data is None:
-                await update.effective_message.reply_text(
-                    I18nManager.t('prediction.data_not_found', locale=locale),
-                    parse_mode="Markdown"
-                )
-                logger.error(
-                    f"Missing uploaded_data for user {session.user_id} during prediction execution. "
-                    f"Model: {model_id}, Features: {selected_features}"
-                )
-                return
-
-            # Prepare data (only selected features)
-            # FIX: Use .copy() to prevent in-memory mutations from persisting across workflow runs
-            df = session.uploaded_data.copy()
-
-            # PHASE 2: Deferred conflict check (for workflows where data loaded late)
-            if prediction_column in df.columns:
-                columns_preview = ', '.join(df.columns.tolist()[:10]) + ('...' if len(df.columns) > 10 else '')
-                await update.effective_message.reply_text(
-                    I18nManager.t('prediction.column_conflict_deferred', locale=locale,
-                                 column=prediction_column, columns_preview=columns_preview),
-                    parse_mode="Markdown"
-                )
-                logger.warning(
-                    f"Prediction column conflict for user {session.user_id}: "
-                    f"'{prediction_column}' already in dataset columns"
-                )
-                return
-
-            prediction_data = df[selected_features].copy()
-
-            # Run prediction
-            result = self.ml_engine.predict(
-                user_id=session.user_id,
-                model_id=model_id,
-                data=prediction_data
+            # Check if worker is connected for this user (local file path scenarios)
+            websocket_server = context.bot_data.get('websocket_server')
+            worker_connected = (
+                websocket_server and
+                websocket_server.worker_manager.is_user_connected(session.user_id)
             )
 
+            # Determine if we should route to worker
+            # Route to worker when: worker connected AND using local file path
+            use_worker = worker_connected and session.file_path
+
+            if use_worker:
+                # Route entire prediction to worker (data loading + prediction)
+                logger.info(f"Routing prediction to worker for user {session.user_id}")
+
+                processing_msg = await update.effective_message.reply_text(
+                    PredictionMessages.loading_deferred_data_message(session.file_path, locale=locale),
+                    parse_mode="Markdown"
+                )
+
+                result = await self._execute_prediction_on_worker(
+                    user_id=session.user_id,
+                    model_id=model_id,
+                    file_path=session.file_path,
+                    selected_features=selected_features,
+                    context=context
+                )
+
+                await safe_delete_message(processing_msg)
+
+                if not result.get('success', False):
+                    raise Exception(result.get('error', 'Worker prediction failed'))
+
+                # Worker returns predictions array
+                predictions = result.get('predictions', [])
+                df = result.get('dataframe')  # Worker may return the dataframe
+
+                # If worker didn't return dataframe, we need to load it for display
+                if df is None:
+                    # Load the data locally for result display (if accessible)
+                    try:
+                        loaded = await self.data_loader.load_from_local_path(
+                            file_path=session.file_path,
+                            detect_schema_flag=False,
+                            session=session
+                        )
+                        df = loaded[0] if isinstance(loaded, tuple) else loaded
+                    except Exception:
+                        # Create minimal dataframe from features if local load fails
+                        df = pd.DataFrame(columns=selected_features)
+                        for i, pred in enumerate(predictions):
+                            df.loc[i] = [None] * len(selected_features)
+
+                # Add predictions to dataframe
+                df[prediction_column] = predictions
+
+            else:
+                # Local execution path (dev mode or Telegram uploads)
+                # Check if data loading was deferred
+                if getattr(session, 'load_deferred', False):
+                    loading_msg = await update.effective_message.reply_text(
+                        PredictionMessages.loading_deferred_data_message(session.file_path, locale=locale),
+                        parse_mode="Markdown"
+                    )
+
+                    try:
+                        # Load deferred data from file path
+                        # Pass session to merge static + dynamic whitelists (password-authenticated paths)
+                        loaded_df = await self.data_loader.load_from_local_path(
+                            file_path=session.file_path,
+                            detect_schema_flag=False,
+                            session=session
+                        )
+                        session.uploaded_data = loaded_df[0] if isinstance(loaded_df, tuple) else loaded_df
+
+                        await safe_delete_message(loading_msg)
+
+                    except Exception as e:
+                        logger.error(f"Error loading deferred data: {e}")
+                        await loading_msg.edit_text(
+                            PredictionMessages.file_loading_error(session.file_path, str(e), locale=locale),
+                            parse_mode="Markdown"
+                        )
+                        return
+
+                # PHASE 3: Explicit data validation before prediction execution
+                if session.uploaded_data is None:
+                    await update.effective_message.reply_text(
+                        I18nManager.t('prediction.data_not_found', locale=locale),
+                        parse_mode="Markdown"
+                    )
+                    logger.error(
+                        f"Missing uploaded_data for user {session.user_id} during prediction execution. "
+                        f"Model: {model_id}, Features: {selected_features}"
+                    )
+                    return
+
+                # Prepare data (only selected features)
+                # FIX: Use .copy() to prevent in-memory mutations from persisting across workflow runs
+                df = session.uploaded_data.copy()
+
+                # PHASE 2: Deferred conflict check (for workflows where data loaded late)
+                if prediction_column in df.columns:
+                    columns_preview = ', '.join(df.columns.tolist()[:10]) + ('...' if len(df.columns) > 10 else '')
+                    await update.effective_message.reply_text(
+                        I18nManager.t('prediction.column_conflict_deferred', locale=locale,
+                                     column=prediction_column, columns_preview=columns_preview),
+                        parse_mode="Markdown"
+                    )
+                    logger.warning(
+                        f"Prediction column conflict for user {session.user_id}: "
+                        f"'{prediction_column}' already in dataset columns"
+                    )
+                    return
+
+                prediction_data = df[selected_features].copy()
+
+                # Run prediction locally
+                result = self.ml_engine.predict(
+                    user_id=session.user_id,
+                    model_id=model_id,
+                    data=prediction_data
+                )
+
+                if not result.get('success', True):
+                    raise Exception(result.get('error', 'Unknown error'))
+
+                # Add predictions to original dataframe
+                predictions = result['predictions']
+                df[prediction_column] = predictions
+
             execution_time = time.time() - start_time
-
-            if not result.get('success', True):
-                raise Exception(result.get('error', 'Unknown error'))
-
-            # Add predictions to original dataframe
-            predictions = result['predictions']
-            df[prediction_column] = predictions
 
             # Store DataFrame with predictions in session for later save
             session.selections['predictions_result'] = df
@@ -2265,7 +2323,32 @@ class PredictionHandler:
 
             # Store file path and get size
             session.file_path = pending_path
-            size_mb = get_file_size_mb(Path(pending_path))
+
+            # Check if worker is connected for file size lookup
+            websocket_server = context.bot_data.get('websocket_server')
+            worker_connected = (
+                websocket_server and
+                websocket_server.worker_manager.is_user_connected(user_id)
+            )
+
+            if worker_connected:
+                # Use worker (for prod where file is on user's machine)
+                file_info = await self._get_file_info_from_worker(user_id, pending_path, context)
+                if file_info and file_info.get('exists'):
+                    size_mb = file_info.get('size_mb', 0)
+                else:
+                    await update.message.reply_text(
+                        "❌ **File Not Accessible**\n\n"
+                        "The worker couldn't access the file. Please verify:\n"
+                        "• The file path is correct\n"
+                        "• The worker is still connected\n"
+                        "• The file exists on your machine",
+                        parse_mode="Markdown"
+                    )
+                    return
+            else:
+                # Use local (for dev where file is on same machine as bot)
+                size_mb = get_file_size_mb(Path(pending_path))
 
             # Save snapshot and transition to load options
             session.save_state_snapshot()
@@ -2362,6 +2445,183 @@ class PredictionHandler:
             PredictionMessages.file_path_input_prompt(allowed_dirs, locale=locale),
             parse_mode="Markdown"
         )
+
+    # =========================================================================
+    # Worker File Operations
+    # =========================================================================
+
+    async def _get_file_info_from_worker(
+        self,
+        user_id: int,
+        file_path: str,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> Optional[Dict[str, Any]]:
+        """Get file info from worker. Returns None if no worker or error.
+
+        Used for backwards-compatible file size checking:
+        - If worker is connected, uses worker to check file on user's machine
+        - If no worker, caller should fall back to local file access
+
+        Args:
+            user_id: Telegram user ID
+            file_path: Path to file on user's machine
+            context: Bot context
+
+        Returns:
+            Dict with file info if successful, None otherwise
+        """
+        from src.worker.job_queue import JobType, JobStatus
+        import asyncio
+
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return None
+
+        job_queue = getattr(websocket_server, 'job_queue', None)
+        worker_manager = websocket_server.worker_manager
+
+        if not job_queue or not worker_manager.is_user_connected(user_id):
+            return None
+
+        try:
+            job_id = await job_queue.create_job(
+                user_id=user_id,
+                job_type=JobType.FILE_INFO,
+                params={'file_path': file_path},
+                timeout=30.0
+            )
+
+            # Poll for result
+            max_wait, poll_interval, elapsed = 30, 0.5, 0
+            while elapsed < max_wait:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                job = job_queue.get_job(job_id)
+                if not job:
+                    return None
+                if job.status == JobStatus.COMPLETED:
+                    return job.result
+                elif job.status in (JobStatus.FAILED, JobStatus.TIMEOUT):
+                    return None
+
+            return None
+        except Exception as e:
+            logger.error(f"Error getting file info from worker: {e}")
+            return None
+
+    async def _execute_prediction_on_worker(
+        self,
+        user_id: int,
+        model_id: str,
+        file_path: str,
+        selected_features: List[str],
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> Dict[str, Any]:
+        """Execute prediction via local worker.
+
+        Sends prediction job to the worker which:
+        1. Loads data from the file path
+        2. Loads the model from its local storage
+        3. Runs prediction
+        4. Returns results
+
+        Args:
+            user_id: Telegram user ID
+            model_id: Model ID to use for prediction
+            file_path: Path to data file on user's machine
+            selected_features: List of feature columns to use
+            context: Bot context
+
+        Returns:
+            Dict with prediction results including 'success', 'predictions', etc.
+        """
+        from src.worker.job_queue import JobType
+
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return {'success': False, 'error': 'WebSocket server not available'}
+
+        job_queue = getattr(websocket_server, 'job_queue', None)
+        if not job_queue:
+            return {'success': False, 'error': 'Job queue not available'}
+
+        try:
+            # Create prediction job
+            job_id = await job_queue.create_job(
+                user_id=user_id,
+                job_type=JobType.PREDICT,
+                params={
+                    'model_id': model_id,
+                    'file_path': file_path,
+                    'feature_columns': selected_features
+                },
+                timeout=300.0
+            )
+
+            logger.info(f"Created prediction job {job_id} for user {user_id}")
+
+            # Wait for result
+            return await self._wait_for_prediction_job(job_id, context)
+
+        except Exception as e:
+            logger.error(f"Error executing prediction on worker: {e}")
+            return {'success': False, 'error': str(e)}
+
+    async def _wait_for_prediction_job(
+        self,
+        job_id: str,
+        context: ContextTypes.DEFAULT_TYPE,
+        max_wait: float = 300.0
+    ) -> Dict[str, Any]:
+        """Poll for prediction job completion.
+
+        Args:
+            job_id: Job ID to wait for
+            context: Bot context
+            max_wait: Maximum time to wait in seconds
+
+        Returns:
+            Dict with job results or error
+        """
+        from src.worker.job_queue import JobStatus
+        import asyncio
+
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return {'success': False, 'error': 'WebSocket server not available'}
+
+        job_queue = getattr(websocket_server, 'job_queue', None)
+        if not job_queue:
+            return {'success': False, 'error': 'Job queue not available'}
+
+        poll_interval = 0.5
+        elapsed = 0
+
+        while elapsed < max_wait:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+            job = job_queue.get_job(job_id)
+            if not job:
+                return {'success': False, 'error': 'Job not found'}
+
+            if job.status == JobStatus.COMPLETED:
+                logger.info(f"Prediction job {job_id} completed successfully")
+                return {
+                    'success': True,
+                    'predictions': job.result.get('predictions', []),
+                    'count': job.result.get('count', 0),
+                    'dataframe': job.result.get('dataframe')
+                }
+            elif job.status == JobStatus.FAILED:
+                logger.warning(f"Prediction job {job_id} failed: {job.error}")
+                return {'success': False, 'error': job.error}
+            elif job.status == JobStatus.TIMEOUT:
+                logger.warning(f"Prediction job {job_id} timed out")
+                return {'success': False, 'error': 'Prediction timed out'}
+
+        return {'success': False, 'error': 'Exceeded maximum wait time'}
 
     # =========================================================================
     # Save Path Password Bypass
