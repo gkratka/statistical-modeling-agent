@@ -397,6 +397,8 @@ def execute_list_models_job(job_id: str) -> str:
                             "model_type": metadata.get("model_type", "unknown"),
                             "task_type": metadata.get("task_type", "unknown"),
                             "created_at": metadata.get("created_at", "unknown"),
+                            "feature_columns": metadata.get("feature_columns", []),
+                            "target_column": metadata.get("target_column", "unknown"),
                         }
                     )
                 except (json.JSONDecodeError, OSError):
