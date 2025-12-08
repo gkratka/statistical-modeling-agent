@@ -1602,6 +1602,10 @@ class PredictionHandler:
                 predictions = result.get('predictions', [])
                 df = result.get('dataframe')  # Worker may return the dataframe
 
+                # Convert from JSON/dict if worker returned serialized dataframe
+                if df is not None and not isinstance(df, pd.DataFrame):
+                    df = pd.DataFrame(df)
+
                 # If worker didn't return dataframe, we need to load it for display
                 if df is None:
                     # Load the data locally for result display (if accessible)

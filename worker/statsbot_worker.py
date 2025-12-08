@@ -827,7 +827,11 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
         return create_result_message(
             job_id,
             True,
-            data={"predictions": predictions.tolist(), "count": len(predictions)},
+            data={
+                "predictions": predictions.tolist(),
+                "count": len(predictions),
+                "dataframe": df.to_dict('records'),  # Include original data for output
+            },
         )
 
     except Exception as e:
