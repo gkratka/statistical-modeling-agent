@@ -1942,41 +1942,57 @@ class PredictionHandler:
             # Use user's filename if provided, otherwise use default
             filename = user_filename if use_user_filename else default_filename
 
-            # Validate directory and filename
-            result = self.path_validator.validate_output_path(
-                directory_path=directory_path,
-                filename=filename
-            )
+            # Check if worker is connected - skip local validation, worker will validate
+            worker_connected = self._is_worker_connected(user_id, context)
 
-            await safe_delete_message(validating_msg)
+            if worker_connected:
+                # Worker connected - skip local validation
+                # Worker will validate path when saving
+                from pathlib import Path
+                full_path = Path(directory_path).expanduser() / filename
+                logger.info(f"Worker connected for user {user_id}, skipping local path validation")
+                await safe_delete_message(validating_msg)
 
-            if not result['is_valid']:
-                # Check if error is whitelist failure - prompt for password
-                if "not in allowed" in result['error'].lower():
-                    await self._prompt_for_save_password(
-                        update, context, session, directory_path, filename
-                    )
-                    raise ApplicationHandlerStop
-
-                # Other validation error - show error message
-                from src.bot.messages.prediction_messages import create_path_error_recovery_buttons
-                keyboard = create_path_error_recovery_buttons(locale=locale)
-                reply_markup = InlineKeyboardMarkup(keyboard)
-
-                # Enhanced error logging
-                logger.error(f"Path validation failed for user {user_id}: {result['error']}")
-
-                await update.message.reply_text(
-                    PredictionMessages.file_save_error_message("Path Validation", result['error'], locale=locale),
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
+                # Store directory and filename in session
+                session.selections['save_directory'] = directory_path
+                session.selections['save_filename'] = filename
+                session.selections['save_full_path'] = str(full_path)
+            else:
+                # No worker - validate locally
+                result = self.path_validator.validate_output_path(
+                    directory_path=directory_path,
+                    filename=filename
                 )
-                return
 
-            # Store directory and filename in session
-            session.selections['save_directory'] = directory_path
-            session.selections['save_filename'] = filename
-            session.selections['save_full_path'] = str(result['resolved_path'])
+                await safe_delete_message(validating_msg)
+
+                if not result['is_valid']:
+                    # Check if error is whitelist failure - prompt for password
+                    if "not in allowed" in result['error'].lower():
+                        await self._prompt_for_save_password(
+                            update, context, session, directory_path, filename
+                        )
+                        raise ApplicationHandlerStop
+
+                    # Other validation error - show error message
+                    from src.bot.messages.prediction_messages import create_path_error_recovery_buttons
+                    keyboard = create_path_error_recovery_buttons(locale=locale)
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+
+                    # Enhanced error logging
+                    logger.error(f"Path validation failed for user {user_id}: {result['error']}")
+
+                    await update.message.reply_text(
+                        PredictionMessages.file_save_error_message("Path Validation", result['error'], locale=locale),
+                        reply_markup=reply_markup,
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                # Store directory and filename in session
+                session.selections['save_directory'] = directory_path
+                session.selections['save_filename'] = filename
+                session.selections['save_full_path'] = str(result['resolved_path'])
 
             # Transition to filename confirmation
             await self.state_manager.transition_state(
@@ -2122,9 +2138,23 @@ class PredictionHandler:
             # Get saved path and data
             full_path = session.selections.get('save_full_path')
             df = session.selections.get('predictions_result')
+            user_id = session.user_id
 
-            # Save to file
-            df.to_csv(full_path, index=False)
+            # Check if worker is connected - route save through worker
+            if self._is_worker_connected(user_id, context):
+                logger.info(f"Routing save to worker for user {user_id}")
+                result = await self._save_file_via_worker(
+                    user_id, full_path, df, context
+                )
+
+                if not result['success']:
+                    raise Exception(result.get('error', 'Save via worker failed'))
+
+                rows_saved = result.get('rows', len(df))
+            else:
+                # Local save (no worker connected)
+                df.to_csv(full_path, index=False)
+                rows_saved = len(df)
 
             # Transition back to COMPLETE
             await self.state_manager.transition_state(
@@ -2136,7 +2166,7 @@ class PredictionHandler:
             await update.effective_message.reply_text(
                 PredictionMessages.file_save_success_message(
                     full_path,
-                    len(df),
+                    rows_saved,
                     locale=locale
                 ),
                 parse_mode="Markdown"
@@ -2696,6 +2726,105 @@ class PredictionHandler:
                 return {'success': False, 'error': 'Prediction timed out'}
 
         return {'success': False, 'error': 'Exceeded maximum wait time'}
+
+    async def _save_file_via_worker(
+        self,
+        user_id: int,
+        file_path: str,
+        dataframe,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> Dict[str, Any]:
+        """Save file via local worker.
+
+        Routes the save operation to the worker which validates
+        the path and saves the file on the user's local machine.
+
+        Args:
+            user_id: Telegram user ID
+            file_path: Full path to save file on user's machine
+            dataframe: Pandas DataFrame to save
+            context: Bot context
+
+        Returns:
+            Dict with 'success', 'file_path', 'rows' or 'error'
+        """
+        from src.worker.job_queue import JobType, JobStatus
+        import asyncio
+
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return {'success': False, 'error': 'WebSocket server not available'}
+
+        job_queue = getattr(websocket_server, 'job_queue', None)
+        if not job_queue:
+            return {'success': False, 'error': 'Job queue not available'}
+
+        try:
+            # Convert DataFrame to dict for JSON serialization
+            dataframe_dict = dataframe.to_dict('records')
+
+            # Create save file job
+            job_id = await job_queue.create_job(
+                user_id=user_id,
+                job_type=JobType.SAVE_FILE,
+                params={
+                    'file_path': file_path,
+                    'dataframe': dataframe_dict
+                },
+                timeout=60.0
+            )
+
+            logger.info(f"Created save file job {job_id} for user {user_id}")
+
+            # Poll for result
+            max_wait, poll_interval, elapsed = 60, 0.5, 0
+            while elapsed < max_wait:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                job = job_queue.get_job(job_id)
+                if not job:
+                    return {'success': False, 'error': 'Job not found'}
+
+                if job.status == JobStatus.COMPLETED:
+                    logger.info(f"Save file job {job_id} completed successfully")
+                    return {
+                        'success': True,
+                        'file_path': job.result.get('file_path', file_path),
+                        'rows': job.result.get('rows', 0)
+                    }
+                elif job.status == JobStatus.FAILED:
+                    logger.warning(f"Save file job {job_id} failed: {job.error}")
+                    return {'success': False, 'error': job.error}
+                elif job.status == JobStatus.TIMEOUT:
+                    logger.warning(f"Save file job {job_id} timed out")
+                    return {'success': False, 'error': 'Save operation timed out'}
+
+            return {'success': False, 'error': 'Exceeded maximum wait time'}
+
+        except Exception as e:
+            logger.error(f"Error saving file via worker: {e}")
+            return {'success': False, 'error': str(e)}
+
+    def _is_worker_connected(self, user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        """Check if worker is connected for user.
+
+        Args:
+            user_id: Telegram user ID
+            context: Bot context
+
+        Returns:
+            True if worker is connected, False otherwise
+        """
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return False
+
+        worker_manager = getattr(websocket_server, 'worker_manager', None)
+        if not worker_manager:
+            return False
+
+        return worker_manager.is_user_connected(user_id)
 
     # =========================================================================
     # Save Path Password Bypass

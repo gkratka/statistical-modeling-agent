@@ -841,6 +841,61 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
         return create_result_message(job_id, False, error=error_msg)
 
 
+def execute_save_file_job(job_id: str, params: Dict[str, Any]) -> str:
+    """
+    Execute save file job - save dataframe to local file.
+
+    Args:
+        job_id: Job identifier
+        params: Save parameters (file_path, dataframe)
+
+    Returns:
+        JSON-encoded result message
+    """
+    try:
+        import pandas as pd
+        from pathlib import Path
+
+        file_path = params.get("file_path")
+        dataframe = params.get("dataframe")
+
+        if not file_path:
+            return create_result_message(job_id, False, error="Missing file_path parameter")
+
+        if not dataframe:
+            return create_result_message(job_id, False, error="Missing dataframe parameter")
+
+        # Convert dict to DataFrame
+        df = pd.DataFrame(dataframe)
+
+        # Validate directory exists
+        path = Path(file_path)
+        if not path.parent.exists():
+            return create_result_message(
+                job_id, False,
+                error=f"Directory not found: {path.parent}"
+            )
+
+        # Save file based on extension
+        if path.suffix.lower() == '.csv':
+            df.to_csv(path, index=False)
+        elif path.suffix.lower() in ['.xlsx', '.xls']:
+            df.to_excel(path, index=False)
+        else:
+            # Default to CSV
+            df.to_csv(path, index=False)
+
+        return create_result_message(
+            job_id, True,
+            data={"file_path": str(path), "rows": len(df)}
+        )
+
+    except Exception as e:
+        import traceback
+        error_msg = f"Save failed: {str(e)}\n{traceback.format_exc()}"
+        return create_result_message(job_id, False, error=error_msg)
+
+
 # ============================================================================
 # WebSocket Client
 # ============================================================================
@@ -1056,6 +1111,8 @@ class WorkerClient:
                 result = execute_predict_job(job_id, params, self.send_message)
             elif action == "file_info":
                 result = execute_file_info_job(job_id, params)
+            elif action == "save_file":
+                result = execute_save_file_job(job_id, params)
             else:
                 result = create_result_message(job_id, False, error=f"Unknown action: {action}")
         finally:

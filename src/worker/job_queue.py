@@ -34,6 +34,7 @@ class JobType(str, Enum):
     PREDICT = "predict"
     LIST_MODELS = "list_models"
     FILE_INFO = "file_info"
+    SAVE_FILE = "save_file"
 
 
 class JobStatus(str, Enum):
