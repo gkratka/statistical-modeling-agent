@@ -1948,7 +1948,6 @@ class PredictionHandler:
             if worker_connected:
                 # Worker connected - skip local validation
                 # Worker will validate path when saving
-                from pathlib import Path
                 full_path = Path(directory_path).expanduser() / filename
                 logger.info(f"Worker connected for user {user_id}, skipping local path validation")
                 await safe_delete_message(validating_msg)
