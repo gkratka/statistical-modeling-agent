@@ -876,8 +876,8 @@ class PredictionHandler:
         selected_model = session.compatible_models[index]
         model_id = selected_model['model_id']
 
-        # Get model info (using actual model_id)
-        model_info = self.ml_engine.get_model_info(user_id, model_id)
+        # Use model info from session (already populated from worker or local list_models)
+        model_info = selected_model
 
         if not model_info:
             await query.edit_message_text(
