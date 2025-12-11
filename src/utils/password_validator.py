@@ -4,29 +4,35 @@ This module provides secure password validation with rate limiting, audit loggin
 and session-based access control for non-whitelisted file paths.
 
 Security Features:
-    - Configurable password (default: 'senha123', overridable via env)
+    - Password hashed with bcrypt (cost factor 12)
+    - Password loaded from FILE_PATH_PASSWORD environment variable (REQUIRED)
     - Rate limiting: Max 3 attempts per session
     - Exponential backoff: 2s, 5s, 10s delays
     - Audit logging: All attempts logged to separate auth.log
     - Session timeout: 5 minutes for password prompt
     - User isolation: Separate tracking per user_id
+    - Timing-safe comparison to prevent timing attacks
 
 Usage:
+    # Set FILE_PATH_PASSWORD environment variable first
     validator = PasswordValidator()
     is_valid, error_msg = validator.validate_password(
         user_id=12345,
-        password_input="senha123",
+        password_input="your_password",
         path="/path/to/file"
     )
 """
 
 import logging
 import os
+import secrets
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+
+import bcrypt
 
 logger = logging.getLogger(__name__)
 
@@ -69,50 +75,74 @@ class PasswordAttempt:
 
 
 class PasswordValidator:
-    """Password validation with rate limiting and audit logging.
+    """Password validation with rate limiting, bcrypt hashing, and audit logging.
 
     Security Features:
-        - Configurable password (default: 'senha123', overridable via env)
+        - Password hashed with bcrypt (cost factor 12)
+        - Password loaded from FILE_PATH_PASSWORD environment variable (REQUIRED)
         - Rate limiting: Max 3 attempts per session
         - Exponential backoff: 2s, 5s, 10s delays
         - Audit logging: All attempts logged
         - Session timeout: 5 minutes for password prompt
         - User isolation: Separate tracking per user_id
+        - Timing-safe comparison to prevent timing attacks
 
     Configuration:
-        DEFAULT_PASSWORD: Default password ('senha123')
+        BCRYPT_COST: Cost factor for bcrypt (12)
         MAX_ATTEMPTS: Maximum attempts before lockout (3)
         BACKOFF_DELAYS: Exponential backoff delays in seconds [2, 5, 10]
         SESSION_TIMEOUT: Password prompt expires after 5 minutes (300s)
 
     Example:
+        >>> # Ensure FILE_PATH_PASSWORD is set in environment
         >>> validator = PasswordValidator()
         >>> is_valid, error = validator.validate_password(
         ...     user_id=12345,
-        ...     password_input="senha123",
+        ...     password_input="your_password",
         ...     path="/data/file.csv"
         ... )
         >>> if is_valid:
         ...     print("Access granted")
+
+    Raises:
+        ValueError: If FILE_PATH_PASSWORD environment variable is not set
     """
 
-    # Configuration constants
-    DEFAULT_PASSWORD = "senha123"
+    # Configuration constants (no default password for security)
+    DEFAULT_PASSWORD = None  # Removed for security - env var required
+    BCRYPT_COST = 12  # Cost factor for bcrypt hashing
     MAX_ATTEMPTS = 3
     BACKOFF_DELAYS = [2, 5, 10]  # seconds
     SESSION_TIMEOUT = 300  # 5 minutes
 
     def __init__(self, password: Optional[str] = None):
-        """Initialize password validator.
+        """Initialize password validator with bcrypt hashing.
 
         Args:
             password: Password to validate against. If None, uses environment
-                     variable FILE_PATH_PASSWORD or default 'senha123'.
-        """
-        # Priority: 1) Explicit param, 2) Environment variable, 3) Default
-        if password is None:
-            password = os.getenv('FILE_PATH_PASSWORD', self.DEFAULT_PASSWORD)
+                     variable FILE_PATH_PASSWORD (required, no default).
+                     The password is immediately hashed with bcrypt.
 
+        Raises:
+            ValueError: If password is None and FILE_PATH_PASSWORD env var not set
+        """
+        # Priority: 1) Explicit param, 2) Environment variable (REQUIRED)
+        if password is None:
+            password = os.getenv('FILE_PATH_PASSWORD')
+            if password is None:
+                raise ValueError(
+                    "FILE_PATH_PASSWORD environment variable is required. "
+                    "Set it before using PasswordValidator."
+                )
+
+        # Hash the password with bcrypt (cost factor 12)
+        self.password_hash = bcrypt.hashpw(
+            password.encode('utf-8'),
+            bcrypt.gensalt(rounds=self.BCRYPT_COST)
+        ).decode('utf-8')
+
+        # Keep plaintext for backward compatibility during transition
+        # TODO: Remove self.password once all code uses password_hash
         self.password = password
         self._attempts: Dict[int, PasswordAttempt] = {}
 
@@ -180,8 +210,15 @@ class PasswordValidator:
         attempt.attempt_count += 1
         attempt.last_attempt = current_time
 
-        # Validate password
-        is_valid = password_input == self.password
+        # Validate password using bcrypt (timing-safe comparison)
+        try:
+            is_valid = bcrypt.checkpw(
+                password_input.encode('utf-8'),
+                self.password_hash.encode('utf-8')
+            )
+        except Exception:
+            # If bcrypt fails (e.g., invalid hash format), reject
+            is_valid = False
 
         if is_valid:
             auth_logger.info(

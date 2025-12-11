@@ -86,10 +86,10 @@ local_data:
     - .parquet
   require_explicit_approval: false  # Future: Ask user before accessing file
 
-  # NEW: Password-based access control
+  # Password-based access control
   password_protection:
     enabled: true                    # Feature flag: enable/disable password prompts
-    password: ${FILE_PATH_PASSWORD}  # Environment variable for password (default: 'senha123')
+    # Password loaded from FILE_PATH_PASSWORD env var (REQUIRED - no default)
     max_attempts: 3                  # Maximum password attempts per session
     lockout_duration_seconds: 60     # Lockout duration after max attempts
     session_timeout_seconds: 300     # Password prompt expires after 5 minutes

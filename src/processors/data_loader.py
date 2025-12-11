@@ -376,6 +376,33 @@ class DataLoader:
                 value=file_name
             )
 
+        # Security: Block Windows UNC paths
+        if file_name.startswith('\\\\') or file_name.startswith('//'):
+            raise ValidationError(
+                "UNC paths are not allowed for security reasons",
+                field="file_name",
+                value=file_name
+            )
+
+        # Security: Block URL-encoded path traversal attempts
+        file_name_lower = file_name.lower()
+        url_encoded_patterns = ['%2f', '%2e', '%5c', '%00', '%252f', '%252e']
+        for pattern in url_encoded_patterns:
+            if pattern in file_name_lower:
+                raise ValidationError(
+                    "URL-encoded characters in filename are not allowed",
+                    field="file_name",
+                    value=file_name
+                )
+
+        # Security: Block null bytes
+        if '\x00' in file_name or '\0' in file_name:
+            raise ValidationError(
+                "Null bytes in filename are not allowed",
+                field="file_name",
+                value=file_name
+            )
+
     def _validate_dataframe(self, df: pd.DataFrame, file_name: str) -> Dict[str, Any]:
         """
         Validate DataFrame and return metadata.

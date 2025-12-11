@@ -3,10 +3,16 @@ Input sanitization utilities for secure parameter processing.
 
 This module provides comprehensive sanitization functions to ensure
 all user inputs are safe before being used in script generation.
+
+Security Updates (Issue #3 - HIGH):
+- Expanded dangerous_chars regex to include control characters (\x00-\x1f)
+- Added null byte detection
+- Unicode normalization support
 """
 
 import re
 import html
+import unicodedata
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
 
@@ -21,7 +27,11 @@ class InputSanitizer:
 
     def __init__(self) -> None:
         """Initialize the sanitizer with security patterns."""
-        self.dangerous_chars = r'[<>&"\'\`\$\{\}\[\]\(\);|]'
+        # SECURITY FIX (Issue #3): Expanded to include control characters, null bytes
+        # Original: r'[<>&"\'\`\$\{\}\[\]\(\);|]'
+        # Added: \x00-\x1f (control characters), \n, \r, \t
+        self.dangerous_chars = r'[<>&"\'\`\$\{\}\[\]\(\);|\\\x00-\x1f\n\r\t]'
+
         self.sql_injection_patterns = [
             r"(?i)(union|select|insert|update|delete|drop|create|alter|exec|execute)",
             r"(?i)(script|javascript|vbscript|onload|onerror)",
@@ -52,11 +62,20 @@ class InputSanitizer:
         if not isinstance(value, str):
             raise ValidationError(f"Expected string, got {type(value)}")
 
+        # SECURITY FIX (Issue #3): Unicode normalization
+        # Normalize unicode to prevent attack vectors using alternate representations
+        value = unicodedata.normalize('NFKC', value)
+
         # Check length
         if len(value) > max_length:
             raise ValidationError(f"String too long: {len(value)} > {max_length}")
 
-        # Check for dangerous characters
+        # SECURITY FIX (Issue #3): Check for null bytes BEFORE other checks
+        if '\x00' in value or '%00' in value:
+            logger.warning(f"Null byte detected in string: {repr(value)}")
+            raise ValidationError("String contains dangerous characters")
+
+        # Check for dangerous characters (now includes control chars)
         if re.search(self.dangerous_chars, value):
             logger.warning(f"Dangerous characters found in string: {value}")
             raise ValidationError("String contains dangerous characters")
@@ -76,7 +95,7 @@ class InputSanitizer:
         # HTML escape for safety
         sanitized = html.escape(value)
 
-        # Remove null bytes
+        # Remove null bytes (redundant but defensive)
         sanitized = sanitized.replace('\x00', '')
 
         # Strip whitespace

@@ -1,7 +1,10 @@
 """State Manager for multi-step conversation workflows."""
 
 import asyncio
+import hashlib
+import hmac
 import json
+import os
 import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -885,6 +888,70 @@ class StateManager:
         """Get path to session file for user."""
         return self._sessions_path / f"user_{user_id}.json"
 
+    def _get_signing_key(self) -> bytes:
+        """Get the session signing key from environment.
+
+        Returns:
+            bytes: The signing key
+
+        Raises:
+            ValueError: If SESSION_SIGNING_KEY environment variable is not set
+        """
+        key_hex = os.getenv('SESSION_SIGNING_KEY')
+        if key_hex is None:
+            # Return None to allow unsigned sessions in dev environments
+            return None
+        return bytes.fromhex(key_hex)
+
+    def _compute_session_signature(self, data: Dict[str, Any]) -> str:
+        """Compute HMAC-SHA256 signature for session data.
+
+        Args:
+            data: Session data dictionary (without signature)
+
+        Returns:
+            str: Hexadecimal signature string
+        """
+        key = self._get_signing_key()
+        if key is None:
+            return ""
+
+        # Create deterministic JSON representation for signing
+        json_str = json.dumps(data, sort_keys=True)
+        signature = hmac.new(key, json_str.encode('utf-8'), hashlib.sha256)
+        return signature.hexdigest()
+
+    def _verify_session_signature(self, data: Dict[str, Any]) -> bool:
+        """Verify HMAC-SHA256 signature of session data.
+
+        Args:
+            data: Session data dictionary (with signature)
+
+        Returns:
+            bool: True if signature is valid, False otherwise
+        """
+        key = self._get_signing_key()
+
+        # If no signing key configured, accept unsigned sessions (dev mode)
+        if key is None:
+            return True
+
+        # If signing key is set, require valid signature
+        if 'signature' not in data:
+            return False
+
+        stored_signature = data['signature']
+
+        # Create copy without signature for verification
+        data_copy = {k: v for k, v in data.items() if k != 'signature'}
+
+        # Compute expected signature
+        json_str = json.dumps(data_copy, sort_keys=True)
+        expected_signature = hmac.new(key, json_str.encode('utf-8'), hashlib.sha256).hexdigest()
+
+        # Use constant-time comparison to prevent timing attacks
+        return hmac.compare_digest(stored_signature, expected_signature)
+
     def _session_to_dict(self, session: UserSession) -> Dict[str, Any]:
         """Convert session to JSON-serializable dict."""
         data = {
@@ -910,6 +977,12 @@ class StateManager:
         # NOTE: Password fields NOT persisted (security):
         #   - dynamic_allowed_directories (session-scoped only)
         #   - password_attempts (rate limiting reset on reload)
+
+        # Add HMAC-SHA256 signature if signing key is configured
+        signature = self._compute_session_signature(data)
+        if signature:
+            data['signature'] = signature
+
         return data
 
     def _dict_to_session(self, data: Dict[str, Any]) -> UserSession:
@@ -971,7 +1044,11 @@ class StateManager:
             raise
 
     async def load_session_from_disk(self, user_id: int) -> Optional[UserSession]:
-        """Load session from disk. Returns None if no saved session exists."""
+        """Load session from disk. Returns None if no saved session exists.
+
+        Security: If SESSION_SIGNING_KEY is set, verifies HMAC-SHA256 signature
+        before loading. Tampered or unsigned sessions are rejected and deleted.
+        """
         session_file = self._get_session_file_path(user_id)
 
         if not session_file.exists():
@@ -979,6 +1056,16 @@ class StateManager:
 
         try:
             session_data = json.loads(session_file.read_text())
+
+            # Verify signature before loading (if signing is enabled)
+            if not self._verify_session_signature(session_data):
+                # Tampered or unsigned session - reject and delete
+                session_file.unlink()
+                return None
+
+            # Remove signature from data before deserialization
+            session_data.pop('signature', None)
+
             session = self._dict_to_session(session_data)
 
             # Add to memory cache

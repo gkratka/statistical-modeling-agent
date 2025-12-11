@@ -3,6 +3,9 @@ Script validation system for security and syntax checking.
 
 This module provides comprehensive validation for generated scripts
 to ensure they are safe to execute and syntactically correct.
+
+Security Updates (Issue #2 - HIGH):
+- Added pandas I/O blocking patterns to prevent file system access
 """
 
 import ast
@@ -31,6 +34,14 @@ class ScriptValidator:
             # File operations
             r'(open|file)\s*\(',
             r'with\s+open\s*\(',
+
+            # SECURITY FIX (Issue #2): Pandas I/O operations
+            # Block all pandas read methods
+            r'pd\.(read_csv|read_excel|read_json|read_parquet|read_sql|read_hdf|read_pickle|read_table|read_fwf|read_clipboard)',
+            # Block all pandas write methods
+            r'pd\.(to_csv|to_excel|to_json|to_parquet|to_sql|to_hdf|to_pickle)',
+            # Block DataFrame write methods
+            r'\.(to_csv|to_excel|to_json|to_parquet|to_sql|to_hdf|to_pickle|to_clipboard)\s*\(',
 
             # Input operations
             r'\b(input|raw_input)\s*\(',
