@@ -35,8 +35,12 @@ def validate_telegram_update(func: Callable) -> Callable:
     """
     @functools.wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Any:
-        if not update.effective_user or not update.message:
-            logger.error(f"{func.__name__}: Missing user or message")
+        if not update.effective_user:
+            logger.error(f"{func.__name__}: Missing user")
+            return
+        # Allow both message and callback_query updates (for inline button handlers)
+        if not update.message and not update.callback_query:
+            logger.error(f"{func.__name__}: Missing message or callback_query")
             return
         return await func(update, context)
     return wrapper

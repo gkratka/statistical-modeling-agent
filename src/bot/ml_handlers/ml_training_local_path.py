@@ -3866,14 +3866,24 @@ class LocalPathMLTrainingHandler:
 
         # Set custom name using ML Engine
         try:
-            # For local worker training, use session metadata and skip filesystem operations
+            # For local worker training, use session metadata and send name to worker
             session_model_info = session.selections.get('pending_model_info', {})
 
             if session_model_info:
-                # Local worker training: use session metadata
-                # Skip set_model_name() - model is on user's machine, not server
-                # The custom name is for display purposes only
+                # Local worker training: send custom name to worker
+                # Model is on user's machine, so we need to update it via worker
                 model_info = session_model_info
+
+                # Send set_model_name job to worker
+                success = await self._set_model_name_through_worker(
+                    user_id=user_id,
+                    model_id=model_id,
+                    custom_name=custom_name,
+                    context=context
+                )
+                if not success:
+                    logger.warning(f"Failed to set model name on worker for {model_id}")
+                    # Continue anyway - the name is stored locally in session_model_info
             else:
                 # Normal training: model is on server
                 self.ml_engine.set_model_name(user_id, model_id, custom_name)
@@ -4038,7 +4048,8 @@ class LocalPathMLTrainingHandler:
         feature_columns: list,
         hyperparameters: dict,
         test_size: float,
-        context: ContextTypes.DEFAULT_TYPE
+        context: ContextTypes.DEFAULT_TYPE,
+        custom_name: str = None
     ) -> dict:
         """Execute training on connected local worker.
 
@@ -4054,6 +4065,7 @@ class LocalPathMLTrainingHandler:
             hyperparameters: Model hyperparameters
             test_size: Test set size
             context: Bot context
+            custom_name: User-provided custom model name
 
         Returns:
             Training result dict with success, model_id, metrics
@@ -4080,7 +4092,8 @@ class LocalPathMLTrainingHandler:
             'target_column': target_column,
             'feature_columns': feature_columns,
             'hyperparameters': hyperparameters,
-            'test_size': test_size
+            'test_size': test_size,
+            'custom_name': custom_name
         }
         print(f"🔍 PATH_DEBUG: file_path in job_params = '{job_params['file_path']}'")
 
@@ -4140,6 +4153,69 @@ class LocalPathMLTrainingHandler:
             'success': False,
             'error': 'Training exceeded maximum wait time'
         }
+
+    async def _set_model_name_through_worker(
+        self,
+        user_id: int,
+        model_id: str,
+        custom_name: str,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> bool:
+        """Set custom model name through worker.
+
+        Sends SET_MODEL_NAME job to worker to update model metadata.
+
+        Args:
+            user_id: User ID
+            model_id: Model ID on worker machine
+            custom_name: User-provided custom name
+            context: Bot context
+
+        Returns:
+            True if successful, False otherwise
+        """
+        from src.worker.job_queue import JobType, JobStatus
+        import asyncio
+
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return False
+
+        job_queue = getattr(websocket_server, 'job_queue', None)
+        worker_manager = websocket_server.worker_manager
+
+        if not job_queue or not worker_manager.is_user_connected(user_id):
+            return False
+
+        try:
+            job_id = await job_queue.create_job(
+                user_id=user_id,
+                job_type=JobType.SET_MODEL_NAME,
+                params={'model_id': model_id, 'custom_name': custom_name},
+                timeout=30.0
+            )
+
+            # Poll for result
+            max_wait, poll_interval, elapsed = 30, 0.5, 0
+            while elapsed < max_wait:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                job = job_queue.get_job(job_id)
+                if not job:
+                    return False
+                if job.status == JobStatus.COMPLETED:
+                    logger.info(f"Set model name through worker: {model_id} → {custom_name}")
+                    return True
+                elif job.status in (JobStatus.FAILED, JobStatus.TIMEOUT):
+                    logger.error(f"Failed to set model name: {job.error}")
+                    return False
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error setting model name through worker: {e}")
+            return False
 
     async def _get_file_info_from_worker(
         self,

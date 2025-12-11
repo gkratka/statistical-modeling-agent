@@ -35,6 +35,8 @@ class JobType(str, Enum):
     LIST_MODELS = "list_models"
     FILE_INFO = "file_info"
     SAVE_FILE = "save_file"
+    DELETE_MODEL = "delete_model"
+    SET_MODEL_NAME = "set_model_name"
 
 
 class JobStatus(str, Enum):

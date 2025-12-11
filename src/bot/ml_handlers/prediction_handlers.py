@@ -1042,6 +1042,13 @@ class PredictionHandler:
             )
             return
 
+        # Check worker connection status for routing
+        websocket_server = context.bot_data.get('websocket_server')
+        worker_connected = (
+            websocket_server and
+            websocket_server.worker_manager.is_user_connected(user_id)
+        )
+
         # Delete selected models
         deleted_count = 0
         for index in session.delete_selected_indices:
@@ -1049,9 +1056,21 @@ class PredictionHandler:
                 model = session.compatible_models[index]
                 model_id = model.get('model_id')
                 try:
-                    self.ml_engine.delete_model(user_id, model_id)
-                    deleted_count += 1
-                    logger.info(f"Deleted model {model_id} for user {user_id}")
+                    if worker_connected:
+                        # Route deletion through worker (models on user's machine)
+                        success = await self._delete_model_through_worker(
+                            user_id, model_id, context
+                        )
+                        if success:
+                            deleted_count += 1
+                            logger.info(f"Deleted model {model_id} for user {user_id} (via worker)")
+                        else:
+                            logger.error(f"Worker failed to delete model {model_id}")
+                    else:
+                        # Local deletion (dev mode)
+                        self.ml_engine.delete_model(user_id, model_id)
+                        deleted_count += 1
+                        logger.info(f"Deleted model {model_id} for user {user_id} (local)")
                 except Exception as e:
                     logger.error(f"Failed to delete model {model_id}: {e}")
 
@@ -2612,6 +2631,66 @@ class PredictionHandler:
         except Exception as e:
             logger.error(f"Error listing models from worker: {e}")
             return []
+
+    async def _delete_model_through_worker(
+        self,
+        user_id: int,
+        model_id: str,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> bool:
+        """Delete model through worker.
+
+        Used for deleting models when worker is connected - models are stored
+        on user's local machine, not on the bot server.
+
+        Args:
+            user_id: Telegram user ID
+            model_id: Model ID to delete
+            context: Bot context
+
+        Returns:
+            True if deletion successful, False otherwise
+        """
+        from src.worker.job_queue import JobType, JobStatus
+        import asyncio
+
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return False
+
+        job_queue = getattr(websocket_server, 'job_queue', None)
+        worker_manager = websocket_server.worker_manager
+
+        if not job_queue or not worker_manager.is_user_connected(user_id):
+            return False
+
+        try:
+            job_id = await job_queue.create_job(
+                user_id=user_id,
+                job_type=JobType.DELETE_MODEL,
+                params={"model_id": model_id},
+                timeout=30.0
+            )
+
+            # Poll for result
+            max_wait, poll_interval, elapsed = 30, 0.5, 0
+            while elapsed < max_wait:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                job = job_queue.get_job(job_id)
+                if not job:
+                    return False
+                if job.status == JobStatus.COMPLETED:
+                    return True
+                elif job.status in (JobStatus.FAILED, JobStatus.TIMEOUT):
+                    logger.error(f"Delete model job failed: {job.error}")
+                    return False
+
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting model through worker: {e}")
+            return False
 
     async def _execute_prediction_on_worker(
         self,
