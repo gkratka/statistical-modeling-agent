@@ -399,6 +399,8 @@ def execute_list_models_job(job_id: str) -> str:
                             "created_at": metadata.get("created_at", "unknown"),
                             "feature_columns": metadata.get("feature_columns", []),
                             "target_column": metadata.get("target_column", "unknown"),
+                            "custom_name": metadata.get("custom_name"),
+                            "display_name": metadata.get("display_name"),
                         }
                     )
                 except (json.JSONDecodeError, OSError):
@@ -409,6 +411,82 @@ def execute_list_models_job(job_id: str) -> str:
 
     except Exception as e:
         return create_result_message(job_id, False, error=f"Failed to list models: {str(e)}")
+
+
+def execute_delete_model_job(job_id: str, params: Dict[str, Any]) -> str:
+    """
+    Execute delete_model job.
+
+    Args:
+        job_id: Job identifier
+        params: Job parameters containing model_id
+
+    Returns:
+        JSON-encoded result message
+    """
+    model_id = params.get("model_id")
+    if not model_id:
+        return create_result_message(job_id, False, error="Missing model_id parameter")
+
+    try:
+        models_dir = get_models_dir()
+        model_path = models_dir / model_id
+
+        if not model_path.exists():
+            return create_result_message(job_id, False, error=f"Model not found: {model_id}")
+
+        # Delete model directory and all contents
+        import shutil
+        shutil.rmtree(model_path)
+
+        print(f"🗑️ Deleted model: {model_id}")
+        return create_result_message(job_id, True, data={"deleted": model_id})
+
+    except Exception as e:
+        return create_result_message(job_id, False, error=f"Failed to delete model: {str(e)}")
+
+
+def execute_set_model_name_job(job_id: str, params: Dict[str, Any]) -> str:
+    """
+    Execute set_model_name job - updates model metadata with custom name.
+
+    Args:
+        job_id: Job identifier
+        params: Job parameters containing model_id and custom_name
+
+    Returns:
+        JSON-encoded result message
+    """
+    model_id = params.get("model_id")
+    custom_name = params.get("custom_name")
+
+    if not model_id:
+        return create_result_message(job_id, False, error="Missing model_id parameter")
+    if not custom_name:
+        return create_result_message(job_id, False, error="Missing custom_name parameter")
+
+    try:
+        models_dir = get_models_dir()
+        model_path = models_dir / model_id
+
+        if not model_path.exists():
+            return create_result_message(job_id, False, error=f"Model not found: {model_id}")
+
+        # Update metadata.json with custom_name and display_name
+        metadata_file = model_path / "metadata.json"
+        if not metadata_file.exists():
+            return create_result_message(job_id, False, error="Model metadata not found")
+
+        metadata = json.loads(metadata_file.read_text())
+        metadata["custom_name"] = custom_name
+        metadata["display_name"] = custom_name
+        metadata_file.write_text(json.dumps(metadata, indent=2))
+
+        print(f"📝 Set model name: {model_id} → {custom_name}")
+        return create_result_message(job_id, True, data={"model_id": model_id, "custom_name": custom_name})
+
+    except Exception as e:
+        return create_result_message(job_id, False, error=f"Failed to set model name: {str(e)}")
 
 
 def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> str:
@@ -470,6 +548,7 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
         model_type = params.get("model_type")
         task_type = params.get("task_type", "regression")
         hyperparameters = params.get("hyperparameters", {})
+        custom_name = params.get("custom_name")  # User-provided custom model name
 
         if not target_column or not feature_columns:
             return create_result_message(
@@ -668,6 +747,9 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
                 pickle.dump(encoders, f)
 
         # Save metadata
+        # Generate display_name from custom_name or model_type
+        display_name = custom_name if custom_name else f"{model_type.replace('_', ' ').title()} ({len(feature_columns)} features)"
+
         metadata = {
             "model_id": model_id,
             "model_type": model_type,
@@ -676,6 +758,8 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             "feature_columns": feature_columns,
             "metrics": metrics,
             "created_at": datetime.datetime.now().isoformat(),
+            "custom_name": custom_name,
+            "display_name": display_name,
         }
         metadata_file = model_dir / "metadata.json"
         metadata_file.write_text(json.dumps(metadata, indent=2))
@@ -1113,6 +1197,10 @@ class WorkerClient:
                 result = execute_file_info_job(job_id, params)
             elif action == "save_file":
                 result = execute_save_file_job(job_id, params)
+            elif action == "delete_model":
+                result = execute_delete_model_job(job_id, params)
+            elif action == "set_model_name":
+                result = execute_set_model_name_job(job_id, params)
             else:
                 result = create_result_message(job_id, False, error=f"Unknown action: {action}")
         finally:

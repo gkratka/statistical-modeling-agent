@@ -6,20 +6,29 @@ for the sandboxed execution environment.
 """
 
 import hashlib
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 
 @dataclass
 class SandboxConfig:
-    """Configuration for sandboxed script execution."""
+    """Configuration for sandboxed script execution.
+
+    Security Features:
+        - sandbox_enabled: Controls whether resource limits and env isolation are applied
+        - memory_limit: Maximum memory in MB (default: 2048)
+        - cpu_limit: Maximum CPU time in seconds
+        - timeout: Maximum execution time in seconds (default: 30)
+    """
 
     timeout: int = 30  # seconds
     memory_limit: Optional[int] = 2048  # MB, None to disable
     cpu_limit: Optional[float] = None
     allow_network: bool = False
     temp_dir: Optional[Path] = None
+    sandbox_enabled: bool = field(default_factory=lambda: os.getenv('SANDBOX_DISABLED', '').lower() != 'true')
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""

@@ -215,16 +215,25 @@ class ScriptExecutor:
         input_json = json.dumps(data).encode()
 
         # Create subprocess with isolation
+        # Prepare subprocess kwargs based on sandbox configuration
+        subprocess_kwargs = {
+            'stdin': asyncio.subprocess.PIPE,
+            'stdout': asyncio.subprocess.PIPE,
+            'stderr': asyncio.subprocess.PIPE,
+            'cwd': str(temp_dir),
+        }
+
+        # Apply sandbox isolation when enabled (default: True)
+        if config.sandbox_enabled:
+            subprocess_kwargs['env'] = self.process_manager.create_sandbox_env()
+            subprocess_kwargs['preexec_fn'] = lambda: self.process_manager.set_resource_limits(config)
+            logger.debug("Sandbox enabled: resource limits and env isolation active")
+        else:
+            logger.warning("Sandbox DISABLED: running without resource limits (not recommended)")
+
         process = await asyncio.create_subprocess_exec(
             sys.executable, str(script_file),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(temp_dir),
-            # Use current environment for now to ensure package access
-            # env=self.process_manager.create_sandbox_env(),
-            # Temporarily disable resource limits for testing
-            # preexec_fn=lambda: self.process_manager.set_resource_limits(config)
+            **subprocess_kwargs
         )
 
         try:

@@ -122,11 +122,7 @@ class ModelTrainer(ABC):
         elif unique_vals == {'1', '2'}:
             # Map {'1','2'} to {0,1} for binary classification
             y = y.map({'1': 0, '2': 1}).astype(int)
-        elif y.dtype == 'object' or pd.api.types.is_categorical_dtype(y):
-            # For other categorical data, use LabelEncoder
-            from sklearn.preprocessing import LabelEncoder
-            le = LabelEncoder()
-            y = pd.Series(le.fit_transform(y), index=y.index, name=y.name)
+        # NOTE: Categorical encoding moved to AFTER train/test split (see below)
 
         # Handle test_size=0 (no train/test split)
         if test_size == 0.0 or test_size is None or test_size < 0.01:
@@ -137,12 +133,44 @@ class ModelTrainer(ABC):
             X_test = X.iloc[:0].copy()  # Empty with same columns
             y_test = y.iloc[:0].copy()  # Empty with same structure
         else:
-            # Split data
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y,
-                test_size=test_size,
-            random_state=random_state
-        )
+            # Split data with stratification for classification targets
+            # Stratification ensures all classes appear in both train and test sets
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y,
+                    test_size=test_size,
+                    random_state=random_state,
+                    stratify=y  # Maintain class proportions
+                )
+            except ValueError:
+                # Fallback to random split if stratification fails
+                # (e.g., rare classes with <2 samples)
+                import logging
+                logging.warning(
+                    "Stratified split failed (rare classes?). Using random split."
+                )
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y,
+                    test_size=test_size,
+                    random_state=random_state
+                )
+
+        # Encode categorical target AFTER split (fit on train only)
+        if y_train.dtype == 'object' or pd.api.types.is_categorical_dtype(y_train):
+            from sklearn.preprocessing import LabelEncoder
+            le = LabelEncoder()
+            y_train = pd.Series(le.fit_transform(y_train), index=y_train.index, name=y_train.name)
+            # Transform test set - handle unseen labels by mapping to most frequent
+            if len(y_test) > 0:
+                # Map test labels to known classes, unknown to -1 temporarily
+                y_test_transformed = []
+                for val in y_test:
+                    if val in le.classes_:
+                        y_test_transformed.append(le.transform([val])[0])
+                    else:
+                        # Map unseen label to most frequent training class
+                        y_test_transformed.append(0)
+                y_test = pd.Series(y_test_transformed, index=y_test.index, name=y_test.name)
 
         return X_train, X_test, y_train, y_test
 

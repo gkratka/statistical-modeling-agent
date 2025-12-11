@@ -3,6 +3,11 @@ ML Model Manager.
 
 This module provides model persistence, loading, and lifecycle management
 for trained machine learning models.
+
+Security Features:
+    - All model files are signed with HMAC-SHA256 on save
+    - Signatures are verified before loading any model
+    - Requires MODEL_SIGNING_KEY environment variable
 """
 
 import json
@@ -16,8 +21,10 @@ from src.engines.ml_config import MLEngineConfig
 from src.utils.exceptions import (
     ModelNotFoundError,
     ModelSerializationError,
+    SecurityViolationError,
     ValidationError
 )
+from src.utils.model_signing import sign_model_directory, verify_model_directory
 
 
 class ModelManager:
@@ -176,6 +183,9 @@ class ModelManager:
             # Save auxiliary files
             self._save_auxiliary_files(model_dir, scaler, feature_info, encoders)
 
+            # Sign all pickle files for security
+            sign_model_directory(model_dir)
+
         except Exception as e:
             # Clean up on failure
             if model_dir.exists():
@@ -204,9 +214,13 @@ class ModelManager:
         Raises:
             ModelNotFoundError: If model doesn't exist
             ModelSerializationError: If loading fails
+            SecurityViolationError: If model signature is invalid or missing
         """
         try:
             model_dir = self.get_model_dir(user_id, model_id)
+
+            # SECURITY: Verify all pickle file signatures before loading
+            verify_model_directory(model_dir)
 
             # Load metadata first to check format
             metadata_path = model_dir / "metadata.json"
@@ -257,7 +271,7 @@ class ModelManager:
                 "encoders": encoders
             }
 
-        except (ModelNotFoundError, ValidationError):
+        except (ModelNotFoundError, ValidationError, SecurityViolationError):
             raise
         except Exception as e:
             raise ModelSerializationError(
