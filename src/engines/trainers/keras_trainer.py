@@ -48,6 +48,7 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
         self._Sequential = None
         self._Dense = None
         self._Dropout = None
+        self._Input = None
 
     def _import_keras(self):
         """Lazy import of Keras modules."""
@@ -56,12 +57,13 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
                 import tensorflow as tf
                 from tensorflow import keras
                 from tensorflow.keras.models import Sequential
-                from tensorflow.keras.layers import Dense, Dropout
+                from tensorflow.keras.layers import Dense, Dropout, Input
 
                 self._keras = keras
                 self._Sequential = Sequential
                 self._Dense = Dense
                 self._Dropout = Dropout
+                self._Input = Input
                 self._keras_imported = True
             except ImportError as e:
                 import sys
@@ -77,15 +79,18 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
                     )
                 )
 
-    def _add_dense_layer(self, model: Any, layer_spec: Dict[str, Any], input_dim: int = None):
-        """Add Dense layer to model with optional input_dim for first layer."""
+    def _add_dense_layer(self, model: Any, layer_spec: Dict[str, Any]):
+        """Add Dense layer to model.
+
+        Args:
+            model: Sequential model
+            layer_spec: Layer specification dict
+        """
         kwargs = {
             "units": layer_spec.get("units", 64),
             "activation": layer_spec.get("activation", "relu"),
             "kernel_initializer": layer_spec.get("kernel_initializer", "glorot_uniform")
         }
-        if input_dim is not None:
-            kwargs["input_dim"] = input_dim
         model.add(self._Dense(**kwargs))
 
     def build_model_from_architecture(
@@ -98,16 +103,24 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
 
         Args:
             architecture: Dict with "layers" and "compile" keys
-            n_features: Number of input features
+            n_features: Number of input features (must be an integer)
 
         Returns:
             Compiled Keras Sequential model
 
         Raises:
-            ValidationError: If architecture spec is invalid
+            ValidationError: If architecture spec is invalid or n_features is not an integer
             TrainingError: If model build fails
         """
         self._import_keras()
+
+        # CRITICAL FIX: Validate n_features is an integer, not a tuple
+        if not isinstance(n_features, int):
+            raise ValidationError(
+                f"n_features must be an integer, got {type(n_features).__name__}: {n_features}",
+                field="n_features",
+                value=n_features
+            )
 
         try:
             model = self._Sequential()
@@ -120,13 +133,17 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
                     value=layers
                 )
 
-            # Build layers
+            # MODERN KERAS: Add Input layer first (instead of using deprecated input_dim)
+            # This fixes the shape validation issues and follows Keras best practices
+            model.add(self._Input(shape=(n_features,)))
+
+            # Build remaining layers
             for i, layer_spec in enumerate(layers):
                 layer_type = layer_spec.get("type", "Dense")
 
                 if layer_type == "Dense":
-                    # First layer needs input_dim
-                    self._add_dense_layer(model, layer_spec, n_features if i == 0 else None)
+                    # No need for input_dim anymore - Input layer handles it
+                    self._add_dense_layer(model, layer_spec)
 
                 elif layer_type == "Dropout":
                     model.add(self._Dropout(rate=layer_spec.get("rate", 0.5)))
@@ -167,13 +184,14 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
         Args:
             model_type: Type of Keras model
             hyperparameters: Must contain "architecture" key with model spec
+                            and "n_features" key with integer value
 
         Returns:
             Compiled Keras model
 
         Raises:
             TrainingError: If model_type is not supported
-            ValidationError: If architecture is missing or invalid
+            ValidationError: If architecture is missing or invalid, or n_features is invalid
         """
         if model_type not in self.SUPPORTED_MODELS:
             raise TrainingError(
@@ -191,6 +209,16 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
             )
 
         n_features = hyperparameters.get("n_features", 1)
+
+        # CRITICAL FIX: Ensure n_features is an integer
+        # This prevents ValueError: Cannot convert '(20, 'layers')' to a shape
+        if not isinstance(n_features, int):
+            raise ValidationError(
+                f"hyperparameters['n_features'] must be an integer, got {type(n_features).__name__}: {n_features}. "
+                f"Check that n_features is set to len(feature_columns), not a tuple.",
+                field="hyperparameters.n_features",
+                value=n_features
+            )
 
         return self.build_model_from_architecture(architecture, n_features)
 
