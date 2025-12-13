@@ -1085,20 +1085,20 @@ en:
 
   # Models Browser Translations
   models_browser:
-  list_header: "📚 **ML Model Catalog**"
-  browse_message: "Browse %{total_models} available models for training."
-  page_info: "**Page %{current}/%{total}**"
-  closed: "✅ **Models Browser Closed**\n\nUse /models to browse models again."
-  invalid_selection: "❌ **Error**\n\nInvalid model selection. Please try /models again."
-  model_not_found: "❌ **Model Not Found**\n\nModel `%{model_id}` not found in catalog."
-  malformed_update: "❌ **Invalid Request**\n\nPlease try %{command} again."
+    list_header: "📚 **ML Model Catalog**"
+    browse_message: "Browse %{total_models} available models for training."
+    page_info: "**Page %{current}/%{total}**"
+    closed: "✅ **Models Browser Closed**\n\nUse /models to browse models again."
+    invalid_selection: "❌ **Error**\n\nInvalid model selection. Please try /models again."
+    model_not_found: "❌ **Model Not Found**\n\nModel `%{model_id}` not found in catalog."
+    malformed_update: "❌ **Invalid Request**\n\nPlease try %{command} again."
 
-  # Navigation buttons
-  navigation:
-    back_button: "← Back to Models"
-    cancel_button: "✖️ Cancel"
-    prev_button: "← Prev"
-    next_button: "Next →"
+    # Navigation buttons
+    navigation:
+      back_button: "← Back to Models"
+      cancel_button: "✖️ Cancel"
+      prev_button: "← Prev"
+      next_button: "Next →"
 
   # Prediction Workflow Errors (additional to existing)
   prediction:

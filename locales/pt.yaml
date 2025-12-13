@@ -1085,20 +1085,20 @@ pt:
 
   # Traduções do Navegador de Modelos
   models_browser:
-  list_header: "📚 **Catálogo de Modelos ML**"
-  browse_message: "Navegue por %{total_models} modelos disponíveis para treinamento."
-  page_info: "**Página %{current}/%{total}**"
-  closed: "✅ **Navegador de Modelos Fechado**\n\nUse /models para navegar pelos modelos novamente."
-  invalid_selection: "❌ **Erro**\n\nSeleção de modelo inválida. Por favor, tente /models novamente."
-  model_not_found: "❌ **Modelo Não Encontrado**\n\nModelo `%{model_id}` não encontrado no catálogo."
-  malformed_update: "❌ **Solicitação Inválida**\n\nPor favor, tente %{command} novamente."
+    list_header: "📚 **Catálogo de Modelos ML**"
+    browse_message: "Navegue por %{total_models} modelos disponíveis para treinamento."
+    page_info: "**Página %{current}/%{total}**"
+    closed: "✅ **Navegador de Modelos Fechado**\n\nUse /models para navegar pelos modelos novamente."
+    invalid_selection: "❌ **Erro**\n\nSeleção de modelo inválida. Por favor, tente /models novamente."
+    model_not_found: "❌ **Modelo Não Encontrado**\n\nModelo `%{model_id}` não encontrado no catálogo."
+    malformed_update: "❌ **Solicitação Inválida**\n\nPor favor, tente %{command} novamente."
 
-  # Botões de navegação
-  navigation:
-    back_button: "← Voltar aos Modelos"
-    cancel_button: "✖️ Cancelar"
-    prev_button: "← Anterior"
-    next_button: "Próximo →"
+    # Botões de navegação
+    navigation:
+      back_button: "← Voltar aos Modelos"
+      cancel_button: "✖️ Cancelar"
+      prev_button: "← Anterior"
+      next_button: "Próximo →"
 
   # Erros de Workflow de Previsão (adicional aos existentes)
   prediction:
