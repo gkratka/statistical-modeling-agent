@@ -626,9 +626,22 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             epochs = hp.get("epochs", 50)
             batch_size = hp.get("batch_size", 32)
 
+            # Handle architecture as dict (from bot) or list (legacy)
+            if isinstance(architecture, dict) and "layers" in architecture:
+                # Bot sends: {"layers": [{"units": 64, "activation": "relu"}, ...]}
+                layer_units = [layer.get("units", 64) for layer in architecture["layers"]]
+            elif isinstance(architecture, list):
+                # Legacy format: [64, 32] or [{"units": 64}, ...]
+                if architecture and isinstance(architecture[0], dict):
+                    layer_units = [layer.get("units", 64) for layer in architecture]
+                else:
+                    layer_units = architecture
+            else:
+                layer_units = [64, 32]  # Default fallback
+
             model = keras.Sequential()
             model.add(keras.layers.Input(shape=(X_train.shape[1],)))
-            for units in architecture:
+            for units in layer_units:
                 model.add(keras.layers.Dense(units, activation="relu"))
 
             if "regression" in model_type:
@@ -707,6 +720,7 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
 
         # Evaluate
         from sklearn.metrics import r2_score, mean_squared_error, accuracy_score
+        import numpy as np
 
         if task_type == "regression":
             y_pred = model.predict(X_test)
@@ -716,6 +730,19 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             }
         else:  # classification
             y_pred = model.predict(X_test)
+            # Keras models output probabilities - convert to class labels
+            if model_type.startswith("keras"):
+                # For binary classification (sigmoid), threshold at 0.5
+                # For multiclass (softmax), take argmax
+                if len(y_pred.shape) == 2 and y_pred.shape[1] == 1:
+                    # Binary: shape (n, 1) with probabilities
+                    y_pred = (y_pred.flatten() > 0.5).astype(int)
+                elif len(y_pred.shape) == 2 and y_pred.shape[1] > 1:
+                    # Multiclass: shape (n, n_classes) - take argmax
+                    y_pred = np.argmax(y_pred, axis=1)
+                else:
+                    # Already 1D, threshold at 0.5
+                    y_pred = (np.array(y_pred) > 0.5).astype(int)
             metrics = {"accuracy": float(accuracy_score(y_test, y_pred))}
 
         # Send progress update
