@@ -3348,7 +3348,8 @@ def register_prediction_handlers(
         MessageHandler(
             filters.Document.ALL,
             handler.handle_file_upload
-        )
+        ),
+        group=1  # Different from general document_handler (group=0)
     )
 
     # Text input handler (for paths, features, column names)

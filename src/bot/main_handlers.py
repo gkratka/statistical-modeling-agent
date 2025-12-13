@@ -661,7 +661,7 @@ async def document_handler(
     logger.info("🔧 DATALOADER IMPORT: Success")
 
     try:
-        # Check if user has active workflow - prevent data upload during workflow
+        # Check if user has active workflow
         state_manager = context.bot_data.get('state_manager')
         if state_manager:
             session = await state_manager.get_or_create_session(
@@ -672,7 +672,23 @@ async def document_handler(
             # Get locale from session for i18n
             locale = session.language if session.language else None
 
+            # NEW (BUG FIX): Skip blocking for prediction workflow file uploads
+            # The prediction handler (group=1) will process these
+            from src.core.state_manager import MLPredictionState
+            file_upload_states = [
+                MLPredictionState.AWAITING_FILE_UPLOAD.value,
+            ]
+
+            if session.current_state in file_upload_states:
+                # ✅ Let prediction handler (group=1) process this file
+                logger.info(
+                    f"📂 Skipping general document_handler - "
+                    f"prediction workflow expects file upload (state={session.current_state})"
+                )
+                return
+
             if session.current_state is not None:
+                # Block uploads for non-file-expecting workflows
                 await update.message.reply_text(
                     Messages.workflow_active(
                         workflow_type=session.workflow_type.value if session.workflow_type else 'unknown',
