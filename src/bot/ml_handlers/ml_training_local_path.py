@@ -125,6 +125,7 @@ class LocalPathMLTrainingHandler:
         # Manually initialize workflow at AWAITING_DATA state
         session.workflow_type = WorkflowType.ML_TRAINING
         session.current_state = MLTrainingState.AWAITING_DATA.value
+        session.clear_history()  # FIX: Clear old history when starting new workflow
         await self.state_manager.update_session(session)
 
         # Extract locale from session for i18n
@@ -145,6 +146,7 @@ class LocalPathMLTrainingHandler:
         # Manually initialize workflow at CHOOSING_DATA_SOURCE state
         session.workflow_type = WorkflowType.ML_TRAINING
         session.current_state = MLTrainingState.CHOOSING_DATA_SOURCE.value
+        session.clear_history()  # FIX: Clear old history when starting new workflow
         await self.state_manager.update_session(session)
 
         # Extract locale from session for i18n

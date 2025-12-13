@@ -789,7 +789,10 @@ class StateManager:
             self._sessions.pop(session_key, None)
 
     async def start_workflow(self, session: UserSession, workflow_type: WorkflowType) -> None:
-        """Start a new workflow for session."""
+        """Start a new workflow for session.
+
+        FIX: Now clears state history to prevent pollution from previous workflows.
+        """
         if session.workflow_type is not None:
             raise InvalidStateTransitionError(
                 f"Cannot start {workflow_type.value}: workflow {session.workflow_type.value} already active"
@@ -801,6 +804,7 @@ class StateManager:
 
         session.workflow_type = workflow_type
         session.current_state = list(initial_states)[0]
+        session.clear_history()  # FIX: Clear history when starting new workflow
         await self._update_and_save(session)
 
     async def transition_state(self, session: UserSession, new_state: str) -> Tuple[bool, Optional[str], List[str]]:
@@ -819,10 +823,14 @@ class StateManager:
         return success, error_msg, missing
 
     async def cancel_workflow(self, session: UserSession) -> None:
-        """Cancel active workflow."""
+        """Cancel active workflow.
+
+        FIX: Now clears state history to prevent pollution in next workflow.
+        """
         session.workflow_type = None
         session.current_state = None
         session.selections.clear()
+        session.clear_history()  # FIX: Clear history when cancelling workflow
         await self._update_and_save(session)
 
     async def store_data(self, session: UserSession, data: pd.DataFrame) -> None:
