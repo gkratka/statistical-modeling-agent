@@ -365,6 +365,9 @@ class StatisticalModelingBot:
 
         # Add callback query handlers for models browser navigation
         self.application.add_handler(
+            CallbackQueryHandler(models_handler.handle_category_selection, pattern="^model_category:")
+        )
+        self.application.add_handler(
             CallbackQueryHandler(models_handler.handle_model_selection, pattern="^model:")
         )
         self.application.add_handler(
@@ -372,6 +375,9 @@ class StatisticalModelingBot:
         )
         self.application.add_handler(
             CallbackQueryHandler(models_handler.handle_back_to_list, pattern="^back_to_list:")
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(models_handler.handle_back_to_categories, pattern="^back_to_categories$")
         )
         self.application.add_handler(
             CallbackQueryHandler(models_handler.handle_cancel, pattern="^cancel_models$")

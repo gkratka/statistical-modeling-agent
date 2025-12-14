@@ -9,10 +9,38 @@ class ModelsMessages:
     """Message formatting for models browser workflow."""
 
     @staticmethod
+    def category_selection_message(locale: Optional[str] = None) -> str:
+        """
+        Format category selection message with i18n support.
+
+        Args:
+            locale: Language code (e.g., 'en', 'pt')
+
+        Returns:
+            Formatted message
+        """
+        header = I18nManager.t("workflows.models.category_header", locale=locale)
+        description = I18nManager.t("workflows.models.category_description", locale=locale)
+        regression_desc = I18nManager.t("workflow_state.model_selection.regression_description", locale=locale)
+        classification_desc = I18nManager.t("workflow_state.model_selection.classification_description", locale=locale)
+        neural_desc = I18nManager.t("workflow_state.model_selection.neural_description", locale=locale)
+        prompt = I18nManager.t("workflows.models.category_prompt", locale=locale)
+
+        return (
+            f"{header}\n\n"
+            f"{description}\n\n"
+            f"{regression_desc}\n"
+            f"{classification_desc}\n"
+            f"{neural_desc}\n\n"
+            f"{prompt}"
+        )
+
+    @staticmethod
     def models_list_message(
         page: int,
         total_pages: int,
         total_models: int,
+        category: Optional[str] = None,
         locale: Optional[str] = None
     ) -> str:
         """
@@ -22,12 +50,24 @@ class ModelsMessages:
             page: Current page number (1-indexed)
             total_pages: Total number of pages
             total_models: Total number of models
+            category: Category filter ("regression", "classification", "neural")
             locale: Language code (e.g., 'en', 'pt')
 
         Returns:
             Formatted message
         """
-        header = I18nManager.t("workflows.models.list_header", locale=locale)
+        # Get category-specific header if category is specified
+        if category:
+            category_name_key = f"workflows.models.category_{category}"
+            category_name = I18nManager.t(category_name_key, locale=locale)
+            header = I18nManager.t(
+                "workflows.models.list_header_category",
+                locale=locale,
+                category=category_name
+            )
+        else:
+            header = I18nManager.t("workflows.models.list_header", locale=locale)
+
         browse_msg = I18nManager.t(
             "workflows.models.browse_message",
             locale=locale,

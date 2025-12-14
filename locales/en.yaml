@@ -615,12 +615,25 @@ en:
 
     # Models Browser Workflow
     models:
+      # Category selection
+      category_header: "📚 **ML Model Catalog**"
+      category_description: "Choose a model category to explore:"
+      category_prompt: "**Which category would you like to browse?**"
+
+      # Model list
       list_header: "📚 **ML Model Catalog**"
+      list_header_category: "📚 **%{category}**"
       browse_message: "Browse %{total_models} available models for training."
       list_details: "Click a model to see details, parameters, and use cases."
       page_info: "**Page %{current}/%{total}**"
       list_tip: "💡 **Tip:** Models are organized by type and task."
 
+      # Category names
+      category_regression: "Regression Models"
+      category_classification: "Classification Models"
+      category_neural: "Neural Networks"
+
+      # Model details
       category: "Category"
       task_type: "Task Type"
       variants: "Variants"
@@ -1099,6 +1112,7 @@ en:
     # Navigation buttons
     navigation:
       back_button: "← Back to Models"
+      back_to_categories: "🔙 Back to Categories"
       cancel_button: "✖️ Cancel"
       prev_button: "← Prev"
       next_button: "Next →"

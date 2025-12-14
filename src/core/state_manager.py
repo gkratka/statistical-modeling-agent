@@ -119,6 +119,7 @@ class ScoreWorkflowState(Enum):
 
 class ModelsBrowserState(Enum):
     """States for models browser workflow (/models command)."""
+    VIEWING_CATEGORY = "viewing_category"          # User selecting model category
     VIEWING_MODEL_LIST = "viewing_model_list"      # User browsing paginated model list
     VIEWING_MODEL_DETAILS = "viewing_model_details"  # User viewing single model details
 
@@ -513,14 +514,20 @@ SCORE_WORKFLOW_TRANSITIONS: Dict[Optional[str], Set[str]] = {
 
 MODELS_BROWSER_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     # Start: /models command initiates workflow
-    None: {ModelsBrowserState.VIEWING_MODEL_LIST.value},
+    None: {ModelsBrowserState.VIEWING_CATEGORY.value},
 
-    # Step 1: Viewing model list (paginated)
-    ModelsBrowserState.VIEWING_MODEL_LIST.value: {
-        ModelsBrowserState.VIEWING_MODEL_DETAILS.value  # User selects a model
+    # Step 1: Viewing category selection
+    ModelsBrowserState.VIEWING_CATEGORY.value: {
+        ModelsBrowserState.VIEWING_MODEL_LIST.value  # User selects a category
     },
 
-    # Step 2: Viewing model details
+    # Step 2: Viewing model list (paginated, filtered by category)
+    ModelsBrowserState.VIEWING_MODEL_LIST.value: {
+        ModelsBrowserState.VIEWING_MODEL_DETAILS.value,  # User selects a model
+        ModelsBrowserState.VIEWING_CATEGORY.value  # Back button to categories
+    },
+
+    # Step 3: Viewing model details
     ModelsBrowserState.VIEWING_MODEL_DETAILS.value: {
         ModelsBrowserState.VIEWING_MODEL_LIST.value  # Back button to list
     }

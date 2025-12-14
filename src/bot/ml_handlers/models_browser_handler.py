@@ -34,7 +34,7 @@ class ModelsBrowserHandler:
         context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """
-        Handle /models command - show paginated model list.
+        Handle /models command - show category selection.
 
         Entry point for models browser workflow.
         """
@@ -56,32 +56,105 @@ class ModelsBrowserHandler:
             conversation_id=str(chat_id)
         )
 
-        # Initialize workflow at VIEWING_MODEL_LIST state
+        # Initialize workflow at VIEWING_CATEGORY state
         session.workflow_type = WorkflowType.MODELS_BROWSER
-        session.current_state = ModelsBrowserState.VIEWING_MODEL_LIST.value
+        session.current_state = ModelsBrowserState.VIEWING_CATEGORY.value
         await self.state_manager.update_session(session)
 
-        # Show first page of models
-        await self._show_model_list(update, context, page=0, locale=session.language)
+        # Show category selection
+        await self._show_category_selection(update, context, locale=session.language)
+
+    async def _show_category_selection(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        locale: Optional[str] = None
+    ) -> None:
+        """
+        Show category selection screen.
+
+        Args:
+            update: Telegram update
+            context: Bot context
+            locale: Language code for translations
+        """
+        # Build inline keyboard with category buttons
+        keyboard = [
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.buttons.regression_models', locale=locale),
+                callback_data="model_category:regression"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.buttons.classification_models', locale=locale),
+                callback_data="model_category:classification"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflow_state.buttons.neural_networks', locale=locale),
+                callback_data="model_category:neural"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('models_browser.navigation.cancel_button', locale=locale),
+                callback_data="cancel_models"
+            )]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Build message
+        message_text = ModelsMessages.category_selection_message(locale=locale)
+
+        # Send or edit message
+        if update.message:
+            # New command - send message
+            await update.message.reply_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+        else:
+            # Callback query - edit existing message
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
 
     async def _show_model_list(
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
+        category: Optional[str] = None,
         page: int = 0,
         locale: Optional[str] = None
     ) -> None:
         """
-        Show paginated list of models.
+        Show paginated list of models filtered by category.
 
         Args:
             update: Telegram update
             context: Bot context
+            category: Category to filter by ("regression", "classification", "neural")
             page: Page number (0-indexed)
             locale: Language code for translations
         """
-        # Get all models
-        all_models = get_all_models()
+        # Get models filtered by category
+        if category == "regression":
+            from src.engines.model_catalog import TaskType, get_models_by_task
+            all_models = get_models_by_task(TaskType.REGRESSION)
+        elif category == "classification":
+            from src.engines.model_catalog import TaskType, get_models_by_task
+            # Include both binary and multiclass classification
+            binary_models = get_models_by_task(TaskType.BINARY_CLASSIFICATION)
+            multiclass_models = get_models_by_task(TaskType.MULTICLASS_CLASSIFICATION)
+            all_models = binary_models + multiclass_models
+        elif category == "neural":
+            from src.engines.model_catalog import ModelCategory, get_models_by_category
+            all_models = get_models_by_category(ModelCategory.NEURAL_NETWORKS)
+        else:
+            # Fallback to all models if no category specified
+            all_models = get_all_models()
+
         total_models = len(all_models)
         total_pages = ceil(total_models / MODELS_PER_PAGE)
 
@@ -99,28 +172,43 @@ class ModelsBrowserHandler:
         # Model buttons (one per row)
         for model in page_models:
             # Display with icon and name
-            # Callback format: "model:id:page" (for back navigation)
+            # Callback format: "model:id:category:page" (for back navigation)
             button_text = f"{model.icon} {model.display_name}"
-            callback_data = f"model:{model.id}:{page}"
+            callback_data = f"model:{model.id}:{category or 'all'}:{page}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
 
-        # Pagination + Cancel row
+        # Navigation row
         nav_row = []
-        if page > 0:
-            nav_row.append(InlineKeyboardButton(
-                I18nManager.t('models_browser.navigation.prev_button', locale=locale),
-                callback_data=f"page:{page-1}"
-            ))
+
+        # Back to categories button (always shown)
         nav_row.append(InlineKeyboardButton(
+            I18nManager.t('models_browser.navigation.back_to_categories', locale=locale),
+            callback_data="back_to_categories"
+        ))
+
+        keyboard.append(nav_row)
+
+        # Pagination row
+        pagination_row = []
+        if page > 0:
+            pagination_row.append(InlineKeyboardButton(
+                I18nManager.t('models_browser.navigation.prev_button', locale=locale),
+                callback_data=f"page:{category or 'all'}:{page-1}"
+            ))
+        if page < total_pages - 1:
+            pagination_row.append(InlineKeyboardButton(
+                I18nManager.t('models_browser.navigation.next_button', locale=locale),
+                callback_data=f"page:{category or 'all'}:{page+1}"
+            ))
+
+        if pagination_row:
+            keyboard.append(pagination_row)
+
+        # Cancel button row
+        keyboard.append([InlineKeyboardButton(
             I18nManager.t('models_browser.navigation.cancel_button', locale=locale),
             callback_data="cancel_models"
-        ))
-        if page < total_pages - 1:
-            nav_row.append(InlineKeyboardButton(
-                I18nManager.t('models_browser.navigation.next_button', locale=locale),
-                callback_data=f"page:{page+1}"
-            ))
-        keyboard.append(nav_row)
+        )])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -129,6 +217,7 @@ class ModelsBrowserHandler:
             page=page + 1,
             total_pages=total_pages,
             total_models=total_models,
+            category=category,
             locale=locale
         )
 
@@ -150,6 +239,59 @@ class ModelsBrowserHandler:
                 parse_mode="Markdown"
             )
 
+    async def handle_category_selection(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """
+        Handle category selection - show models in that category.
+
+        Callback format: "model_category:category"
+        """
+        query = update.callback_query
+        await query.answer()
+
+        # Parse callback data
+        try:
+            _, category = query.data.split(":")
+        except (ValueError, IndexError) as e:
+            logger.error(f"Invalid callback data in handle_category_selection: {e}")
+            await query.edit_message_text(
+                I18nManager.t('models_browser.invalid_selection', locale=None),
+                parse_mode="Markdown"
+            )
+            return
+
+        # Get user session
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update object: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Save state snapshot for back navigation
+        session.save_state_snapshot()
+
+        # Store selected category in session
+        session.selections['model_category'] = category
+
+        # Transition to VIEWING_MODEL_LIST
+        session.current_state = ModelsBrowserState.VIEWING_MODEL_LIST.value
+        await self.state_manager.update_session(session)
+
+        # Show models in this category
+        await self._show_model_list(
+            update,
+            context,
+            category=category,
+            page=0,
+            locale=session.language
+        )
+
     async def handle_model_selection(
         self,
         update: Update,
@@ -158,14 +300,14 @@ class ModelsBrowserHandler:
         """
         Handle model selection - show model details.
 
-        Callback format: "model:id:page"
+        Callback format: "model:id:category:page"
         """
         query = update.callback_query
         await query.answer()
 
         # Parse callback data
         try:
-            _, model_id, page_str = query.data.split(":")
+            _, model_id, category, page_str = query.data.split(":")
             page = int(page_str)
         except (ValueError, IndexError) as e:
             logger.error(f"Invalid callback data in handle_model_selection: {e}")
@@ -191,6 +333,7 @@ class ModelsBrowserHandler:
         # Transition to VIEWING_MODEL_DETAILS
         session.current_state = ModelsBrowserState.VIEWING_MODEL_DETAILS.value
         session.selections['current_page'] = page  # Store page for back navigation
+        session.selections['current_category'] = category  # Store category for back navigation
         await self.state_manager.update_session(session)
 
         # Get model info
@@ -210,7 +353,7 @@ class ModelsBrowserHandler:
         # Build keyboard with Back button
         keyboard = [[InlineKeyboardButton(
             I18nManager.t('models_browser.navigation.back_button', locale=locale),
-            callback_data=f"back_to_list:{page}"
+            callback_data=f"back_to_list:{category}:{page}"
         )]]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -229,14 +372,14 @@ class ModelsBrowserHandler:
         """
         Handle pagination callbacks.
 
-        Callback format: "page:number"
+        Callback format: "page:category:number"
         """
         query = update.callback_query
         await query.answer()
 
-        # Parse page number
+        # Parse callback data
         try:
-            _, page_str = query.data.split(":")
+            _, category, page_str = query.data.split(":")
             page = int(page_str)
         except (ValueError, IndexError) as e:
             logger.error(f"Invalid pagination callback: {e}")
@@ -252,8 +395,14 @@ class ModelsBrowserHandler:
             logger.error(f"Error getting session in pagination: {e}")
             locale = None
 
-        # Show requested page
-        await self._show_model_list(update, context, page=page, locale=locale)
+        # Show requested page with category filter
+        await self._show_model_list(
+            update,
+            context,
+            category=category if category != 'all' else None,
+            page=page,
+            locale=locale
+        )
 
     async def handle_back_to_list(
         self,
@@ -263,17 +412,18 @@ class ModelsBrowserHandler:
         """
         Handle back button - return to model list.
 
-        Callback format: "back_to_list:page"
+        Callback format: "back_to_list:category:page"
         """
         query = update.callback_query
         await query.answer()
 
-        # Parse page number
+        # Parse callback data
         try:
-            _, page_str = query.data.split(":")
+            _, category, page_str = query.data.split(":")
             page = int(page_str)
         except (ValueError, IndexError) as e:
             logger.error(f"Invalid back callback: {e}")
+            category = None
             page = 0
 
         # Get user session
@@ -290,8 +440,47 @@ class ModelsBrowserHandler:
         session.restore_previous_state()
         await self.state_manager.update_session(session)
 
-        # Show model list
-        await self._show_model_list(update, context, page=page, locale=session.language)
+        # Show model list with category filter
+        await self._show_model_list(
+            update,
+            context,
+            category=category if category != 'all' else None,
+            page=page,
+            locale=session.language
+        )
+
+    async def handle_back_to_categories(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """
+        Handle back to categories button - return to category selection.
+
+        Callback format: "back_to_categories"
+        """
+        query = update.callback_query
+        await query.answer()
+
+        # Get user session
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update object: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+
+        # Save state snapshot
+        session.save_state_snapshot()
+
+        # Transition back to VIEWING_CATEGORY
+        session.current_state = ModelsBrowserState.VIEWING_CATEGORY.value
+        await self.state_manager.update_session(session)
+
+        # Show category selection
+        await self._show_category_selection(update, context, locale=session.language)
 
     async def handle_cancel(
         self,
