@@ -241,8 +241,22 @@ class LocalPathMLTrainingHandler:
 
             print(f"🔀 DEBUG: State transition SUCCESS: {old_state} → {session.current_state}")
 
+            # Create keyboard with Back and Cancel buttons
+            keyboard = [
+                [InlineKeyboardButton(
+                    I18nManager.t('workflows.prediction.buttons.go_back', locale=locale),
+                    callback_data="ml_back_to_data_source"
+                )],
+                [InlineKeyboardButton(
+                    I18nManager.t('workflows.prediction.buttons.cancel_workflow', locale=locale),
+                    callback_data="ml_cancel_workflow"
+                )]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
             await query.edit_message_text(
                 LocalPathMessages.telegram_upload_prompt(locale=locale),
+                reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
@@ -303,6 +317,90 @@ class LocalPathMLTrainingHandler:
 
             # Route to template handler
             await self.template_handlers.handle_template_source_selection(update, context)
+
+    async def handle_back_to_data_source(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle back button from file upload screen."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update object in handle_back_to_data_source: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+        if not session:
+            return
+
+        # Extract locale for i18n
+        locale = session.language if session.language else None
+
+        # Transition back to data source selection
+        session.current_state = MLTrainingState.CHOOSING_DATA_SOURCE.value
+        await self.state_manager.update_session(session)
+
+        # Show data source selection again
+        keyboard = [
+            [InlineKeyboardButton(
+                I18nManager.t('workflows.ml_training.upload_button', locale=locale),
+                callback_data="data_source:telegram"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflows.ml_training.local_path_button', locale=locale),
+                callback_data="data_source:local_path"
+            )],
+            [InlineKeyboardButton(
+                I18nManager.t('workflows.ml_training.template_button', locale=locale),
+                callback_data="data_source:template"
+            )]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            LocalPathMessages.data_source_selection_prompt(locale=locale),
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    async def handle_cancel_workflow(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle cancel button to exit ML training workflow."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+        except AttributeError as e:
+            logger.error(f"Malformed update object in handle_cancel_workflow: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, str(chat_id))
+        if not session:
+            return
+
+        # Extract locale for i18n
+        locale = session.language if session.language else None
+
+        # Cancel workflow
+        await self.state_manager.cancel_workflow(session)
+
+        # Notify user
+        await query.edit_message_text(
+            I18nManager.t('workflow_state.workflow_cancelled',
+                         workflow_type='ML Training',
+                         locale=locale),
+            parse_mode="Markdown"
+        )
 
     async def handle_text_input(
         self,
@@ -4421,6 +4519,21 @@ def register_local_path_handlers(
         CallbackQueryHandler(
             handler.handle_data_source_selection,
             pattern=r"^data_source:"
+        )
+    )
+
+    # Navigation handlers (Back and Cancel)
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_back_to_data_source,
+            pattern=r"^ml_back_to_data_source$"
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_cancel_workflow,
+            pattern=r"^ml_cancel_workflow$"
         )
     )
 

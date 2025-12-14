@@ -439,11 +439,14 @@ en:
       defer_loading_button: "⏳ Defer Loading"
 
       awaiting_file: |
-        ✅ **Telegram Upload**
+        📤 **Upload Your File**
 
-        📤 Please upload your file.
+        To upload, either:
+        • Click the 📎 attachment icon and select your file
+        • Drag and drop your file into this chat
 
-        **Formats:** CSV, Excel, Parquet | **Max:** 10MB
+        **Supported formats:** CSV, Excel (.csv, .xlsx, .xls), Parquet
+        **Maximum size:** 10MB
 
       awaiting_path: |
         📂 **Local File Path**
