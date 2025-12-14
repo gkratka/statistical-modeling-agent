@@ -404,3 +404,113 @@ class TestStateManager:
         # Verify session count is 3 (not 4, since user 1 accessed twice)
         count = await manager.get_active_session_count()
         assert count == 3
+
+    async def test_reset_session_clears_all_state(self, manager):
+        """Test that reset_session completely clears all session state."""
+        # Create session and populate with various data
+        session = await manager.get_or_create_session(123, "conv_1")
+
+        # Add workflow state
+        await manager.start_workflow(session, WorkflowType.ML_TRAINING)
+        session.current_state = MLTrainingState.SELECTING_TARGET.value
+        session.selections["target"] = "price"
+        session.selections["features"] = ["sqft", "bedrooms"]
+        session.model_ids.append("model_123")
+
+        # Add data
+        df = pd.DataFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
+        await manager.store_data(session, df)
+
+        # Add conversation history
+        await manager.add_to_history(session, "user", "Train a model")
+        await manager.add_to_history(session, "assistant", "Sure!")
+
+        # Add local path workflow data
+        session.data_source = "local_path"
+        session.file_path = "/tmp/data.csv"
+        session.detected_schema = {"target": "price"}
+        session.load_deferred = True
+        session.manual_schema = {"features": ["col1", "col2"]}
+
+        # Add password authentication state
+        session.dynamic_allowed_directories.append("/tmp")
+        session.pending_auth_path = "/tmp/secure"
+        session.password_attempts = 2
+
+        # Add back button state
+        session.last_back_action = 12345.0
+
+        # Add prediction workflow data
+        session.compatible_models = [{"id": "model_1"}]
+
+        # Save state snapshot for back navigation
+        session.save_state_snapshot()
+
+        await manager.update_session(session)
+
+        # Perform reset
+        await manager.reset_session(123, "conv_1")
+
+        # Get session after reset
+        reset_session = await manager.get_session(123, "conv_1")
+
+        # Verify ALL state is cleared
+        assert reset_session is not None  # Session still exists
+        assert reset_session.workflow_type is None
+        assert reset_session.current_state is None
+        assert len(reset_session.selections) == 0
+        assert len(reset_session.model_ids) == 0
+        assert len(reset_session.history) == 0
+        assert reset_session.uploaded_data is None
+
+        # Verify local path workflow data cleared
+        assert reset_session.data_source is None
+        assert reset_session.file_path is None
+        assert reset_session.detected_schema is None
+        assert reset_session.load_deferred is False
+        assert reset_session.manual_schema is None
+
+        # Verify password authentication state cleared
+        assert len(reset_session.dynamic_allowed_directories) == 0
+        assert reset_session.pending_auth_path is None
+        assert reset_session.password_attempts == 0
+
+        # Verify back button state cleared
+        assert reset_session.last_back_action is None
+        assert not reset_session.can_go_back()  # State history should be empty
+
+        # Verify prediction workflow data cleared
+        assert reset_session.compatible_models is None
+
+    async def test_reset_session_nonexistent(self, manager):
+        """Test reset_session on non-existent session does not raise error."""
+        # Should not raise error
+        await manager.reset_session(999, "nonexistent")
+
+        # Verify session was not created
+        session = await manager.get_session(999, "nonexistent")
+        assert session is None
+
+    async def test_reset_session_preserves_user_info(self, manager):
+        """Test that reset_session preserves user_id and conversation_id."""
+        # Create session
+        session = await manager.get_or_create_session(123, "conv_1")
+        original_created_at = session.created_at
+
+        # Add some data
+        await manager.start_workflow(session, WorkflowType.ML_TRAINING)
+        await manager.update_session(session)
+
+        # Reset
+        await manager.reset_session(123, "conv_1")
+
+        # Get session
+        reset_session = await manager.get_session(123, "conv_1")
+
+        # Verify user info preserved
+        assert reset_session.user_id == 123
+        assert reset_session.conversation_id == "conv_1"
+        assert reset_session.created_at == original_created_at
+
+        # Verify last_activity was updated
+        assert reset_session.last_activity > original_created_at

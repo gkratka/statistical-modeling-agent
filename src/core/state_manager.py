@@ -833,6 +833,72 @@ class StateManager:
         session.clear_history()  # FIX: Clear history when cancelling workflow
         await self._update_and_save(session)
 
+    async def reset_session(self, user_id: int, conversation_id: str) -> None:
+        """Completely reset user session state.
+
+        This is a more thorough reset than cancel_workflow():
+        - Clears ALL workflow state (workflow_type, current_state, selections)
+        - Clears conversation history
+        - Clears uploaded data
+        - Clears state history (back button navigation)
+        - Clears local path workflow data (file_path, detected_schema, etc.)
+        - Clears password authentication state
+        - Does NOT delete the session from memory (allows immediate restart)
+
+        Use this when the user is stuck or wants to start completely fresh.
+
+        Args:
+            user_id: User ID
+            conversation_id: Conversation ID
+        """
+        session_key = self._get_session_key(user_id, conversation_id)
+
+        async with self._global_lock:
+            if session_key not in self._sessions:
+                # Session doesn't exist, nothing to reset
+                return
+
+            session = self._sessions[session_key]
+
+        # Clear workflow state
+        session.workflow_type = None
+        session.current_state = None
+        session.selections.clear()
+        session.model_ids.clear()
+
+        # Clear conversation history
+        session.history.clear()
+
+        # Clear uploaded data
+        session.uploaded_data = None
+
+        # Clear state history (back button navigation)
+        session.clear_history()
+
+        # Clear local path workflow data
+        session.data_source = None
+        session.file_path = None
+        session.detected_schema = None
+        session.load_deferred = False
+        session.manual_schema = None
+
+        # Clear password authentication state
+        session.dynamic_allowed_directories.clear()
+        session.pending_auth_path = None
+        session.password_attempts = 0
+
+        # Clear back button debouncing
+        session.last_back_action = None
+
+        # Clear prediction workflow data
+        session.compatible_models = None
+
+        # Update activity timestamp
+        session.update_activity()
+
+        # Save the reset session
+        await self._update_and_save(session)
+
     async def store_data(self, session: UserSession, data: pd.DataFrame) -> None:
         """Store DataFrame in session."""
         data_size_mb = data.memory_usage(deep=True).sum() / (1024 * 1024)

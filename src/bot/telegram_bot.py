@@ -51,6 +51,7 @@ document_handler = handlers.document_handler
 diagnostic_handler = handlers.diagnostic_handler
 version_handler = handlers.version_handler
 cancel_handler = handlers.cancel_handler
+restart_handler = handlers.restart_handler
 train_handler = handlers.train_handler
 error_handler = handlers.error_handler
 from src.processors.data_loader import DataLoader
@@ -229,6 +230,7 @@ class StatisticalModelingBot:
         self.application.add_handler(CommandHandler("version", version_handler))
         self.application.add_handler(CommandHandler("diagnostic", diagnostic_handler))
         self.application.add_handler(CommandHandler("cancel", cancel_handler))
+        self.application.add_handler(CommandHandler("restart", restart_handler))
 
         # Local worker command handlers
         from src.bot.handlers.connect_handler import (

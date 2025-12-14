@@ -53,38 +53,48 @@ Execute fixes one at a time in the recommended order. After each fix:
 
 ---
 
-### Fix 006: Drag-Drop File Stuck (CRITICAL)
-**Prompt:** `./prompts/006-fix-drag-drop-stuck.md`
+### Fix 006: Drag-Drop File Stuck (CRITICAL) ✅ COMPLETE
+**Prompt:** `./prompts/completed/006-fix-drag-drop-stuck.md`
 
 **Problem:** Bot doesn't respond when user drags/drops file during AWAITING_FILE state
 
-**Likely Cause:** Document handler not registered or state not recognized
+**Root Cause:** Handler registration conflict - general document_handler blocked all uploads
 
-**Key Files:** `src/bot/telegram_bot.py`, `src/bot/handlers/`
+**Fix Applied:**
+- Added state filtering to general handler to skip blocking when workflow expects file upload
+- Moved prediction handler to group=1 to run after ML training handlers
+
+**Key Files:** `src/bot/main_handlers.py`, `src/bot/ml_handlers/prediction_handlers.py`
 
 ---
 
-### Fix 009: Back Buttons Not Working (HIGH)
-**Prompt:** `./prompts/009-fix-back-buttons.md`
+### Fix 009: Back Buttons Not Working (HIGH) ✅ COMPLETE
+**Prompt:** `./prompts/completed/009-fix-back-buttons.md`
 
 **Problem:** Back buttons show "at beginning of workflow" when user is mid-workflow
 
-**Root Cause:** step_history not being populated during forward transitions
+**Root Cause:** State history not cleared when starting new workflows - pollution from previous workflows
+
+**Fix Applied:**
+- Added `session.clear_history()` in `start_workflow()` and `cancel_workflow()` methods
+- Added history clear in workflow starters in ml_training_local_path.py
 
 **Key Files:** `src/core/state_manager.py`, `src/bot/ml_handlers/ml_training_local_path.py`
 
-**Reference:** /predict back buttons work - use as template
-
 ---
 
-### Fix 004: /models Button Truncation (HIGH)
-**Prompt:** `./prompts/004-fix-models-button-truncation.md`
+### Fix 004: /models Button Truncation (HIGH) ✅ COMPLETE
+**Prompt:** `./prompts/completed/004-fix-models-button-truncation.md`
 
 **Problem:** Buttons show callback_data instead of labels ("models_br...el_button")
 
-**Fix:** Ensure InlineKeyboardButton has correct `text` parameter
+**Root Cause:** YAML indentation error in translation files - models_browser section not properly indented under language key
 
-**Key Files:** Models handler pagination code
+**Fix Applied:**
+- Fixed indentation in locales/en.yaml and locales/pt.yaml
+- models_browser section now properly nested under language keys
+
+**Key Files:** `locales/en.yaml`, `locales/pt.yaml`
 
 ---
 
@@ -179,9 +189,9 @@ After each fix:
 ## Completion Checklist
 
 - [x] Fix 008: Keras training error ✅
-- [ ] Fix 006: Drag-drop file stuck
-- [ ] Fix 009: Back buttons
-- [ ] Fix 004: Button truncation
+- [x] Fix 006: Drag-drop file stuck ✅
+- [x] Fix 009: Back buttons ✅
+- [x] Fix 004: Button truncation ✅
 - [ ] Fix 002: /restart command
 - [ ] Fix 005: Upload button
 - [ ] Fix 007: Save template

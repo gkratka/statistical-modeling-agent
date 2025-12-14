@@ -857,6 +857,56 @@ async def cancel_handler(
 
 
 @telegram_handler
+@log_user_action("Reset session")
+async def restart_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle /restart command - complete session reset.
+
+    This performs a more thorough reset than /cancel:
+    - Clears ALL workflow state
+    - Clears uploaded data
+    - Clears conversation history
+    - Clears password authentication state
+    - Clears local path workflow data
+
+    Use this when the bot is stuck or user wants to start completely fresh.
+
+    Args:
+        update: Telegram update object
+        context: Bot context
+    """
+    user_id = update.effective_user.id
+    conversation_id = str(update.effective_chat.id)
+
+    # Use shared StateManager instance from bot_data
+    state_manager = context.bot_data['state_manager']
+
+    # Perform complete session reset
+    await state_manager.reset_session(user_id, conversation_id)
+
+    # Get user's language preference (if available)
+    session = await state_manager.get_or_create_session(user_id, conversation_id)
+    locale = session.language if session.language else 'en'
+
+    # Send confirmation message
+    await update.message.reply_text(
+        "🔄 **Session Reset Complete**\n\n"
+        "All session data has been cleared:\n"
+        "• Workflow state\n"
+        "• Uploaded data\n"
+        "• Conversation history\n"
+        "• Authentication state\n\n"
+        "Use /start to begin again.",
+        parse_mode="Markdown"
+    )
+
+    logger.info(f"Session reset completed for user {user_id}")
+
+
+@telegram_handler
 @log_user_action("Start ML training")
 async def train_handler(
     update: Update,
