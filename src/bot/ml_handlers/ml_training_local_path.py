@@ -2628,6 +2628,19 @@ class LocalPathMLTrainingHandler:
         # Get locale from session
         locale = session.language if session.language else None
 
+        # Ensure session is in COLLECTING_HYPERPARAMETERS state to allow saving template
+        # This enables the "Save as Template" button to work correctly
+        # If already in this state or transition fails, that's OK - we'll continue
+        if session.current_state != MLTrainingState.COLLECTING_HYPERPARAMETERS.value:
+            success, error_msg, _ = await self.state_manager.transition_state(
+                session,
+                MLTrainingState.COLLECTING_HYPERPARAMETERS.value
+            )
+            if not success:
+                logger.warning(f"Failed to transition to COLLECTING_HYPERPARAMETERS: {error_msg}")
+                # Set state directly as fallback - this is needed for template save to work
+                session.current_state = MLTrainingState.COLLECTING_HYPERPARAMETERS.value
+
         # Save session with error handling
         try:
             await self.state_manager.update_session(session)
