@@ -98,56 +98,75 @@ Execute fixes one at a time in the recommended order. After each fix:
 
 ---
 
-### Fix 002: Create /restart Command (HIGH)
-**Prompt:** `./prompts/002-create-restart-command.md`
+### Fix 002: Create /restart Command (HIGH) ✅ COMPLETE
+**Prompt:** `./prompts/completed/002-create-restart-command.md`
 
 **Goal:** Allow users to reset session when bot gets stuck
 
-**Implementation:** Clear session state, send confirmation
+**Fix Applied:**
+- Added `reset_session()` method to StateManager
+- Created `restart_handler` in main_handlers.py
+- Clears all session data (workflow, data, history, auth state)
 
-**Key Files:** `src/bot/handlers/main_handlers.py`, `src/core/state_manager.py`
+**Key Files:** `src/bot/main_handlers.py`, `src/core/state_manager.py`
 
 ---
 
-### Fix 005: Upload Button Missing (HIGH)
-**Prompt:** `./prompts/005-fix-upload-button-missing.md`
+### Fix 005: Upload Button Missing (HIGH) ✅ COMPLETE
+**Prompt:** `./prompts/completed/005-fix-upload-button-missing.md`
 
 **Problem:** After selecting "Upload File", no buttons shown - user can't go back
 
-**Fix:** Add Back/Cancel buttons and improve instructions
+**Fix Applied:**
+- Added "⬅️ Go Back" and "❌ Cancel Workflow" buttons
+- Improved upload instructions with clear guidance
+- Implemented callback handlers for navigation
 
-**Key Files:** `src/bot/ml_handlers/`
+**Key Files:** `src/bot/ml_handlers/ml_training_local_path.py`, `locales/en.yaml`
 
 ---
 
-### Fix 007: Save Template Button (MEDIUM)
-**Prompt:** `./prompts/007-fix-save-template-button.md`
+### Fix 007: Save Template Button (MEDIUM) ✅ COMPLETE
+**Prompt:** `./prompts/completed/007-fix-save-template-button.md`
 
 **Problem:** "Save as Template" button shows error on Keras config screen
 
-**Likely Cause:** Handler not registered or template storage not implemented
+**Root Cause:** State not set to COLLECTING_HYPERPARAMETERS before showing config complete screen
 
-**Key Files:** `src/bot/ml_handlers/`, template storage
+**Fix Applied:**
+- Ensure session is in COLLECTING_HYPERPARAMETERS state before displaying config complete screen
+- Enables valid transition to SAVING_TEMPLATE state
+
+**Key Files:** `src/bot/ml_handlers/ml_training_local_path.py`
 
 ---
 
-### Fix 003: /models Grouping (MEDIUM)
-**Prompt:** `./prompts/003-fix-models-grouping.md`
+### Fix 003: /models Grouping (MEDIUM) ✅ COMPLETE
+**Prompt:** `./prompts/completed/003-fix-models-grouping.md`
 
 **Goal:** Group models by category (Regression/Classification/Neural Networks) like /train
 
-**Current:** Flat paginated list
+**Fix Applied:**
+- Added VIEWING_CATEGORY state to ModelsBrowserState
+- Created category selection screen with 3 buttons
+- Implemented category-based model filtering
+- Added back to categories navigation
 
-**Key Files:** Models handler, model catalog
+**Key Files:** `src/bot/ml_handlers/models_browser_handler.py`, `src/core/state_manager.py`
 
 ---
 
-### Fix 001: Create /commands (LOW)
-**Prompt:** `./prompts/001-create-commands-handler.md`
+### Fix 001: Create /commands (LOW) ✅ COMPLETE
+**Prompt:** `./prompts/completed/001-create-commands-handler.md`
 
 **Goal:** List all available slash commands with descriptions
 
-**Key Files:** `src/bot/handlers/main_handlers.py`, `src/bot/telegram_bot.py`
+**Fix Applied:**
+- Created `commands_handler` with categorized command list
+- Registered handler in telegram_bot.py
+- Groups: Core, ML Workflows, Utilities, Settings, Diagnostics
+
+**Key Files:** `src/bot/main_handlers.py`, `src/bot/telegram_bot.py`
 
 ---
 
@@ -192,11 +211,11 @@ After each fix:
 - [x] Fix 006: Drag-drop file stuck ✅
 - [x] Fix 009: Back buttons ✅
 - [x] Fix 004: Button truncation ✅
-- [ ] Fix 002: /restart command
-- [ ] Fix 005: Upload button
-- [ ] Fix 007: Save template
-- [ ] Fix 003: /models grouping
-- [ ] Fix 001: /commands
+- [x] Fix 002: /restart command ✅
+- [x] Fix 005: Upload button ✅
+- [x] Fix 007: Save template ✅
+- [x] Fix 003: /models grouping ✅
+- [x] Fix 001: /commands ✅
 - [ ] All tests passing
 - [ ] Manual testing complete
 - [ ] PR created and merged
