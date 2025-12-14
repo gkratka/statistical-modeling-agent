@@ -46,6 +46,7 @@ start_handler = handlers.start_handler
 help_handler = handlers.help_handler
 pt_handler = handlers.pt_handler
 en_handler = handlers.en_handler
+commands_handler = handlers.commands_handler
 message_handler = handlers.message_handler
 document_handler = handlers.document_handler
 diagnostic_handler = handlers.diagnostic_handler
@@ -225,6 +226,7 @@ class StatisticalModelingBot:
         # Command handlers
         self.application.add_handler(CommandHandler("start", start_handler))
         self.application.add_handler(CommandHandler("help", help_handler))
+        self.application.add_handler(CommandHandler("commands", commands_handler))
         self.application.add_handler(CommandHandler("pt", pt_handler))
         self.application.add_handler(CommandHandler("en", en_handler))
         self.application.add_handler(CommandHandler("version", version_handler))

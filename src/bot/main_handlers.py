@@ -207,6 +207,47 @@ async def en_handler(
 
 
 @telegram_handler
+@log_user_action("Commands list request")
+async def commands_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """
+    Handle /commands command - show list of all available bot commands.
+
+    Args:
+        update: Telegram update object
+        context: Bot context
+    """
+    commands_message = (
+        "📋 **Available Commands**\n\n"
+        "**Core Commands:**\n"
+        "/start - Initialize bot session\n"
+        "/help - Get help and usage info\n"
+        "/commands - Show this list\n\n"
+        "**ML Workflows:**\n"
+        "/train - Start ML model training\n"
+        "/predict - Make predictions with trained models\n"
+        "/score - Complete train+predict workflow\n"
+        "/models - View and manage ML models\n\n"
+        "**Utilities:**\n"
+        "/cancel - Cancel current operation\n"
+        "/restart - Reset session\n"
+        "/connect - Connect local worker\n"
+        "/worker - Start worker autostart\n\n"
+        "**Settings:**\n"
+        "/pt - Switch to Portuguese\n"
+        "/en - Switch to English\n\n"
+        "**Diagnostics:**\n"
+        "/version - Check bot version\n"
+        "/diagnostic - System diagnostics\n\n"
+        "_Use any command to get started!_"
+    )
+
+    await update.message.reply_text(commands_message, parse_mode="Markdown")
+
+
+@telegram_handler
 @log_user_action("Message received")
 async def message_handler(
     update: Update,
