@@ -444,7 +444,7 @@ async def message_handler(
                 task = parser.parse_request(
                     text=message_text,
                     user_id=user_id,
-                    conversation_id=f"chat_{update.effective_chat.id}",
+                    conversation_id=str(update.effective_chat.id),
                     data_source=None  # Data already loaded
                 )
 
@@ -471,7 +471,7 @@ async def message_handler(
                     state_manager = context.bot_data['state_manager']
                     response_builder = ResponseBuilder()
 
-                    session = await state_manager.get_or_create_session(user_id, f"chat_{update.effective_chat.id}")
+                    session = await state_manager.get_or_create_session(user_id, str(update.effective_chat.id))
                     await state_manager.store_data(session, dataframe)
                     await state_manager.start_workflow(session, WorkflowType.ML_TRAINING)
                     await state_manager.transition_state(session, MLTrainingState.SELECTING_TARGET.value)
@@ -707,7 +707,7 @@ async def document_handler(
         if state_manager:
             session = await state_manager.get_or_create_session(
                 user_id,
-                f"chat_{update.effective_chat.id}"
+                str(update.effective_chat.id)
             )
 
             # Get locale from session for i18n
@@ -795,7 +795,7 @@ async def document_handler(
         state_manager = context.bot_data['state_manager']
         session = await state_manager.get_or_create_session(
             user_id,
-            f"chat_{update.effective_chat.id}"
+            str(update.effective_chat.id)
         )
         session.uploaded_data = df
 
@@ -1051,7 +1051,7 @@ async def handle_workflow_back(
         state_manager = context.bot_data['state_manager']
         session = await state_manager.get_or_create_session(
             user_id,
-            f"chat_{update.effective_chat.id}"
+            str(update.effective_chat.id)
         )
 
         # Enhanced logging: Current state before back navigation (Phase 3 fix)
