@@ -126,6 +126,7 @@ class LocalPathMLTrainingHandler:
         session.workflow_type = WorkflowType.ML_TRAINING
         session.current_state = MLTrainingState.AWAITING_DATA.value
         session.clear_history()  # FIX: Clear old history when starting new workflow
+        session.save_state_snapshot()  # FIX: Save initial state so back button works
         await self.state_manager.update_session(session)
 
         # Extract locale from session for i18n
@@ -147,6 +148,7 @@ class LocalPathMLTrainingHandler:
         session.workflow_type = WorkflowType.ML_TRAINING
         session.current_state = MLTrainingState.CHOOSING_DATA_SOURCE.value
         session.clear_history()  # FIX: Clear old history when starting new workflow
+        session.save_state_snapshot()  # FIX: Save initial state so back button works
         await self.state_manager.update_session(session)
 
         # Extract locale from session for i18n

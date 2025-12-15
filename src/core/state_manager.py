@@ -812,6 +812,7 @@ class StateManager:
         session.workflow_type = workflow_type
         session.current_state = list(initial_states)[0]
         session.clear_history()  # FIX: Clear history when starting new workflow
+        session.save_state_snapshot()  # FIX: Save initial state so back button works
         await self._update_and_save(session)
 
     async def transition_state(self, session: UserSession, new_state: str) -> Tuple[bool, Optional[str], List[str]]:
