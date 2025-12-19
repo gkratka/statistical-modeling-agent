@@ -233,11 +233,13 @@ class StatisticalModelingBot:
         # Local worker command handlers
         from src.bot.handlers.connect_handler import (
             handle_connect_command,
+            handle_disconnect_command,
             handle_worker_connect_button,
             handle_worker_autostart_command
         )
         from telegram.ext import CallbackQueryHandler
         self.application.add_handler(CommandHandler("connect", handle_connect_command))
+        self.application.add_handler(CommandHandler("disconnect", handle_disconnect_command))
         self.application.add_handler(CommandHandler("worker", handle_worker_autostart_command))
         self.application.add_handler(
             CallbackQueryHandler(handle_worker_connect_button, pattern="^worker_connect$")

@@ -130,6 +130,74 @@ async def handle_connect_command(
 
 
 # ============================================================================
+# /disconnect Command Handler
+# ============================================================================
+
+
+@telegram_handler
+@log_user_action("/disconnect command")
+async def handle_disconnect_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /disconnect command - force disconnect user's worker.
+
+    This command allows users to disconnect their worker from the server side,
+    which is useful when the terminal was closed and the worker process died
+    but the server still thinks it's connected (stale session).
+
+    Args:
+        update: Telegram update object
+        context: Bot context
+    """
+    user_id = update.effective_user.id
+
+    # Check if websocket server is available
+    websocket_server = context.bot_data.get('websocket_server')
+    if not websocket_server:
+        await update.message.reply_text(
+            "❌ **Worker Feature Not Available**\n\n"
+            "The worker connection service is not running.",
+            parse_mode="Markdown"
+        )
+        return
+
+    worker_manager = websocket_server.worker_manager
+
+    # Check if user has connected worker
+    if not worker_manager.is_user_connected(user_id):
+        await update.message.reply_text(
+            "ℹ️ **No Worker Connected**\n\n"
+            "You don't have a worker connected.\n\n"
+            "Use /connect to connect a worker.",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Disconnect the worker
+    try:
+        success = await worker_manager.disconnect_user(user_id)
+    except Exception as e:
+        logger.error(f"Error disconnecting worker for user {user_id}: {e}")
+        success = False
+
+    if success:
+        await update.message.reply_text(
+            "✅ **Worker Disconnected**\n\n"
+            "Your worker has been disconnected.\n\n"
+            "Use /connect to connect a new worker.",
+            parse_mode="Markdown"
+        )
+        logger.info(f"User {user_id} disconnected worker via /disconnect command")
+    else:
+        await update.message.reply_text(
+            "❌ **Failed to Disconnect**\n\n"
+            "Could not disconnect the worker. Please try again.",
+            parse_mode="Markdown"
+        )
+
+
+# ============================================================================
 # Start Command Integration
 # ============================================================================
 
