@@ -1020,7 +1020,10 @@ class WorkerClient:
                 return False
 
             print(f"Connecting to {self.ws_url}...")
-            self.ws = await websockets.connect(self.ws_url)
+            self.ws = await websockets.connect(
+                self.ws_url,
+                max_size=10 * 1024 * 1024 * 1024,  # 10GB for large model results
+            )
             print("Connected!")
             return True
 

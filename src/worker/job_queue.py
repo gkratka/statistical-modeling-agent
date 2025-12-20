@@ -221,11 +221,11 @@ class JobQueue:
         default_timeout: Default job timeout in seconds
     """
 
-    def __init__(self, default_timeout: float = 300.0):
+    def __init__(self, default_timeout: float = 3600.0):
         """Initialize job queue.
 
         Args:
-            default_timeout: Default timeout for jobs in seconds (default: 300)
+            default_timeout: Default timeout for jobs in seconds (default: 3600 = 1 hour)
         """
         self.default_timeout = default_timeout
         self._jobs: Dict[str, Job] = {}  # job_id -> Job
