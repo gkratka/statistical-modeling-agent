@@ -439,7 +439,7 @@ class StatisticalModelingBot:
         )
 
         # Create job queue and attach to websocket server
-        job_queue = JobQueue(default_timeout=300.0)
+        job_queue = JobQueue(default_timeout=3600.0)  # 1 hour for large model training
         job_queue.set_worker_manager(self._websocket_server.worker_manager)
         self._websocket_server.job_queue = job_queue
 

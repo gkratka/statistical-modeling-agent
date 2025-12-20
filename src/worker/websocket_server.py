@@ -67,6 +67,7 @@ class WebSocketServer:
             self._handle_connection,
             self.host,
             self.port,
+            max_size=10 * 1024 * 1024 * 1024,  # 10GB for large model results
         )
         logger.info(f"WebSocket server started on ws://{self.host}:{self.port}")
 
