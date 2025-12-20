@@ -131,13 +131,11 @@ class TokenManager:
             logger.warning(f"Token validation failed: unknown token")
             return None
 
-        if not token.is_valid():
-            reason = "already used" if token.used else "expired"
-            logger.warning(f"Token validation failed: {reason}")
+        if token.is_expired():
+            logger.warning(f"Token validation failed: expired")
             return None
 
-        # Mark as used (one-time use)
-        token.used = True
+        # Token remains valid for reconnection until explicit disconnect
         logger.info(f"Token validated for user {token.user_id}")
 
         return token.user_id
