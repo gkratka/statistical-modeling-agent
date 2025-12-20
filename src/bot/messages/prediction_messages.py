@@ -650,6 +650,42 @@ def create_ready_to_run_buttons(locale: Optional[str] = None) -> List[List[Inlin
     ]
 
 
+def _format_model_type_for_display(model_type: str) -> str:
+    """
+    Format model_type for display when no custom/display name exists.
+
+    Args:
+        model_type: Technical model type (e.g., 'xgboost_binary_classification')
+
+    Returns:
+        Human-readable name (e.g., 'XGBoost Binary')
+    """
+    display = model_type.replace('_', ' ').title()
+    # Simplify common patterns for cleaner display
+    simplifications = {
+        'Xgboost Binary Classification': 'XGBoost Binary',
+        'Xgboost Multiclass Classification': 'XGBoost Multiclass',
+        'Xgboost Regression': 'XGBoost Regression',
+        'Keras Binary Classification': 'Keras Binary',
+        'Keras Multiclass Classification': 'Keras Multiclass',
+        'Lightgbm Binary Classification': 'LightGBM Binary',
+        'Lightgbm Multiclass Classification': 'LightGBM Multiclass',
+        'Catboost Binary Classification': 'CatBoost Binary',
+        'Catboost Multiclass Classification': 'CatBoost Multiclass',
+        'Random Forest': 'Random Forest',
+        'Decision Tree': 'Decision Tree',
+        'Gradient Boosting': 'Gradient Boosting',
+        'Logistic': 'Logistic Regression',
+        'Linear': 'Linear Regression',
+        'Ridge': 'Ridge Regression',
+        'Lasso': 'Lasso Regression',
+        'Elasticnet': 'ElasticNet',
+        'Naive Bayes': 'Naive Bayes',
+        'Svm': 'SVM',
+    }
+    return simplifications.get(display, display)
+
+
 def create_model_selection_buttons(
     models: List[Dict[str, Any]],
     locale: Optional[str] = None
@@ -659,8 +695,12 @@ def create_model_selection_buttons(
 
     buttons = []
     for i, model in enumerate(models[:10], 0):  # Start at 0 for index-based lookup
-        # Get display name (prepared by ml_engine.list_models with custom_name priority)
-        display_name = model.get('display_name', model.get('model_type', 'Unknown'))
+        # Get display name with proper fallback chain (handles None values)
+        display_name = (
+            model.get('display_name')
+            or model.get('custom_name')
+            or _format_model_type_for_display(model.get('model_type', 'Unknown'))
+        )
 
         # Get feature count
         feature_columns = model.get('feature_columns', [])
@@ -705,8 +745,12 @@ def create_delete_models_checkbox_buttons(
     unselected_prefix = I18nManager.t('prediction.delete_models.unselected_prefix', locale=locale)
 
     for i, model in enumerate(models[:10]):
-        # Get display name (prepared by ml_engine.list_models with custom_name priority)
-        display_name = model.get('display_name', model.get('model_type', 'Unknown'))
+        # Get display name with proper fallback chain (handles None values)
+        display_name = (
+            model.get('display_name')
+            or model.get('custom_name')
+            or _format_model_type_for_display(model.get('model_type', 'Unknown'))
+        )
 
         # Add checkbox prefix based on selection state
         prefix = selected_prefix if i in selected_indices else unselected_prefix

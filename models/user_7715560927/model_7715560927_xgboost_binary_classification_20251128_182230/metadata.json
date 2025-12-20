@@ -1,0 +1,130 @@
+{
+  "model_type": "xgboost_binary_classification",
+  "task_type": "classification",
+  "target_column": "Attribute1",
+  "feature_columns": [
+    "Attribute2",
+    "Attribute3",
+    "Attribute4",
+    "Attribute5",
+    "Attribute6",
+    "Attribute7",
+    "Attribute8",
+    "Attribute9",
+    "Attribute10",
+    "Attribute11",
+    "Attribute12",
+    "Attribute13",
+    "Attribute14",
+    "Attribute15",
+    "Attribute16",
+    "Attribute17",
+    "Attribute18",
+    "Attribute19",
+    "Attribute20"
+  ],
+  "metrics": {
+    "accuracy": 0.39375,
+    "precision": 0.3514894283328272,
+    "recall": 0.39375,
+    "f1": 0.3618264625384878,
+    "confusion_matrix": [
+      [
+        17,
+        7,
+        2,
+        16
+      ],
+      [
+        13,
+        8,
+        0,
+        26
+      ],
+      [
+        2,
+        1,
+        0,
+        9
+      ],
+      [
+        5,
+        16,
+        0,
+        38
+      ]
+    ]
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "learning_rate": 0.1,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 1,
+    "gamma": 0,
+    "reg_alpha": 0,
+    "reg_lambda": 1,
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "test_size": 0.2,
+  "n_features": 19,
+  "feature_names": [
+    "Attribute2",
+    "Attribute3",
+    "Attribute4",
+    "Attribute5",
+    "Attribute6",
+    "Attribute7",
+    "Attribute8",
+    "Attribute9",
+    "Attribute10",
+    "Attribute11",
+    "Attribute12",
+    "Attribute13",
+    "Attribute14",
+    "Attribute15",
+    "Attribute16",
+    "Attribute17",
+    "Attribute18",
+    "Attribute19",
+    "Attribute20"
+  ],
+  "framework": "xgboost",
+  "n_estimators": 200,
+  "max_depth": 6,
+  "learning_rate": 0.1,
+  "feature_importance": {
+    "Attribute10": 0.08116904646158218,
+    "Attribute3": 0.05946200713515282,
+    "Attribute6": 0.05916697531938553,
+    "Attribute18": 0.05807080119848251,
+    "Attribute19": 0.05659908056259155,
+    "Attribute17": 0.054118458181619644,
+    "Attribute15": 0.05409450829029083,
+    "Attribute4": 0.05291279777884483,
+    "Attribute14": 0.05283830687403679,
+    "Attribute2": 0.050117962062358856,
+    "Attribute7": 0.05006294697523117,
+    "Attribute9": 0.050048865377902985,
+    "Attribute16": 0.048831693828105927,
+    "Attribute5": 0.04837329685688019,
+    "Attribute11": 0.048250164836645126,
+    "Attribute13": 0.04525070637464523,
+    "Attribute12": 0.044612206518650055,
+    "Attribute8": 0.04324985668063164,
+    "Attribute20": 0.042770396918058395
+  },
+  "best_iteration": 199,
+  "model_format": "sklearn",
+  "model_id": "model_7715560927_xgboost_binary_classification_20251128_182230",
+  "user_id": 7715560927,
+  "created_at": "2025-11-28T18:22:30.045513Z",
+  "custom_name": "XGBoost Binary Classification - Nov 28 2025",
+  "display_name": "XGBoost Binary Classification - Nov 28 2025"
+}

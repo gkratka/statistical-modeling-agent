@@ -1,0 +1,113 @@
+{
+  "model_type": "keras_binary_classification",
+  "task_type": "neural_network",
+  "target_column": "class2",
+  "feature_columns": [
+    "Attribute1",
+    "Attribute2",
+    "Attribute3",
+    "Attribute4",
+    "Attribute5",
+    "Attribute6",
+    "Attribute7",
+    "Attribute8",
+    "Attribute9",
+    "Attribute10",
+    "Attribute11",
+    "Attribute12",
+    "Attribute13",
+    "Attribute14",
+    "Attribute15",
+    "Attribute16",
+    "Attribute17",
+    "Attribute18",
+    "Attribute19",
+    "Attribute20"
+  ],
+  "metrics": {
+    "loss": 0.6059747934341431,
+    "accuracy": 0.7281249761581421,
+    "precision": 0.5394736842105263,
+    "recall": 0.44086021505376344,
+    "f1": 0.48520710059171596,
+    "confusion_matrix": [
+      [
+        384,
+        70
+      ],
+      [
+        104,
+        82
+      ]
+    ]
+  },
+  "preprocessing": {
+    "missing_value_strategy": "mean",
+    "scaling_method": "standard"
+  },
+  "hyperparameters": {
+    "epochs": 100,
+    "batch_size": 32,
+    "kernel_initializer": "glorot_uniform",
+    "verbose": 1,
+    "validation_split": 0.2,
+    "architecture": {
+      "layers": [
+        {
+          "type": "Dense",
+          "units": 20,
+          "activation": "relu",
+          "kernel_initializer": "glorot_uniform"
+        },
+        {
+          "type": "Dense",
+          "units": 1,
+          "activation": "sigmoid",
+          "kernel_initializer": "glorot_uniform"
+        }
+      ],
+      "compile": {
+        "loss": "binary_crossentropy",
+        "optimizer": "adam",
+        "metrics": [
+          "accuracy"
+        ]
+      }
+    },
+    "n_features": 20
+  },
+  "test_size": 0.8,
+  "n_features": 20,
+  "feature_names": [
+    "Attribute1",
+    "Attribute2",
+    "Attribute3",
+    "Attribute4",
+    "Attribute5",
+    "Attribute6",
+    "Attribute7",
+    "Attribute8",
+    "Attribute9",
+    "Attribute10",
+    "Attribute11",
+    "Attribute12",
+    "Attribute13",
+    "Attribute14",
+    "Attribute15",
+    "Attribute16",
+    "Attribute17",
+    "Attribute18",
+    "Attribute19",
+    "Attribute20"
+  ],
+  "framework": "keras",
+  "n_layers": 2,
+  "n_parameters": 441,
+  "optimizer": "Adam",
+  "model_format": "keras",
+  "model_id": "model_7715560927_keras_binary_classification_20251130_170107",
+  "user_id": 7715560927,
+  "created_at": "2025-11-30T17:01:07.747177Z",
+  "custom_name": "keras_geman_data",
+  "display_name": "keras_geman_data"
+}

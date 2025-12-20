@@ -18,6 +18,7 @@ from src.processors.data_loader import DataLoader
 from src.utils.path_validator import PathValidator
 from src.engines.ml_engine import MLEngine
 from src.utils.i18n_manager import I18nManager
+from src.utils.exceptions import ModelNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ class PredictionTemplateHandlers:
         else:  # Message
             chat_id = query_or_message.chat_id
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if not session:
             # Try to get locale from context, default to None
@@ -225,7 +226,7 @@ class PredictionTemplateHandlers:
         """Handle template name text input."""
         user_id = update.effective_user.id
         chat_id = update.message.chat_id
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if not session or session.current_state != MLPredictionState.SAVING_PRED_TEMPLATE.value:
             return
@@ -365,10 +366,13 @@ class PredictionTemplateHandlers:
         context: CallbackContext
     ) -> None:
         """Handle specific template selection."""
+        print("[DEBUG] handle_template_selection: START")
         query = update.callback_query
         await query.answer()
+        print(f"[DEBUG] callback_data: {query.data}")
 
         session = await self._get_session_or_error(update, query)
+        print(f"[DEBUG] session found: {session is not None}")
         if not session:
             return
 
@@ -379,7 +383,9 @@ class PredictionTemplateHandlers:
         template_name = query.data.split(":", 1)[1]
 
         # Load template
+        print(f"[DEBUG] Loading template: {template_name} for user {user_id}")
         template = self.template_manager.load_template(user_id, template_name)
+        print(f"[DEBUG] template loaded: {template is not None}")
         if not template:
             await query.edit_message_text(
                 pt_messages.pred_template_not_found(name=template_name, locale=locale),
@@ -388,7 +394,12 @@ class PredictionTemplateHandlers:
             return
 
         # Validate model exists
-        model_info = self.ml_engine.get_model_info(user_id, template.model_id)
+        print(f"[DEBUG] Validating model: {template.model_id}")
+        try:
+            model_info = self.ml_engine.get_model_info(user_id, template.model_id)
+        except ModelNotFoundError:
+            model_info = None
+        print(f"[DEBUG] model_info found: {model_info is not None}")
         if not model_info:
             await query.edit_message_text(
                 pt_messages.pred_template_model_invalid(model_id=template.model_id, locale=locale),
@@ -408,8 +419,10 @@ class PredictionTemplateHandlers:
             "last_used": template.last_used
         }
         self.template_manager.save_template(user_id, template_name, config)
+        print("[DEBUG] template saved with updated last_used")
 
         # Populate session with template data
+        print("[DEBUG] Populating session with template data")
         session.file_path = template.file_path
         session.selections["selected_model_id"] = template.model_id
         session.selections["selected_features"] = template.feature_columns
@@ -418,12 +431,16 @@ class PredictionTemplateHandlers:
             session.selections["output_file_path"] = template.save_path
 
         session.save_state_snapshot()
+        print("[DEBUG] State snapshot saved")
 
+        print(f"[DEBUG] Transitioning to CONFIRMING_PRED_TEMPLATE from {session.current_state}")
         if not await self._transition_or_error(
             session, MLPredictionState.CONFIRMING_PRED_TEMPLATE.value, query
         ):
+            print("[DEBUG] State transition failed!")
             return
 
+        print("[DEBUG] State transition successful")
         # Display configuration summary
         summary = pt_messages.format_pred_template_summary(
             template_name=template.template_name,

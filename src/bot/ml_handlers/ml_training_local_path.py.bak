@@ -1,7 +1,7 @@
 """Telegram bot handlers for ML training with local file path workflow."""
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import pandas as pd
 import telegram
@@ -125,8 +125,6 @@ class LocalPathMLTrainingHandler:
         # Manually initialize workflow at AWAITING_DATA state
         session.workflow_type = WorkflowType.ML_TRAINING
         session.current_state = MLTrainingState.AWAITING_DATA.value
-        session.clear_history()  # FIX: Clear old history when starting new workflow
-        session.save_state_snapshot()  # FIX: Save initial state so back button works
         await self.state_manager.update_session(session)
 
         # Extract locale from session for i18n
@@ -147,8 +145,6 @@ class LocalPathMLTrainingHandler:
         # Manually initialize workflow at CHOOSING_DATA_SOURCE state
         session.workflow_type = WorkflowType.ML_TRAINING
         session.current_state = MLTrainingState.CHOOSING_DATA_SOURCE.value
-        session.clear_history()  # FIX: Clear old history when starting new workflow
-        session.save_state_snapshot()  # FIX: Save initial state so back button works
         await self.state_manager.update_session(session)
 
         # Extract locale from session for i18n
@@ -243,22 +239,8 @@ class LocalPathMLTrainingHandler:
 
             print(f"🔀 DEBUG: State transition SUCCESS: {old_state} → {session.current_state}")
 
-            # Create keyboard with Back and Cancel buttons
-            keyboard = [
-                [InlineKeyboardButton(
-                    I18nManager.t('workflows.prediction.buttons.go_back', locale=locale),
-                    callback_data="ml_back_to_data_source"
-                )],
-                [InlineKeyboardButton(
-                    I18nManager.t('workflows.prediction.buttons.cancel_workflow', locale=locale),
-                    callback_data="ml_cancel_workflow"
-                )]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
             await query.edit_message_text(
                 LocalPathMessages.telegram_upload_prompt(locale=locale),
-                reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
@@ -320,90 +302,6 @@ class LocalPathMLTrainingHandler:
             # Route to template handler
             await self.template_handlers.handle_template_source_selection(update, context)
 
-    async def handle_back_to_data_source(
-        self,
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """Handle back button from file upload screen."""
-        query = update.callback_query
-        await query.answer()
-
-        try:
-            user_id = update.effective_user.id
-            chat_id = update.effective_chat.id
-        except AttributeError as e:
-            logger.error(f"Malformed update object in handle_back_to_data_source: {e}")
-            return
-
-        session = await self.state_manager.get_session(user_id, str(chat_id))
-        if not session:
-            return
-
-        # Extract locale for i18n
-        locale = session.language if session.language else None
-
-        # Transition back to data source selection
-        session.current_state = MLTrainingState.CHOOSING_DATA_SOURCE.value
-        await self.state_manager.update_session(session)
-
-        # Show data source selection again
-        keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflows.ml_training.upload_button', locale=locale),
-                callback_data="data_source:telegram"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflows.ml_training.local_path_button', locale=locale),
-                callback_data="data_source:local_path"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflows.ml_training.template_button', locale=locale),
-                callback_data="data_source:template"
-            )]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            LocalPathMessages.data_source_selection_prompt(locale=locale),
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-
-    async def handle_cancel_workflow(
-        self,
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE
-    ) -> None:
-        """Handle cancel button to exit ML training workflow."""
-        query = update.callback_query
-        await query.answer()
-
-        try:
-            user_id = update.effective_user.id
-            chat_id = update.effective_chat.id
-        except AttributeError as e:
-            logger.error(f"Malformed update object in handle_cancel_workflow: {e}")
-            return
-
-        session = await self.state_manager.get_session(user_id, str(chat_id))
-        if not session:
-            return
-
-        # Extract locale for i18n
-        locale = session.language if session.language else None
-
-        # Cancel workflow
-        await self.state_manager.cancel_workflow(session)
-
-        # Notify user
-        await query.edit_message_text(
-            I18nManager.t('workflow_state.workflow_cancelled',
-                         workflow_type='ML Training',
-                         locale=locale),
-            parse_mode="Markdown"
-        )
-
     async def handle_text_input(
         self,
         update: Update,
@@ -429,7 +327,6 @@ class LocalPathMLTrainingHandler:
                 return
 
             print(f"📥 DEBUG: Unified text handler called with: {text_input[:50]}...")
-            print(f"🔍 PATH_DEBUG: Raw text_input from Telegram = '{text_input}'")
 
             # Get or create session - prevents false "Session Expired" errors
             session = await self.state_manager.get_or_create_session(user_id, str(chat_id))
@@ -520,8 +417,7 @@ class LocalPathMLTrainingHandler:
                 path=file_path,
                 allowed_dirs=self.data_loader.allowed_directories,
                 max_size_mb=self.data_loader.local_max_size_mb,
-                allowed_extensions=self.data_loader.local_extensions,
-                forbidden_dirs=self.data_loader.forbidden_directories
+                allowed_extensions=self.data_loader.local_extensions
             )
 
             if not is_valid:
@@ -734,33 +630,7 @@ class LocalPathMLTrainingHandler:
 
             # Store file path and get size
             session.file_path = pending_path
-            print(f"🔍 PATH_DEBUG: session.file_path AFTER password = '{session.file_path}'")
-
-            # Check if worker is connected (for prod where file is on user's machine)
-            websocket_server = context.bot_data.get('websocket_server')
-            worker_connected = (
-                websocket_server and
-                websocket_server.worker_manager.is_user_connected(user_id)
-            )
-
-            if worker_connected:
-                # Use worker (for prod where file is on user's machine)
-                file_info = await self._get_file_info_from_worker(user_id, pending_path, context)
-                if file_info and file_info.get('exists'):
-                    size_mb = file_info.get('size_mb', 0)
-                else:
-                    await update.message.reply_text(
-                        "❌ **File Not Accessible**\n\n"
-                        "The worker couldn't access the file. Please verify:\n"
-                        "• The file path is correct\n"
-                        "• The worker is still connected\n"
-                        "• The file exists on your machine",
-                        parse_mode="Markdown"
-                    )
-                    return
-            else:
-                # Use local (for dev where file is on same machine as bot)
-                size_mb = get_file_size_mb(Path(pending_path))
+            size_mb = get_file_size_mb(Path(pending_path))
 
             # Transition to load options
             session.save_state_snapshot()
@@ -903,7 +773,6 @@ class LocalPathMLTrainingHandler:
             self.logger.info(f"[LOAD_NOW] User {user_id} selected: {choice}")
             self.logger.info(f"[LOAD_NOW] Session state: {session.current_state}")
             self.logger.info(f"[LOAD_NOW] File path: {session.file_path}")
-            print(f"🔍 PATH_DEBUG: session.file_path at LOAD_NOW = '{session.file_path}'")
 
             loading_msg = await query.edit_message_text(
                 I18nManager.t('workflows.ml_training_local_path.path.loading', locale=locale)
@@ -1574,41 +1443,21 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_model_type'] = model_type  # Store for later
         await self.state_manager.update_session(session)
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Start with n_estimators configuration
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.n_estimators.btn_50', locale=locale),
-                callback_data="xgboost_n_estimators:50"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.n_estimators.btn_100', locale=locale),
-                callback_data="xgboost_n_estimators:100"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.n_estimators.btn_200', locale=locale),
-                callback_data="xgboost_n_estimators:200"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.n_estimators.btn_custom', locale=locale),
-                callback_data="xgboost_n_estimators:custom"
-            )]
+            [InlineKeyboardButton("50 trees", callback_data="xgboost_n_estimators:50")],
+            [InlineKeyboardButton("100 trees (recommended)", callback_data="xgboost_n_estimators:100")],
+            [InlineKeyboardButton("200 trees", callback_data="xgboost_n_estimators:200")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_n_estimators:custom")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.xgboost.n_estimators.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.xgboost.n_estimators.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.xgboost.n_estimators.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n"
-            f"{title}\n\n"
-            f"{question}\n"
-            f"{help_text}",
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 1/5: Number of Boosting Rounds**\n\n"
+            "How many trees to build?\n"
+            "(More trees = better fit, but slower training)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1628,43 +1477,22 @@ class LocalPathMLTrainingHandler:
         session.selections['lightgbm_model_type'] = model_type  # Store for later
         await self.state_manager.update_session(session)
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Start with num_leaves configuration (LightGBM uses leaves not depth)
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.btn_15', locale=locale),
-                callback_data="lightgbm_num_leaves:15"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.btn_31', locale=locale),
-                callback_data="lightgbm_num_leaves:31"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.btn_63', locale=locale),
-                callback_data="lightgbm_num_leaves:63"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.btn_defaults', locale=locale),
-                callback_data="lightgbm_use_defaults"
-            )]
+            [InlineKeyboardButton("15 leaves (fast)", callback_data="lightgbm_num_leaves:15")],
+            [InlineKeyboardButton("31 leaves (recommended)", callback_data="lightgbm_num_leaves:31")],
+            [InlineKeyboardButton("63 leaves (complex)", callback_data="lightgbm_num_leaves:63")],
+            [InlineKeyboardButton("Use Defaults", callback_data="lightgbm_use_defaults")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.lightgbm.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.title', locale=locale)
-        description = I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.description', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.question', locale=locale)
-        tip = I18nManager.t('workflow_state.model_config.lightgbm.num_leaves.tip', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n"
-            f"{title}\n\n"
-            f"{description}\n"
-            f"{question}\n\n"
-            f"{tip}",
+            "⚡ **LightGBM Configuration**\n\n"
+            "**Step 1: Number of Leaves**\n\n"
+            "LightGBM uses leaf-wise growth (faster than XGBoost).\n"
+            "How many leaves per tree?\n\n"
+            "💡 **Tip**: 15 = fast, 31 = balanced, 63 = complex",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1684,45 +1512,22 @@ class LocalPathMLTrainingHandler:
         session.selections['catboost_model_type'] = model_type  # Store for later
         await self.state_manager.update_session(session)
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Start with iterations configuration
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_100', locale=locale),
-                callback_data="catboost_iterations:100"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_500', locale=locale),
-                callback_data="catboost_iterations:500"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_1000', locale=locale),
-                callback_data="catboost_iterations:1000"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_2000', locale=locale),
-                callback_data="catboost_iterations:2000"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.iterations.btn_custom', locale=locale),
-                callback_data="catboost_iterations:custom"
-            )]
+            [InlineKeyboardButton("100 iterations (fast)", callback_data="catboost_iterations:100")],
+            [InlineKeyboardButton("500 iterations", callback_data="catboost_iterations:500")],
+            [InlineKeyboardButton("1000 iterations (recommended)", callback_data="catboost_iterations:1000")],
+            [InlineKeyboardButton("2000 iterations (thorough)", callback_data="catboost_iterations:2000")],
+            [InlineKeyboardButton("Custom", callback_data="catboost_iterations:custom")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.catboost.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.catboost.iterations.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.catboost.iterations.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.catboost.iterations.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n"
-            f"{title}\n\n"
-            f"{question}\n"
-            f"{help_text}",
+            "🐈 **CatBoost Configuration**\n\n"
+            "**Step 1/4: Number of Boosting Rounds**\n\n"
+            "How many iterations (trees) to build?\n"
+            "(More iterations = better fit, but slower training)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -1800,41 +1605,22 @@ class LocalPathMLTrainingHandler:
                     hyperparameters = get_template(model_type)
                     print(f"⚡ DEBUG: Using LightGBM template hyperparameters: {hyperparameters}")
 
-            # Check data source to determine execution path
-            # local_path files exist on user's machine → must route through JobQueue to worker
-            # uploaded files are available on server → can execute directly
-            if session.data_source == "local_path":
-                print(f"🔍 DEBUG: Routing sklearn training through JobQueue (local_path)")
-                # Route through JobQueue to worker (file is on user's machine)
-                result = await self._execute_training_on_worker(
-                    user_id=user_id,
-                    file_path=file_path,
+            # Call ML Engine to train (wrapped in executor to prevent blocking event loop)
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,  # Use default ThreadPoolExecutor
+                lambda: self.ml_engine.train_model(
+                    file_path=file_path,  # Lazy loading from deferred file
                     task_type=task_type,
                     model_type=model_type,
                     target_column=target,
                     feature_columns=features,
+                    user_id=user_id,
                     hyperparameters=hyperparameters,
-                    test_size=0.2,
-                    context=context
+                    test_size=0.2  # Default test split
                 )
-            else:
-                # Direct execution for uploaded files (existing code path)
-                print(f"🔍 DEBUG: Executing sklearn training directly (uploaded file)")
-                import asyncio
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    None,  # Use default ThreadPoolExecutor
-                    lambda: self.ml_engine.train_model(
-                        file_path=file_path,  # Lazy loading from deferred file
-                        task_type=task_type,
-                        model_type=model_type,
-                        target_column=target,
-                        feature_columns=features,
-                        user_id=user_id,
-                        hyperparameters=hyperparameters,
-                        test_size=0.2  # Default test split
-                    )
-                )
+            )
 
             print(f"🚀 DEBUG: Training result = {result}")
 
@@ -1842,7 +1628,6 @@ class LocalPathMLTrainingHandler:
             if result.get('success'):
                 model_id = result.get('model_id', 'N/A')
                 metrics = result.get('metrics', {})
-                model_info = result.get('model_info', {})  # For local worker training
 
                 # Transition to TRAINING_COMPLETE state
                 print(f"🔍 DEBUG: Transitioning to TRAINING_COMPLETE state")
@@ -1861,9 +1646,8 @@ class LocalPathMLTrainingHandler:
 
                 print(f"✅ DEBUG: State transition to TRAINING_COMPLETE successful, state={session.current_state}")
 
-                # Store model_id and model_info in session for naming workflow
+                # Store model_id in session for naming workflow
                 session.selections['pending_model_id'] = model_id
-                session.selections['pending_model_info'] = model_info  # For local worker: use instead of filesystem lookup
                 await self.state_manager.update_session(session)
 
                 # Get locale from session
@@ -1903,7 +1687,7 @@ class LocalPathMLTrainingHandler:
                 logger.error(f"Training failed: {error_msg}")
                 await update.effective_message.reply_text(
                     f"❌ **Training Failed**\n\n"
-                    f"Error: {escape_markdown_v1(str(error_msg))}\n\n"
+                    f"Error: {error_msg}\n\n"
                     f"Please try again with /train",
                     parse_mode="Markdown"
                 )
@@ -1923,7 +1707,7 @@ class LocalPathMLTrainingHandler:
             logger.error(f"Error during sklearn/XGBoost training: {e}", exc_info=True)
             await update.effective_message.reply_text(
                 f"❌ **Training Error**\n\n"
-                f"An unexpected error occurred: {escape_markdown_v1(str(e))}\n\n"
+                f"An unexpected error occurred: {str(e)}\n\n"
                 f"Please try again with /train",
                 parse_mode="Markdown"
             )
@@ -2630,19 +2414,6 @@ class LocalPathMLTrainingHandler:
         # Get locale from session
         locale = session.language if session.language else None
 
-        # Ensure session is in COLLECTING_HYPERPARAMETERS state to allow saving template
-        # This enables the "Save as Template" button to work correctly
-        # If already in this state or transition fails, that's OK - we'll continue
-        if session.current_state != MLTrainingState.COLLECTING_HYPERPARAMETERS.value:
-            success, error_msg, _ = await self.state_manager.transition_state(
-                session,
-                MLTrainingState.COLLECTING_HYPERPARAMETERS.value
-            )
-            if not success:
-                logger.warning(f"Failed to transition to COLLECTING_HYPERPARAMETERS: {error_msg}")
-                # Set state directly as fallback - this is needed for template save to work
-                session.current_state = MLTrainingState.COLLECTING_HYPERPARAMETERS.value
-
         # Save session with error handling
         try:
             await self.state_manager.update_session(session)
@@ -2752,38 +2523,21 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['n_estimators'] = n_estimators
         await self.state_manager.update_session(session)
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Move to max_depth selection
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.max_depth.btn_3', locale=locale),
-                callback_data="xgboost_max_depth:3"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.max_depth.btn_6', locale=locale),
-                callback_data="xgboost_max_depth:6"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.max_depth.btn_9', locale=locale),
-                callback_data="xgboost_max_depth:9"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.max_depth.btn_custom', locale=locale),
-                callback_data="xgboost_max_depth:custom"
-            )]
+            [InlineKeyboardButton("3 levels", callback_data="xgboost_max_depth:3")],
+            [InlineKeyboardButton("6 levels (recommended)", callback_data="xgboost_max_depth:6")],
+            [InlineKeyboardButton("9 levels", callback_data="xgboost_max_depth:9")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_max_depth:custom")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.xgboost.max_depth.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.xgboost.max_depth.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.xgboost.max_depth.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n{title}\n\n{question}\n{help_text}",
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 2/5: Maximum Tree Depth**\n\n"
+            "How deep should each tree be?\n"
+            "(Deeper = more complex patterns, risk of overfitting)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2820,38 +2574,21 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['max_depth'] = max_depth
         await self.state_manager.update_session(session)
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Move to learning_rate selection
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.learning_rate.btn_001', locale=locale),
-                callback_data="xgboost_learning_rate:0.01"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.learning_rate.btn_01', locale=locale),
-                callback_data="xgboost_learning_rate:0.1"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.learning_rate.btn_03', locale=locale),
-                callback_data="xgboost_learning_rate:0.3"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.learning_rate.btn_custom', locale=locale),
-                callback_data="xgboost_learning_rate:custom"
-            )]
+            [InlineKeyboardButton("0.01 (conservative)", callback_data="xgboost_learning_rate:0.01")],
+            [InlineKeyboardButton("0.1 (recommended)", callback_data="xgboost_learning_rate:0.1")],
+            [InlineKeyboardButton("0.3 (aggressive)", callback_data="xgboost_learning_rate:0.3")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_learning_rate:custom")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.xgboost.learning_rate.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.xgboost.learning_rate.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.xgboost.learning_rate.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n{title}\n\n{question}\n{help_text}",
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 3/5: Learning Rate**\n\n"
+            "How fast should the model learn?\n"
+            "(Lower = more stable, but needs more trees)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2888,38 +2625,21 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['learning_rate'] = learning_rate
         await self.state_manager.update_session(session)
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Move to subsample selection
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.subsample.btn_06', locale=locale),
-                callback_data="xgboost_subsample:0.6"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.subsample.btn_08', locale=locale),
-                callback_data="xgboost_subsample:0.8"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.subsample.btn_10', locale=locale),
-                callback_data="xgboost_subsample:1.0"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.subsample.btn_custom', locale=locale),
-                callback_data="xgboost_subsample:custom"
-            )]
+            [InlineKeyboardButton("0.6 (60%)", callback_data="xgboost_subsample:0.6")],
+            [InlineKeyboardButton("0.8 (80% - recommended)", callback_data="xgboost_subsample:0.8")],
+            [InlineKeyboardButton("1.0 (100% - all data)", callback_data="xgboost_subsample:1.0")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_subsample:custom")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.xgboost.subsample.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.xgboost.subsample.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.xgboost.subsample.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n{title}\n\n{question}\n{help_text}",
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 4/5: Subsample Ratio**\n\n"
+            "What fraction of data to use per tree?\n"
+            "(Lower = more diverse trees, prevents overfitting)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -2956,38 +2676,21 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['subsample'] = subsample
         await self.state_manager.update_session(session)
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Move to colsample_bytree selection
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.colsample.btn_06', locale=locale),
-                callback_data="xgboost_colsample:0.6"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.colsample.btn_08', locale=locale),
-                callback_data="xgboost_colsample:0.8"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.colsample.btn_10', locale=locale),
-                callback_data="xgboost_colsample:1.0"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.xgboost.colsample.btn_custom', locale=locale),
-                callback_data="xgboost_colsample:custom"
-            )]
+            [InlineKeyboardButton("0.6 (60%)", callback_data="xgboost_colsample:0.6")],
+            [InlineKeyboardButton("0.8 (80% - recommended)", callback_data="xgboost_colsample:0.8")],
+            [InlineKeyboardButton("1.0 (100% - all features)", callback_data="xgboost_colsample:1.0")],
+            [InlineKeyboardButton("Custom", callback_data="xgboost_colsample:custom")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.xgboost.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.xgboost.colsample.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.xgboost.colsample.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.xgboost.colsample.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n{title}\n\n{question}\n{help_text}",
+            "🧠 **XGBoost Configuration**\n\n"
+            "**Step 5/5: Column Subsample Ratio**\n\n"
+            "What fraction of features to use per tree?\n"
+            "(Lower = more diverse trees, prevents overfitting)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -3024,9 +2727,6 @@ class LocalPathMLTrainingHandler:
         session.selections['xgboost_config']['colsample_bytree'] = colsample
         await self.state_manager.update_session(session)
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Configuration complete - start training
         model_type = session.selections.get('xgboost_model_type')
         xgboost_config = session.selections.get('xgboost_config')
@@ -3034,48 +2734,17 @@ class LocalPathMLTrainingHandler:
         # Escape underscores for Markdown
         model_display = model_type.replace('_', '\\_')
 
-        title = I18nManager.t('workflow_state.model_config.xgboost.configuration_complete.title', locale=locale)
-        model_label = I18nManager.t('workflow_state.model_config.xgboost.configuration_complete.model_label', locale=locale)
-        parameters_label = I18nManager.t('workflow_state.model_config.xgboost.configuration_complete.parameters_label', locale=locale)
-        param_n_estimators = I18nManager.t(
-            'workflow_state.model_config.xgboost.configuration_complete.param_n_estimators',
-            locale=locale,
-            value=xgboost_config['n_estimators']
-        )
-        param_max_depth = I18nManager.t(
-            'workflow_state.model_config.xgboost.configuration_complete.param_max_depth',
-            locale=locale,
-            value=xgboost_config['max_depth']
-        )
-        param_learning_rate = I18nManager.t(
-            'workflow_state.model_config.xgboost.configuration_complete.param_learning_rate',
-            locale=locale,
-            value=xgboost_config['learning_rate']
-        )
-        param_subsample = I18nManager.t(
-            'workflow_state.model_config.xgboost.configuration_complete.param_subsample',
-            locale=locale,
-            value=xgboost_config['subsample']
-        )
-        param_colsample = I18nManager.t(
-            'workflow_state.model_config.xgboost.configuration_complete.param_colsample_bytree',
-            locale=locale,
-            value=xgboost_config['colsample_bytree']
-        )
-        starting_training = I18nManager.t('workflow_state.model_config.xgboost.configuration_complete.starting_training', locale=locale)
-        patience = I18nManager.t('workflow_state.training.patience', locale=locale)
-
         await query.edit_message_text(
-            f"{title}\n\n"
-            f"{model_label} {model_display}\n"
-            f"{parameters_label}\n"
-            f"{param_n_estimators}\n"
-            f"{param_max_depth}\n"
-            f"{param_learning_rate}\n"
-            f"{param_subsample}\n"
-            f"{param_colsample}\n\n"
-            f"{starting_training}\n\n"
-            f"{patience}",
+            f"✅ **XGBoost Configuration Complete**\n\n"
+            f"🎯 **Model**: {model_display}\n"
+            f"⚙️ **Parameters**:\n"
+            f"• n\\_estimators: {xgboost_config['n_estimators']}\n"
+            f"• max\\_depth: {xgboost_config['max_depth']}\n"
+            f"• learning\\_rate: {xgboost_config['learning_rate']}\n"
+            f"• subsample: {xgboost_config['subsample']}\n"
+            f"• colsample\\_bytree: {xgboost_config['colsample_bytree']}\n\n"
+            f"🚀 Starting training...\n\n"
+            f"{I18nManager.t('workflow_state.training.patience', locale=locale)}",
             parse_mode="Markdown"
         )
 
@@ -3112,43 +2781,22 @@ class LocalPathMLTrainingHandler:
 
         print(f"⚡ DEBUG: LightGBM num_leaves set to {num_leaves}")
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Move to n_estimators selection
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.btn_50', locale=locale),
-                callback_data="lightgbm_n_estimators:50"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.btn_100', locale=locale),
-                callback_data="lightgbm_n_estimators:100"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.btn_200', locale=locale),
-                callback_data="lightgbm_n_estimators:200"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.btn_defaults', locale=locale),
-                callback_data="lightgbm_use_defaults"
-            )]
+            [InlineKeyboardButton("50 trees (fast)", callback_data="lightgbm_n_estimators:50")],
+            [InlineKeyboardButton("100 trees (recommended)", callback_data="lightgbm_n_estimators:100")],
+            [InlineKeyboardButton("200 trees (accurate)", callback_data="lightgbm_n_estimators:200")],
+            [InlineKeyboardButton("Use Defaults", callback_data="lightgbm_use_defaults")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.lightgbm.header', locale=locale)
-        status_leaves = I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.status_num_leaves', locale=locale, value=num_leaves)
-        title = I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.lightgbm.n_estimators.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n"
-            f"{status_leaves}\n\n"
-            f"{title}\n\n"
-            f"{question}\n"
-            f"{help_text}",
+            "⚡ **LightGBM Configuration**\n\n"
+            f"✅ Num Leaves: {num_leaves}\n\n"
+            "**Step 2/3: Number of Trees**\n\n"
+            "How many boosting rounds?\n"
+            "(More trees = better fit, but slower training)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -3186,49 +2834,24 @@ class LocalPathMLTrainingHandler:
         # Get previous values for display
         num_leaves = session.selections['lightgbm_config'].get('num_leaves', 31)
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Move to learning_rate selection
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_001', locale=locale),
-                callback_data="lightgbm_learning_rate:0.01"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_005', locale=locale),
-                callback_data="lightgbm_learning_rate:0.05"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_01', locale=locale),
-                callback_data="lightgbm_learning_rate:0.1"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_02', locale=locale),
-                callback_data="lightgbm_learning_rate:0.2"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.btn_defaults', locale=locale),
-                callback_data="lightgbm_use_defaults"
-            )]
+            [InlineKeyboardButton("0.01 (conservative)", callback_data="lightgbm_learning_rate:0.01")],
+            [InlineKeyboardButton("0.05 (balanced)", callback_data="lightgbm_learning_rate:0.05")],
+            [InlineKeyboardButton("0.1 (recommended)", callback_data="lightgbm_learning_rate:0.1")],
+            [InlineKeyboardButton("0.2 (aggressive)", callback_data="lightgbm_learning_rate:0.2")],
+            [InlineKeyboardButton("Use Defaults", callback_data="lightgbm_use_defaults")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.lightgbm.header', locale=locale)
-        status_leaves = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.status_num_leaves', locale=locale, value=num_leaves)
-        status_estimators = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.status_n_estimators', locale=locale, value=n_estimators)
-        title = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.lightgbm.learning_rate.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n"
-            f"{status_leaves}\n"
-            f"{status_estimators}\n\n"
-            f"{title}\n\n"
-            f"{question}\n"
-            f"{help_text}",
+            "⚡ **LightGBM Configuration**\n\n"
+            f"✅ Num Leaves: {num_leaves}\n"
+            f"✅ N Estimators: {n_estimators}\n\n"
+            "**Step 3/3: Learning Rate**\n\n"
+            "How fast should the model learn?\n"
+            "(Lower = more stable, Higher = faster but risky)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -3263,9 +2886,6 @@ class LocalPathMLTrainingHandler:
 
         print(f"⚡ DEBUG: LightGBM learning_rate set to {learning_rate}")
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Configuration complete - start training
         model_type = session.selections.get('lightgbm_model_type')
         lightgbm_config = session.selections.get('lightgbm_config')
@@ -3273,28 +2893,17 @@ class LocalPathMLTrainingHandler:
         # Escape underscores for Markdown
         model_display = model_type.replace('_', '\\_')
 
-        title = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.title', locale=locale)
-        model_label = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.model_label', locale=locale)
-        params_label = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.parameters_label', locale=locale)
-        param_num_leaves = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_num_leaves', locale=locale, value=lightgbm_config['num_leaves'])
-        param_n_estimators = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_n_estimators', locale=locale, value=lightgbm_config['n_estimators'])
-        param_learning_rate = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_learning_rate', locale=locale, value=lightgbm_config['learning_rate'])
-        param_feature_fraction = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_feature_fraction', locale=locale, value=lightgbm_config.get('feature_fraction', 0.8))
-        param_bagging_fraction = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_bagging_fraction', locale=locale, value=lightgbm_config.get('bagging_fraction', 0.8))
-        starting_training = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.starting_training', locale=locale)
-        patience = I18nManager.t('workflow_state.training.patience', locale=locale)
-
         await query.edit_message_text(
-            f"{title}\n\n"
-            f"{model_label} {model_display}\n"
-            f"{params_label}\n"
-            f"{param_num_leaves}\n"
-            f"{param_n_estimators}\n"
-            f"{param_learning_rate}\n"
-            f"{param_feature_fraction}\n"
-            f"{param_bagging_fraction}\n\n"
-            f"{starting_training}\n\n"
-            f"{patience}",
+            f"✅ **LightGBM Configuration Complete**\n\n"
+            f"🎯 **Model**: {model_display}\n"
+            f"⚙️ **Parameters**:\n"
+            f"• num\\_leaves: {lightgbm_config['num_leaves']}\n"
+            f"• n\\_estimators: {lightgbm_config['n_estimators']}\n"
+            f"• learning\\_rate: {lightgbm_config['learning_rate']}\n"
+            f"• feature\\_fraction: {lightgbm_config.get('feature_fraction', 0.8)}\n"
+            f"• bagging\\_fraction: {lightgbm_config.get('bagging_fraction', 0.8)}\n\n"
+            f"🚀 Starting training...\n\n"
+            f"{I18nManager.t('workflow_state.training.patience', locale=locale)}",
             parse_mode="Markdown"
         )
 
@@ -3324,9 +2933,6 @@ class LocalPathMLTrainingHandler:
             )
             return
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Use the default config that was already loaded
         model_type = session.selections.get('lightgbm_model_type')
         lightgbm_config = session.selections.get('lightgbm_config')
@@ -3336,28 +2942,17 @@ class LocalPathMLTrainingHandler:
         # Escape underscores for Markdown
         model_display = model_type.replace('_', '\\_')
 
-        title = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.title', locale=locale)
-        model_label = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.model_label', locale=locale)
-        params_label = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.parameters_label', locale=locale)
-        param_num_leaves = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_num_leaves', locale=locale, value=lightgbm_config['num_leaves'])
-        param_n_estimators = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_n_estimators', locale=locale, value=lightgbm_config['n_estimators'])
-        param_learning_rate = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_learning_rate', locale=locale, value=lightgbm_config['learning_rate'])
-        param_feature_fraction = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_feature_fraction', locale=locale, value=lightgbm_config.get('feature_fraction', 0.8))
-        param_bagging_fraction = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.param_bagging_fraction', locale=locale, value=lightgbm_config.get('bagging_fraction', 0.8))
-        starting_training = I18nManager.t('workflow_state.model_config.lightgbm.configuration_complete.starting_training', locale=locale)
-        patience = I18nManager.t('workflow_state.training.patience', locale=locale)
-
         await query.edit_message_text(
-            f"{title}\n\n"
-            f"{model_label} {model_display}\n"
-            f"{params_label}\n"
-            f"{param_num_leaves}\n"
-            f"{param_n_estimators}\n"
-            f"{param_learning_rate}\n"
-            f"{param_feature_fraction}\n"
-            f"{param_bagging_fraction}\n\n"
-            f"{starting_training}\n\n"
-            f"{patience}",
+            f"✅ **Using Default LightGBM Configuration**\n\n"
+            f"🎯 **Model**: {model_display}\n"
+            f"⚙️ **Parameters** (defaults):\n"
+            f"• num\\_leaves: {lightgbm_config['num_leaves']}\n"
+            f"• n\\_estimators: {lightgbm_config['n_estimators']}\n"
+            f"• learning\\_rate: {lightgbm_config['learning_rate']}\n"
+            f"• feature\\_fraction: {lightgbm_config.get('feature_fraction', 0.8)}\n"
+            f"• bagging\\_fraction: {lightgbm_config.get('bagging_fraction', 0.8)}\n\n"
+            f"🚀 Starting training...\n\n"
+            f"{I18nManager.t('workflow_state.training.patience', locale=locale)}",
             parse_mode="Markdown"
         )
 
@@ -3388,9 +2983,6 @@ class LocalPathMLTrainingHandler:
             )
             return
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         # Handle custom input (default to 1000 for now - Phase 2 enhancement)
         if iterations_value == "custom":
             iterations = 1000
@@ -3402,36 +2994,19 @@ class LocalPathMLTrainingHandler:
 
         # Move to depth selection
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.depth.btn_4', locale=locale),
-                callback_data="catboost_depth:4"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.depth.btn_6', locale=locale),
-                callback_data="catboost_depth:6"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.depth.btn_8', locale=locale),
-                callback_data="catboost_depth:8"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.depth.btn_custom', locale=locale),
-                callback_data="catboost_depth:custom"
-            )]
+            [InlineKeyboardButton("4 levels (fast)", callback_data="catboost_depth:4")],
+            [InlineKeyboardButton("6 levels (recommended)", callback_data="catboost_depth:6")],
+            [InlineKeyboardButton("8 levels (complex)", callback_data="catboost_depth:8")],
+            [InlineKeyboardButton("Custom", callback_data="catboost_depth:custom")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.catboost.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.catboost.depth.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.catboost.depth.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.catboost.depth.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n"
-            f"{title}\n\n"
-            f"{question}\n"
-            f"{help_text}",
+            "🐈 **CatBoost Configuration**\n\n"
+            "**Step 2/4: Maximum Tree Depth**\n\n"
+            "How deep should each tree be?\n"
+            "(Deeper = more complex patterns, risk of overfitting)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -3460,9 +3035,6 @@ class LocalPathMLTrainingHandler:
             )
             return
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         if depth_value == "custom":
             depth = 6
         else:
@@ -3473,36 +3045,19 @@ class LocalPathMLTrainingHandler:
 
         # Move to learning_rate selection
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.learning_rate.btn_001', locale=locale),
-                callback_data="catboost_learning_rate:0.01"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.learning_rate.btn_003', locale=locale),
-                callback_data="catboost_learning_rate:0.03"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.learning_rate.btn_01', locale=locale),
-                callback_data="catboost_learning_rate:0.1"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.learning_rate.btn_custom', locale=locale),
-                callback_data="catboost_learning_rate:custom"
-            )]
+            [InlineKeyboardButton("0.01 (conservative)", callback_data="catboost_learning_rate:0.01")],
+            [InlineKeyboardButton("0.03 (recommended)", callback_data="catboost_learning_rate:0.03")],
+            [InlineKeyboardButton("0.1 (aggressive)", callback_data="catboost_learning_rate:0.1")],
+            [InlineKeyboardButton("Custom", callback_data="catboost_learning_rate:custom")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.catboost.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.catboost.learning_rate.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.catboost.learning_rate.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.catboost.learning_rate.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n"
-            f"{title}\n\n"
-            f"{question}\n"
-            f"{help_text}",
+            "🐈 **CatBoost Configuration**\n\n"
+            "**Step 3/4: Learning Rate**\n\n"
+            "How fast should the model learn?\n"
+            "(Lower = more stable, but needs more iterations)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -3531,9 +3086,6 @@ class LocalPathMLTrainingHandler:
             )
             return
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         if learning_rate_value == "custom":
             learning_rate = 0.03
         else:
@@ -3544,36 +3096,19 @@ class LocalPathMLTrainingHandler:
 
         # Move to l2_leaf_reg selection
         keyboard = [
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.btn_1', locale=locale),
-                callback_data="catboost_l2:1"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.btn_3', locale=locale),
-                callback_data="catboost_l2:3"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.btn_5', locale=locale),
-                callback_data="catboost_l2:5"
-            )],
-            [InlineKeyboardButton(
-                I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.btn_custom', locale=locale),
-                callback_data="catboost_l2:custom"
-            )]
+            [InlineKeyboardButton("1 (low regularization)", callback_data="catboost_l2:1")],
+            [InlineKeyboardButton("3 (recommended)", callback_data="catboost_l2:3")],
+            [InlineKeyboardButton("5 (high regularization)", callback_data="catboost_l2:5")],
+            [InlineKeyboardButton("Custom", callback_data="catboost_l2:custom")]
         ]
         add_back_button(keyboard)
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        header = I18nManager.t('workflow_state.model_config.catboost.header', locale=locale)
-        title = I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.title', locale=locale)
-        question = I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.question', locale=locale)
-        help_text = I18nManager.t('workflow_state.model_config.catboost.l2_leaf_reg.help', locale=locale)
-
         await query.edit_message_text(
-            f"{header}\n\n"
-            f"{title}\n\n"
-            f"{question}\n"
-            f"{help_text}",
+            "🐈 **CatBoost Configuration**\n\n"
+            "**Step 4/4: L2 Regularization**\n\n"
+            "How much regularization to prevent overfitting?\n"
+            "(Higher = simpler model, lower risk of overfitting)",
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
@@ -3602,9 +3137,6 @@ class LocalPathMLTrainingHandler:
             )
             return
 
-        # Get locale from session
-        locale = session.language if session.language else None
-
         if l2_value == "custom":
             l2_leaf_reg = 3
         else:
@@ -3620,27 +3152,16 @@ class LocalPathMLTrainingHandler:
         # Escape underscores for Markdown
         model_display = model_type.replace('_', '\\_')
 
-        # Build i18n message
-        title = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.title', locale=locale)
-        model_label = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.model_label', locale=locale)
-        parameters_label = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.parameters_label', locale=locale)
-        param_iterations = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.param_iterations', locale=locale, value=catboost_config['iterations'])
-        param_depth = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.param_depth', locale=locale, value=catboost_config['depth'])
-        param_learning_rate = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.param_learning_rate', locale=locale, value=catboost_config['learning_rate'])
-        param_l2_leaf_reg = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.param_l2_leaf_reg', locale=locale, value=catboost_config['l2_leaf_reg'])
-        starting_training = I18nManager.t('workflow_state.model_config.catboost.configuration_complete.starting_training', locale=locale)
-        patience = I18nManager.t('workflow_state.training.patience', locale=locale)
-
         await query.edit_message_text(
-            f"{title}\n\n"
-            f"{model_label} {model_display}\n"
-            f"{parameters_label}\n"
-            f"{param_iterations}\n"
-            f"{param_depth}\n"
-            f"{param_learning_rate}\n"
-            f"{param_l2_leaf_reg}\n\n"
-            f"{starting_training}\n\n"
-            f"{patience}",
+            f"✅ **CatBoost Configuration Complete**\n\n"
+            f"🎯 **Model**: {model_display}\n"
+            f"⚙️ **Parameters**:\n"
+            f"• iterations: {catboost_config['iterations']}\n"
+            f"• depth: {catboost_config['depth']}\n"
+            f"• learning\\_rate: {catboost_config['learning_rate']}\n"
+            f"• l2\\_leaf\\_reg: {catboost_config['l2_leaf_reg']}\n\n"
+            f"🚀 Starting training...\n\n"
+            f"{I18nManager.t('workflow_state.training.patience', locale=locale)}",
             parse_mode="Markdown"
         )
 
@@ -3672,7 +3193,7 @@ class LocalPathMLTrainingHandler:
             logger.warning(f"Failed to edit message in handle_training_execution: {e}")
             # Fallback: send new message instead
             await update.effective_message.reply_text(
-                f"{I18nManager.t('workflow_state.training.starting', locale=locale)}\n\n{I18nManager.t('workflow_state.training.patience', locale=locale)}",
+                "🚀 Starting training...\n\nThis may take a few moments.",
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -3709,9 +3230,7 @@ class LocalPathMLTrainingHandler:
             config = session.selections.get('keras_config', {})
 
             print(f"🚀 DEBUG: Training params - target={target}, features={features}, model={model_type}")
-            print(f"🔍 PATH_DEBUG: session.file_path BEFORE training = '{session.file_path}'")
-            print(f"🔍 PATH_DEBUG: file_path variable = '{file_path}'")
-            print(f"🚀 DEBUG: config={config}")
+            print(f"🚀 DEBUG: File path={file_path}, config={config}")
 
             # Calculate number of features
             n_features = len(features)
@@ -3733,53 +3252,31 @@ class LocalPathMLTrainingHandler:
                 'n_features': n_features
             }
 
-            # WORKER ROUTING: Check if user has connected worker
-            websocket_server = context.bot_data.get('websocket_server')
-            worker_manager = websocket_server.worker_manager if websocket_server else None
-
-            if worker_manager and worker_manager.is_user_connected(user_id):
-                # Route to local worker
-                print(f"🖥️ DEBUG: User has connected worker, routing to local worker")
-                result = await self._execute_training_on_worker(
-                    user_id=user_id,
-                    file_path=file_path,
+            # Call ML Engine to train (wrapped in executor to prevent blocking event loop)
+            # FIX: ml_engine.train_model() is synchronous and would block the async event loop
+            # during training (several minutes for 100 epochs). Using run_in_executor() runs
+            # the blocking call in a separate thread, keeping the event loop responsive.
+            import asyncio
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,  # Use default ThreadPoolExecutor
+                lambda: self.ml_engine.train_model(
+                    file_path=file_path,  # Lazy loading from deferred file
                     task_type='neural_network',
-                    model_type=model_type,
+                    model_type=model_type,  # 'keras_binary_classification'
                     target_column=target,
                     feature_columns=features,
-                    hyperparameters=hyperparameters,
-                    test_size=1.0 - config.get('validation_split', 0.2),
-                    context=context
+                    user_id=user_id,
+                    hyperparameters=hyperparameters,  # Complete hyperparameters with architecture
+                    test_size=1.0 - config.get('validation_split', 0.2)
                 )
-            else:
-                # Execute on bot (original code path)
-                print(f"🤖 DEBUG: No worker connected, executing on bot")
-                # Call ML Engine to train (wrapped in executor to prevent blocking event loop)
-                # FIX: ml_engine.train_model() is synchronous and would block the async event loop
-                # during training (several minutes for 100 epochs). Using run_in_executor() runs
-                # the blocking call in a separate thread, keeping the event loop responsive.
-                import asyncio
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    None,  # Use default ThreadPoolExecutor
-                    lambda: self.ml_engine.train_model(
-                        file_path=file_path,  # Lazy loading from deferred file
-                        task_type='neural_network',
-                        model_type=model_type,  # 'keras_binary_classification'
-                        target_column=target,
-                        feature_columns=features,
-                        user_id=user_id,
-                        hyperparameters=hyperparameters,  # Complete hyperparameters with architecture
-                        test_size=1.0 - config.get('validation_split', 0.2)
-                    )
-                )
+            )
 
             print(f"🚀 DEBUG: Training result = {result}")
 
             # Send success message with metrics and transition to naming workflow
             if result.get('success'):
                 model_id = result.get('model_id', 'N/A')
-                model_info = result.get('model_info', {})  # For local worker training
                 metrics_text = self._format_keras_metrics(result.get('metrics', {}))
 
                 # Transition to TRAINING_COMPLETE state
@@ -3799,9 +3296,8 @@ class LocalPathMLTrainingHandler:
 
                 print(f"✅ DEBUG: State transition to TRAINING_COMPLETE successful, state={session.current_state}")
 
-                # Store model_id and model_info in session for naming workflow
+                # Store model_id in session for naming workflow
                 session.selections['pending_model_id'] = model_id
-                session.selections['pending_model_info'] = model_info  # For local worker: use instead of filesystem lookup
                 await self.state_manager.update_session(session)
 
                 # Get locale from session
@@ -3969,9 +3465,6 @@ class LocalPathMLTrainingHandler:
         # Get pending model_id from session
         model_id = session.selections.get('pending_model_id')
 
-        # Get locale from session for i18n
-        locale = session.language if session.language else None
-
         if not model_id:
             await update.message.reply_text(
                 "❌ **Error**\n\nModel ID not found. Please restart with /train",
@@ -3981,28 +3474,7 @@ class LocalPathMLTrainingHandler:
 
         # Set custom name using ML Engine
         try:
-            # For local worker training, use session metadata and send name to worker
-            session_model_info = session.selections.get('pending_model_info', {})
-
-            if session_model_info:
-                # Local worker training: send custom name to worker
-                # Model is on user's machine, so we need to update it via worker
-                model_info = session_model_info
-
-                # Send set_model_name job to worker
-                success = await self._set_model_name_through_worker(
-                    user_id=user_id,
-                    model_id=model_id,
-                    custom_name=custom_name,
-                    context=context
-                )
-                if not success:
-                    logger.warning(f"Failed to set model name on worker for {model_id}")
-                    # Continue anyway - the name is stored locally in session_model_info
-            else:
-                # Normal training: model is on server
-                self.ml_engine.set_model_name(user_id, model_id, custom_name)
-                model_info = self.ml_engine.get_model_info(user_id, model_id)
+            self.ml_engine.set_model_name(user_id, model_id, custom_name)
 
             # Transition to MODEL_NAMED state
             await self.state_manager.transition_state(
@@ -4010,12 +3482,15 @@ class LocalPathMLTrainingHandler:
                 MLTrainingState.MODEL_NAMED.value
             )
 
+            # Get model info for confirmation
+            model_info = self.ml_engine.get_model_info(user_id, model_id)
+
             # Send success confirmation
             await update.message.reply_text(
                 f"✅ **Model Named Successfully!**\n\n"
                 f"📝 **Name:** {escape_markdown_v1(custom_name)}\n"
-                f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)}: `{model_id}`\n"
-                f"{I18nManager.t('workflow_state.training.model_type_display', locale=locale)} {model_info.get('model_type', 'N/A')}\n\n"
+                f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)} "`{model_id}`\n"
+                f"{I18nManager.t('workflow_state.training.model_type_display', locale=locale)} "{model_info.get('model_type', 'N/A')}\n\n"
                 f"{I18nManager.t('workflow_state.training.ready_for_predictions', locale=locale)}",
                 parse_mode="Markdown"
             )
@@ -4102,27 +3577,18 @@ class LocalPathMLTrainingHandler:
             return
 
         try:
-            # For local worker training, use metadata from session instead of filesystem lookup
-            model_info = session.selections.get('pending_model_info', {})
+            # Get model info to generate default name
+            model_info = self.ml_engine.get_model_info(user_id, model_id)
 
-            if model_info:
-                # Local worker training: use session metadata
-                default_name = self.ml_engine._generate_default_name(
-                    model_type=model_info.get('model_type', 'model'),
-                    task_type=model_info.get('task_type', 'unknown'),
-                    created_at=model_info.get('created_at', '')
-                )
-                # Skip set_model_name() - model is on user's machine, not server
-                # The name is for display purposes only
-            else:
-                # Normal training: model is on server, use filesystem lookup
-                model_info = self.ml_engine.get_model_info(user_id, model_id)
-                default_name = self.ml_engine._generate_default_name(
-                    model_type=model_info.get('model_type', 'model'),
-                    task_type=model_info.get('task_type', 'unknown'),
-                    created_at=model_info.get('created_at', '')
-                )
-                self.ml_engine.set_model_name(user_id, model_id, default_name)
+            # Generate default name
+            default_name = self.ml_engine._generate_default_name(
+                model_type=model_info.get('model_type', 'model'),
+                task_type=model_info.get('task_type', 'unknown'),
+                created_at=model_info.get('created_at', '')
+            )
+
+            # Set default name
+            self.ml_engine.set_model_name(user_id, model_id, default_name)
 
             # Transition to MODEL_NAMED state
             await self.state_manager.transition_state(
@@ -4132,10 +3598,12 @@ class LocalPathMLTrainingHandler:
 
             # Send confirmation
             await query.edit_message_text(
-                f"{I18nManager.t('workflow_state.training.model_ready', locale=locale)}\n\n"
-                f"{I18nManager.t('workflow_state.training.default_name_display', locale=locale)} {escape_markdown_v1(default_name)}\n"
-                f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)} `{model_id}`\n"
-                f"{I18nManager.t('workflow_state.training.model_type_display', locale=locale)} {model_info.get('model_type', 'N/A')}\n\n"
+                f"{I18nManager.t('workflow_state.training.model_ready', locale=locale)}
+
+"
+                f"{I18nManager.t('workflow_state.training.default_name_display', locale=locale)} "{escape_markdown_v1(default_name)}\n"
+                f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)} "`{model_id}`\n"
+                f"{I18nManager.t('workflow_state.training.model_type_display', locale=locale)} "{model_info.get('model_type', 'N/A')}\n\n"
                 f"{I18nManager.t('workflow_state.training.ready_for_predictions', locale=locale)}",
                 parse_mode="Markdown"
             )
@@ -4152,246 +3620,6 @@ class LocalPathMLTrainingHandler:
             )
             # Cancel workflow after naming error
             await self.state_manager.cancel_workflow(session)
-
-    async def _execute_training_on_worker(
-        self,
-        user_id: int,
-        file_path: str,
-        task_type: str,
-        model_type: str,
-        target_column: str,
-        feature_columns: list,
-        hyperparameters: dict,
-        test_size: float,
-        context: ContextTypes.DEFAULT_TYPE,
-        custom_name: str = None
-    ) -> dict:
-        """Execute training on connected local worker.
-
-        Creates a job and dispatches it to the worker, then waits for result.
-
-        Args:
-            user_id: User ID
-            file_path: Path to training data on worker machine
-            task_type: ML task type (regression, classification, neural_network)
-            model_type: Model type
-            target_column: Target column name
-            feature_columns: List of feature column names
-            hyperparameters: Model hyperparameters
-            test_size: Test set size
-            context: Bot context
-            custom_name: User-provided custom model name
-
-        Returns:
-            Training result dict with success, model_id, metrics
-        """
-        from src.worker.job_queue import JobType
-        import asyncio
-
-        # Get job queue from context
-        websocket_server = context.bot_data.get('websocket_server')
-        job_queue = websocket_server.job_queue if websocket_server else None
-
-        if not job_queue:
-            logger.error("Job queue not available")
-            return {
-                'success': False,
-                'error': 'Worker system not available'
-            }
-
-        # Create job parameters
-        job_params = {
-            'user_id': user_id,  # Required for model_id generation
-            'file_path': file_path,
-            'task_type': task_type,
-            'model_type': model_type,
-            'target_column': target_column,
-            'feature_columns': feature_columns,
-            'hyperparameters': hyperparameters,
-            'test_size': test_size,
-            'custom_name': custom_name
-        }
-        print(f"🔍 PATH_DEBUG: file_path in job_params = '{job_params['file_path']}'")
-
-        # Create job
-        job_id = await job_queue.create_job(
-            user_id=user_id,
-            job_type=JobType.TRAIN,
-            params=job_params,
-            timeout=600.0  # 10 minutes timeout for training
-        )
-
-        logger.info(f"Created training job {job_id} for user {user_id}")
-
-        # Wait for job to complete (poll job status)
-        max_wait = 600  # 10 minutes
-        poll_interval = 2  # 2 seconds
-        elapsed = 0
-
-        while elapsed < max_wait:
-            await asyncio.sleep(poll_interval)
-            elapsed += poll_interval
-
-            job = job_queue.get_job(job_id)
-            if not job:
-                return {
-                    'success': False,
-                    'error': 'Job not found'
-                }
-
-            # Check if completed
-            from src.worker.job_queue import JobStatus
-            if job.status == JobStatus.COMPLETED:
-                logger.info(f"Training job {job_id} completed successfully")
-                return {
-                    'success': True,
-                    'model_id': job.result.get('model_id'),
-                    'metrics': job.result.get('metrics', {}),
-                    'training_time': job.result.get('training_time', 0),
-                    'model_info': job.result.get('model_info', {})  # For local worker naming
-                }
-            elif job.status == JobStatus.FAILED:
-                logger.error(f"Training job {job_id} failed: {job.error}")
-                return {
-                    'success': False,
-                    'error': job.error
-                }
-            elif job.status == JobStatus.TIMEOUT:
-                logger.error(f"Training job {job_id} timed out")
-                return {
-                    'success': False,
-                    'error': 'Training timed out'
-                }
-
-        # Timeout reached
-        logger.error(f"Training job {job_id} exceeded wait time")
-        return {
-            'success': False,
-            'error': 'Training exceeded maximum wait time'
-        }
-
-    async def _set_model_name_through_worker(
-        self,
-        user_id: int,
-        model_id: str,
-        custom_name: str,
-        context: ContextTypes.DEFAULT_TYPE
-    ) -> bool:
-        """Set custom model name through worker.
-
-        Sends SET_MODEL_NAME job to worker to update model metadata.
-
-        Args:
-            user_id: User ID
-            model_id: Model ID on worker machine
-            custom_name: User-provided custom name
-            context: Bot context
-
-        Returns:
-            True if successful, False otherwise
-        """
-        from src.worker.job_queue import JobType, JobStatus
-        import asyncio
-
-        websocket_server = context.bot_data.get('websocket_server')
-        if not websocket_server:
-            return False
-
-        job_queue = getattr(websocket_server, 'job_queue', None)
-        worker_manager = websocket_server.worker_manager
-
-        if not job_queue or not worker_manager.is_user_connected(user_id):
-            return False
-
-        try:
-            job_id = await job_queue.create_job(
-                user_id=user_id,
-                job_type=JobType.SET_MODEL_NAME,
-                params={'model_id': model_id, 'custom_name': custom_name},
-                timeout=30.0
-            )
-
-            # Poll for result
-            max_wait, poll_interval, elapsed = 30, 0.5, 0
-            while elapsed < max_wait:
-                await asyncio.sleep(poll_interval)
-                elapsed += poll_interval
-
-                job = job_queue.get_job(job_id)
-                if not job:
-                    return False
-                if job.status == JobStatus.COMPLETED:
-                    logger.info(f"Set model name through worker: {model_id} → {custom_name}")
-                    return True
-                elif job.status in (JobStatus.FAILED, JobStatus.TIMEOUT):
-                    logger.error(f"Failed to set model name: {job.error}")
-                    return False
-
-            return False
-
-        except Exception as e:
-            logger.error(f"Error setting model name through worker: {e}")
-            return False
-
-    async def _get_file_info_from_worker(
-        self,
-        user_id: int,
-        file_path: str,
-        context: ContextTypes.DEFAULT_TYPE
-    ) -> Optional[Dict[str, Any]]:
-        """Get file info from worker. Returns None if no worker or error.
-
-        Used for backwards-compatible file size checking:
-        - If worker is connected, uses worker to check file on user's machine
-        - If no worker, caller should fall back to local file access
-
-        Args:
-            user_id: Telegram user ID
-            file_path: Path to file on user's machine
-            context: Bot context
-
-        Returns:
-            Dict with file info if successful, None otherwise
-        """
-        from src.worker.job_queue import JobType, JobStatus
-        import asyncio
-
-        websocket_server = context.bot_data.get('websocket_server')
-        if not websocket_server:
-            return None
-
-        job_queue = getattr(websocket_server, 'job_queue', None)
-        worker_manager = websocket_server.worker_manager
-
-        if not job_queue or not worker_manager.is_user_connected(user_id):
-            return None
-
-        try:
-            job_id = await job_queue.create_job(
-                user_id=user_id,
-                job_type=JobType.FILE_INFO,
-                params={'file_path': file_path},
-                timeout=30.0
-            )
-
-            # Poll for result
-            max_wait, poll_interval, elapsed = 30, 0.5, 0
-            while elapsed < max_wait:
-                await asyncio.sleep(poll_interval)
-                elapsed += poll_interval
-
-                job = job_queue.get_job(job_id)
-                if not job:
-                    return None
-                if job.status == JobStatus.COMPLETED:
-                    return job.result
-                elif job.status in (JobStatus.FAILED, JobStatus.TIMEOUT):
-                    return None
-
-            return None
-        except Exception as e:
-            logger.error(f"Error getting file info from worker: {e}")
-            return None
 
     def _format_keras_metrics(self, metrics: dict) -> str:
         """
@@ -4535,21 +3763,6 @@ def register_local_path_handlers(
         CallbackQueryHandler(
             handler.handle_data_source_selection,
             pattern=r"^data_source:"
-        )
-    )
-
-    # Navigation handlers (Back and Cancel)
-    application.add_handler(
-        CallbackQueryHandler(
-            handler.handle_back_to_data_source,
-            pattern=r"^ml_back_to_data_source$"
-        )
-    )
-
-    application.add_handler(
-        CallbackQueryHandler(
-            handler.handle_cancel_workflow,
-            pattern=r"^ml_cancel_workflow$"
         )
     )
 
@@ -4729,7 +3942,7 @@ def register_local_path_handlers(
     )
 
     # Universal back button handler (Phase 2: Workflow Back Button)
-    from src.bot.main_handlers import handle_workflow_back
+    from src.bot.handlers import handle_workflow_back
     application.add_handler(
         CallbackQueryHandler(
             handle_workflow_back,

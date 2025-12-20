@@ -146,12 +146,64 @@ def get_models_dir() -> Path:
     Get or create models directory.
 
     Returns:
-        Path to ~/.statsbot/models/
+        Path to project models/ directory (same as bot uses)
     """
-    home = Path.home()
-    models_dir = home / ".statsbot" / "models"
+    # Use absolute path to project directory for reliability
+    project_dir = Path("/Users/gkratka/Documents/statistical-modeling-agent")
+    models_dir = project_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
     return models_dir
+
+
+def _generate_model_display_name(model_type: str, created_at: str) -> str:
+    """
+    Generate human-readable display name for models without custom_name.
+
+    Args:
+        model_type: Technical model type (e.g., 'xgboost_binary_classification')
+        created_at: ISO format timestamp
+
+    Returns:
+        Human-readable display name (e.g., 'XGBoost Binary - Nov 28 2025')
+    """
+    # Format model type for display
+    display = model_type.replace('_', ' ').title()
+
+    # Simplify common patterns
+    simplifications = {
+        'Xgboost Binary Classification': 'XGBoost Binary',
+        'Xgboost Multiclass Classification': 'XGBoost Multiclass',
+        'Xgboost Regression': 'XGBoost Regression',
+        'Keras Binary Classification': 'Keras Binary',
+        'Keras Multiclass Classification': 'Keras Multiclass',
+        'Lightgbm Binary Classification': 'LightGBM Binary',
+        'Lightgbm Multiclass Classification': 'LightGBM Multiclass',
+        'Catboost Binary Classification': 'CatBoost Binary',
+        'Catboost Multiclass Classification': 'CatBoost Multiclass',
+        'Random Forest': 'Random Forest',
+        'Decision Tree': 'Decision Tree',
+        'Gradient Boosting': 'Gradient Boosting',
+        'Logistic': 'Logistic Regression',
+        'Linear': 'Linear Regression',
+        'Ridge': 'Ridge Regression',
+        'Lasso': 'Lasso Regression',
+        'Elasticnet': 'ElasticNet',
+        'Naive Bayes': 'Naive Bayes',
+        'Svm': 'SVM',
+    }
+    model_display = simplifications.get(display, display)
+
+    # Format date if available
+    if created_at and created_at != "unknown":
+        try:
+            from datetime import datetime
+            dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+            date_str = dt.strftime("%b %d %Y")
+            return f"{model_display} - {date_str}"
+        except (ValueError, TypeError):
+            pass
+
+    return model_display
 
 
 def get_config_dir() -> Path:
@@ -368,44 +420,67 @@ def execute_file_info_job(job_id: str, params: Dict[str, Any]) -> str:
         return create_result_message(job_id, False, error=str(e))
 
 
-def execute_list_models_job(job_id: str) -> str:
+def execute_list_models_job(job_id: str, params: Dict[str, Any] = None) -> str:
     """
     Execute list_models job.
 
     Args:
         job_id: Job identifier
+        params: Optional params with user_id to filter models
 
     Returns:
         JSON-encoded result message
     """
     try:
         models_dir = get_models_dir()
-        model_dirs = [d.name for d in models_dir.iterdir() if d.is_dir()]
+        user_id = params.get("user_id") if params else None
 
-        # Get metadata for each model
         models = []
-        for model_name in model_dirs:
-            model_path = models_dir / model_name
-            metadata_file = model_path / "metadata.json"
 
-            if metadata_file.exists():
-                try:
-                    metadata = json.loads(metadata_file.read_text())
-                    models.append(
-                        {
-                            "model_id": model_name,
-                            "model_type": metadata.get("model_type", "unknown"),
-                            "task_type": metadata.get("task_type", "unknown"),
-                            "created_at": metadata.get("created_at", "unknown"),
-                            "feature_columns": metadata.get("feature_columns", []),
-                            "target_column": metadata.get("target_column", "unknown"),
-                            "custom_name": metadata.get("custom_name"),
-                            "display_name": metadata.get("display_name"),
-                        }
-                    )
-                except (json.JSONDecodeError, OSError):
-                    # Skip models with invalid metadata
-                    continue
+        # Search user subdirectories for models
+        for item in models_dir.iterdir():
+            if item.is_dir():
+                # Check if this is a user directory (user_XXXX)
+                if item.name.startswith("user_"):
+                    # If user_id specified, only search that user's directory
+                    if user_id and item.name != f"user_{user_id}":
+                        continue
+
+                    # Search for models inside user directory
+                    for model_dir in item.iterdir():
+                        if model_dir.is_dir():
+                            metadata_file = model_dir / "metadata.json"
+                            if metadata_file.exists():
+                                try:
+                                    metadata = json.loads(metadata_file.read_text())
+
+                                    # Generate display_name with fallback for older models
+                                    custom_name = metadata.get("custom_name")
+                                    display_name = metadata.get("display_name")
+
+                                    # If no display_name, generate one
+                                    if not display_name:
+                                        if custom_name:
+                                            display_name = custom_name
+                                        else:
+                                            model_type = metadata.get("model_type", "unknown")
+                                            created_at = metadata.get("created_at", "")
+                                            display_name = _generate_model_display_name(model_type, created_at)
+
+                                    models.append(
+                                        {
+                                            "model_id": model_dir.name,
+                                            "model_type": metadata.get("model_type", "unknown"),
+                                            "task_type": metadata.get("task_type", "unknown"),
+                                            "created_at": metadata.get("created_at", "unknown"),
+                                            "feature_columns": metadata.get("feature_columns", []),
+                                            "target_column": metadata.get("target_column", "unknown"),
+                                            "custom_name": custom_name,
+                                            "display_name": display_name,
+                                        }
+                                    )
+                                except (json.JSONDecodeError, OSError):
+                                    continue
 
         return create_result_message(job_id, True, data={"models": models})
 
@@ -543,12 +618,16 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             return create_result_message(job_id, False, error=f"Unsupported format: {resolved_path.suffix}")
 
         # Extract parameters
+        user_id = params.get("user_id")  # Required for model_id and directory
         target_column = params.get("target_column")
         feature_columns = params.get("feature_columns")
         model_type = params.get("model_type")
         task_type = params.get("task_type", "regression")
         hyperparameters = params.get("hyperparameters", {})
         custom_name = params.get("custom_name")  # User-provided custom model name
+
+        if not user_id:
+            return create_result_message(job_id, False, error="Missing user_id parameter")
 
         if not target_column or not feature_columns:
             return create_result_message(
@@ -756,10 +835,11 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
         import datetime
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        model_id = f"model_{model_type}_{task_type}_{timestamp}"
+        model_id = f"model_{user_id}_{model_type}_{timestamp}"
 
         models_dir = get_models_dir()
-        model_dir = models_dir / model_id
+        user_model_dir = models_dir / f"user_{user_id}"
+        model_dir = user_model_dir / model_id
         model_dir.mkdir(parents=True, exist_ok=True)
 
         # Save model file
@@ -1215,7 +1295,7 @@ class WorkerClient:
         try:
             # Execute based on action
             if action == "list_models":
-                result = execute_list_models_job(job_id)
+                result = execute_list_models_job(job_id, params)
             elif action == "train":
                 result = execute_train_job(job_id, params, self.send_message)
             elif action == "predict":

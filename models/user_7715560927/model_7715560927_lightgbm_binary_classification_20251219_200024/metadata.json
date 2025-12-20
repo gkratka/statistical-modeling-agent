@@ -1,0 +1,34 @@
+{
+  "model_id": "model_7715560927_lightgbm_binary_classification_20251219_200024",
+  "model_type": "lightgbm_binary_classification",
+  "task_type": "classification",
+  "target_column": "class2",
+  "feature_columns": [
+    "Attribute1",
+    "Attribute2",
+    "Attribute3",
+    "Attribute4",
+    "Attribute5",
+    "Attribute6",
+    "Attribute7",
+    "Attribute8",
+    "Attribute9",
+    "Attribute10",
+    "Attribute11",
+    "Attribute12",
+    "Attribute13",
+    "Attribute14",
+    "Attribute15",
+    "Attribute16",
+    "Attribute17",
+    "Attribute18",
+    "Attribute19",
+    "Attribute20"
+  ],
+  "metrics": {
+    "accuracy": 0.75625
+  },
+  "created_at": "2025-12-19T20:00:24.038009",
+  "custom_name": null,
+  "display_name": "Lightgbm Binary Classification (20 features)"
+}
