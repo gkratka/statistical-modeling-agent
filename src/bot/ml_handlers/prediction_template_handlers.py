@@ -350,7 +350,7 @@ class PredictionTemplateHandlers:
             for t in templates
         ] + [[InlineKeyboardButton(
             I18nManager.t('templates.load.back_button', locale=locale, default="🔙 Back"),
-            callback_data="back"
+            callback_data="pred_back"
         )]]
 
         await query.edit_message_text(

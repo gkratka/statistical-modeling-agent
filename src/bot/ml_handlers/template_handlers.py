@@ -225,7 +225,7 @@ class TemplateHandlers:
             callback_data = f"load_template:{template.template_name}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
 
-        keyboard.append([InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back', locale=locale), callback_data="back")])
+        keyboard.append([InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back', locale=locale), callback_data="workflow_back")])
 
         await query.edit_message_text(
             template_messages.TEMPLATE_LOAD_PROMPT.format(count=len(templates)),
@@ -315,7 +315,7 @@ class TemplateHandlers:
         keyboard = [
             [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.load_now', locale=locale), callback_data="template_load_now")],
             [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.defer_loading', locale=locale), callback_data="template_defer")],
-            [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back_to_templates', locale=locale), callback_data="back")]
+            [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back_to_templates', locale=locale), callback_data="workflow_back")]
         ]
 
         await query.edit_message_text(
