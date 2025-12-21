@@ -177,6 +177,9 @@ async def handle_disconnect_command(
     # Disconnect the worker
     try:
         success = await worker_manager.disconnect_user(user_id)
+        # Revoke token so same token can't be used to reconnect
+        token_manager = websocket_server.token_manager
+        token_manager.revoke_user_tokens(user_id)
     except Exception as e:
         logger.error(f"Error disconnecting worker for user {user_id}: {e}")
         success = False

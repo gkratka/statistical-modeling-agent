@@ -218,6 +218,8 @@ class WebSocketServer:
         finally:
             if user_id:
                 self.unregister_connection(user_id)
+                # Note: Token is NOT revoked here to allow reconnection after timeout
+                # Token expires naturally or when user generates a new one via /connect
                 if self._on_disconnect:
                     self._on_disconnect(user_id)
 
