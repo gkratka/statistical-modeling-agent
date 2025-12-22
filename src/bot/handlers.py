@@ -266,6 +266,7 @@ async def message_handler(
         ml_training_states = [
             MLTrainingState.CHOOSING_DATA_SOURCE.value,
             MLTrainingState.AWAITING_FILE_PATH.value,
+            MLTrainingState.AWAITING_PASSWORD.value,  # Password input for non-whitelisted paths
             MLTrainingState.CHOOSING_LOAD_OPTION.value,
             MLTrainingState.CONFIRMING_SCHEMA.value,
             MLTrainingState.AWAITING_SCHEMA_INPUT.value,
