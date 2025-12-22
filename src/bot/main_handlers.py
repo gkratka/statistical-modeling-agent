@@ -954,8 +954,8 @@ async def handle_workflow_back(
             f"history_depth={session.state_history.get_depth()}"
         )
 
-        # SIMPLIFIED: For early /train states (before model selection), just show welcome message
-        from src.core.state_manager import MLTrainingState
+        # SIMPLIFIED: For early /train and /predict states (before model selection), just show welcome message
+        from src.core.state_manager import MLTrainingState, MLPredictionState
         early_training_states = [
             MLTrainingState.CHOOSING_DATA_SOURCE.value,
             MLTrainingState.AWAITING_FILE_PATH.value,
@@ -964,8 +964,17 @@ async def handle_workflow_back(
             MLTrainingState.CONFIRMING_SCHEMA.value,
             MLTrainingState.AWAITING_SCHEMA_INPUT.value,
         ]
+        early_prediction_states = [
+            MLPredictionState.STARTED.value,
+            MLPredictionState.CHOOSING_DATA_SOURCE.value,
+            MLPredictionState.AWAITING_FILE_UPLOAD.value,
+            MLPredictionState.AWAITING_FILE_PATH.value,
+            MLPredictionState.AWAITING_PASSWORD.value,
+            MLPredictionState.CHOOSING_LOAD_OPTION.value,
+            MLPredictionState.CONFIRMING_SCHEMA.value,
+        ]
 
-        if session.current_state in early_training_states:
+        if session.current_state in early_training_states or session.current_state in early_prediction_states:
             logger.info(f"🔙 Early training state - cancelling workflow and showing welcome for user {user_id}")
             await state_manager.cancel_workflow(session)
 
