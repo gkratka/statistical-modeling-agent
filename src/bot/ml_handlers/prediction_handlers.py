@@ -110,7 +110,7 @@ class PredictionHandler:
         # Get or create session
         session = await self.state_manager.get_or_create_session(
             user_id=user_id,
-            conversation_id=str(chat_id)
+            conversation_id=f"chat_{chat_id}"
         )
 
         # Initialize prediction workflow
@@ -169,7 +169,7 @@ class PredictionHandler:
             )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -218,7 +218,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_file_upload: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -283,7 +283,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_file_path_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -398,7 +398,7 @@ class PredictionHandler:
             )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -537,7 +537,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_schema_confirmation: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -635,7 +635,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_feature_selection_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -806,8 +806,8 @@ class PredictionHandler:
             if set(selected_features) == set(model_features):
                 compatible_models.append(model)
 
-        # Store models in session for index-based button lookup
-        session.compatible_models = compatible_models
+        # Store models in session.selections for persistence (enables back button)
+        session.selections['compatible_models'] = compatible_models
 
         # Show model selection
         keyboard = create_model_selection_buttons(compatible_models, locale=locale)
@@ -851,13 +851,14 @@ class PredictionHandler:
             )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
 
         # Validate session has compatible_models
-        if not hasattr(session, 'compatible_models') or not session.compatible_models:
+        compatible_models = session.selections.get('compatible_models', [])
+        if not compatible_models:
             await query.edit_message_text(
                 I18nManager.t('prediction.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
@@ -865,7 +866,7 @@ class PredictionHandler:
             return
 
         # Validate index is in range
-        if index >= len(session.compatible_models):
+        if index >= len(compatible_models):
             await query.edit_message_text(
                 I18nManager.t('prediction.errors.invalid_selection', locale=locale),
                 parse_mode="Markdown"
@@ -873,7 +874,7 @@ class PredictionHandler:
             return
 
         # Lookup model from session by index
-        selected_model = session.compatible_models[index]
+        selected_model = compatible_models[index]
         model_id = selected_model['model_id']
 
         # Use model info from session (already populated from worker or local list_models)
@@ -942,11 +943,12 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_delete_models_start: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
         locale = session.language if session.language else None
 
         # Get compatible models from session
-        if not hasattr(session, 'compatible_models') or not session.compatible_models:
+        compatible_models = session.selections.get('compatible_models', [])
+        if not compatible_models:
             await query.edit_message_text(
                 I18nManager.t('prediction.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
@@ -960,7 +962,7 @@ class PredictionHandler:
         # Show checkbox selection UI
         from src.bot.messages.prediction_messages import create_delete_models_checkbox_buttons
         keyboard = create_delete_models_checkbox_buttons(
-            session.compatible_models,
+            compatible_models,
             session.delete_selected_indices,
             locale=locale
         )
@@ -990,7 +992,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_delete_model_toggle: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
         locale = session.language if session.language else None
 
         # Toggle selection
@@ -1005,9 +1007,10 @@ class PredictionHandler:
         await self.state_manager.update_session(session)
 
         # Refresh checkbox UI
+        compatible_models = session.selections.get('compatible_models', [])
         from src.bot.messages.prediction_messages import create_delete_models_checkbox_buttons
         keyboard = create_delete_models_checkbox_buttons(
-            session.compatible_models,
+            compatible_models,
             session.delete_selected_indices,
             locale=locale
         )
@@ -1031,7 +1034,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_delete_models_confirm: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
         locale = session.language if session.language else None
 
         # Check if any models selected
@@ -1050,10 +1053,11 @@ class PredictionHandler:
         )
 
         # Delete selected models
+        compatible_models = session.selections.get('compatible_models', [])
         deleted_count = 0
         for index in session.delete_selected_indices:
-            if index < len(session.compatible_models):
-                model = session.compatible_models[index]
+            if index < len(compatible_models):
+                model = compatible_models[index]
                 model_id = model.get('model_id')
                 try:
                     if worker_connected:
@@ -1103,7 +1107,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_delete_models_cancel: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Clear selection state
         if hasattr(session, 'delete_selected_indices'):
@@ -1156,7 +1160,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_column_confirmation: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -1208,7 +1212,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_custom_column_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -1294,7 +1298,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_run_prediction: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -1329,7 +1333,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_go_back: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Go back to model selection
         session.save_state_snapshot()
@@ -1375,7 +1379,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_prediction_back: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
         locale = session.language if session.language else None
         current_state = session.current_state
 
@@ -1472,7 +1476,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_retry_path: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -1500,7 +1504,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_back_to_source: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -1542,7 +1546,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_cancel_workflow: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -1844,7 +1848,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_output_option_selection: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -1919,7 +1923,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_save_directory_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -2074,7 +2078,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_filename_confirmation: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -2107,7 +2111,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_filename_custom_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -2250,7 +2254,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_skip_to_output: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -2340,7 +2344,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_password_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Validate we're in password state
         if session.current_state != MLPredictionState.AWAITING_PASSWORD.value:
@@ -2485,7 +2489,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_password_cancel: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -2977,7 +2981,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_save_password_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Validate we're in save password state
         if session.current_state != MLPredictionState.AWAITING_SAVE_PASSWORD.value:
@@ -3102,7 +3106,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_save_password_cancel: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
         locale = session.language if session.language else None
 
         # Clear pending save
@@ -3145,7 +3149,7 @@ class PredictionHandler:
             logger.error(f"Malformed update in handle_text_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             return

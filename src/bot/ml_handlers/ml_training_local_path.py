@@ -104,7 +104,7 @@ class LocalPathMLTrainingHandler:
         # Get or create session
         session = await self.state_manager.get_or_create_session(
             user_id=user_id,
-            conversation_id=str(chat_id)
+            conversation_id=f"chat_{chat_id}"
         )
 
         # Check if local path feature is enabled
@@ -208,7 +208,7 @@ class LocalPathMLTrainingHandler:
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session for i18n
         locale = session.language if session.language else None
@@ -330,7 +330,7 @@ class LocalPathMLTrainingHandler:
             print(f"🔍 PATH_DEBUG: Raw text_input from Telegram = '{text_input}'")
 
             # Get or create session - prevents false "Session Expired" errors
-            session = await self.state_manager.get_or_create_session(user_id, str(chat_id))
+            session = await self.state_manager.get_or_create_session(user_id, f"chat_{chat_id}")
 
             # WORKFLOW ISOLATION: Only process if in TRAINING workflow
             # Prevents collision with prediction workflow handler (group=2)
@@ -585,7 +585,7 @@ class LocalPathMLTrainingHandler:
             logger.error(f"Malformed update in handle_password_input: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session for i18n
         locale = session.language if session.language else None
@@ -703,6 +703,9 @@ class LocalPathMLTrainingHandler:
                 session.pending_auth_path = None
                 session.password_attempts = 0
 
+                # Save state snapshot BEFORE transition (enables back button)
+                session.save_state_snapshot()
+
                 await self.state_manager.transition_state(
                     session,
                     MLTrainingState.AWAITING_FILE_PATH.value
@@ -735,7 +738,7 @@ class LocalPathMLTrainingHandler:
             logger.error(f"Malformed update in handle_password_cancel: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session for i18n
         locale = session.language if session.language else None
@@ -791,7 +794,7 @@ class LocalPathMLTrainingHandler:
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session for i18n
         locale = session.language if session.language else None
@@ -1246,7 +1249,7 @@ class LocalPathMLTrainingHandler:
         print(f"📊 DEBUG: User selected model category: {category}")
 
         # Get session to access stored detection from schema processing
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session
         locale = session.language if session.language else None
@@ -1376,7 +1379,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"📊 DEBUG: User selected model: {model_type}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Store model selection
         session.selections['model_type'] = model_type
@@ -1911,7 +1914,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_epochs - user={user_id}, epochs_value={epochs_value}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -2047,7 +2050,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_batch - user={user_id}, batch_size={batch_size}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -2194,7 +2197,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_initializer - user={user_id}, initializer={initializer}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -2339,7 +2342,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_verbose - user={user_id}, verbose={verbose}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -2487,7 +2490,7 @@ class LocalPathMLTrainingHandler:
 
         print(f"🧠 DEBUG: handle_keras_validation - user={user_id}, validation_split={validation_split}")
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Defensive check: session exists
         if session is None:
@@ -2617,7 +2620,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         n_estimators_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -2686,7 +2689,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         max_depth_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -2754,7 +2757,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         learning_rate_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -2822,7 +2825,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         subsample_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -2890,7 +2893,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         colsample_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -2980,7 +2983,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         num_leaves_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -3051,7 +3054,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         n_estimators_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -3131,7 +3134,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         learning_rate_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -3198,7 +3201,7 @@ class LocalPathMLTrainingHandler:
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -3262,7 +3265,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         iterations_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -3334,7 +3337,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         depth_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -3405,7 +3408,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         learning_rate_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -3476,7 +3479,7 @@ class LocalPathMLTrainingHandler:
         chat_id = update.effective_chat.id
         l2_value = query.data.split(":")[-1]
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -3543,7 +3546,7 @@ class LocalPathMLTrainingHandler:
 
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if not session:
             await query.edit_message_text("❌ Session not found. Please restart with /train")
@@ -3770,7 +3773,7 @@ class LocalPathMLTrainingHandler:
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -3837,7 +3840,7 @@ class LocalPathMLTrainingHandler:
                 )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             await update.message.reply_text(
@@ -3962,7 +3965,7 @@ class LocalPathMLTrainingHandler:
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if session is None:
             # Get locale for i18n (best effort)
@@ -4342,7 +4345,7 @@ class LocalPathMLTrainingHandler:
                     )
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Extract locale from session for i18n
         locale = session.language if session.language else None

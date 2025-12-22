@@ -1189,12 +1189,12 @@ pt:
       workflow_cancelled: "❌ **Workflow Cancelado**\n\nSeu workflow de previsão foi cancelado.\n\n**Começar Novamente:**\n• /predict - Iniciar nova previsão\n• /train - Treinar um novo modelo"
 
   # Erros de Treinamento ML de Caminho Local
-ml_training_local_path:
-  errors:
-    invalid_request: "❌ **Solicitação Inválida**\n\nPor favor, reinicie com /train"
-    malformed_update: "❌ **Solicitação Inválida**\n\nPor favor, tente /train novamente."
-    state_transition_failed: "❌ Falha na transição de estado: %{error}"
-    session_expired: "❌ Sessão expirou. Por favor, reinicie com /train"
+  ml_training_local_path:
+    errors:
+      invalid_request: "❌ **Solicitação Inválida**\n\nPor favor, reinicie com /train"
+      malformed_update: "❌ **Solicitação Inválida**\n\nPor favor, tente /train novamente."
+      state_transition_failed: "❌ Falha na transição de estado: %{error}"
+      session_expired: "❌ Sessão expirou. Por favor, reinicie com /train"
 
   # Seleção de Fonte de Dados
   data_source:

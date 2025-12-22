@@ -96,7 +96,7 @@ async def start_handler(
     if state_manager:
         session = await state_manager.get_or_create_session(
             user_id,
-            str(update.effective_chat.id)
+            f"chat_{update.effective_chat.id}"
         )
         locale = session.language if session.language else 'en'
 
@@ -140,7 +140,7 @@ async def help_handler(
     if state_manager:
         session = await state_manager.get_or_create_session(
             user_id,
-            str(update.effective_chat.id)
+            f"chat_{update.effective_chat.id}"
         )
         locale = session.language if session.language else 'en'
 
@@ -167,7 +167,7 @@ async def pt_handler(
     if state_manager:
         session = await state_manager.get_or_create_session(
             user_id,
-            str(update.effective_chat.id)
+            f"chat_{update.effective_chat.id}"
         )
         session.language = "pt"
         await state_manager.update_session(session)
@@ -197,7 +197,7 @@ async def en_handler(
     if state_manager:
         session = await state_manager.get_or_create_session(
             user_id,
-            str(update.effective_chat.id)
+            f"chat_{update.effective_chat.id}"
         )
         session.language = "en"
         await state_manager.update_session(session)
@@ -237,7 +237,7 @@ async def message_handler(
     state_manager = context.bot_data['state_manager']
     session = await state_manager.get_or_create_session(
         user_id,
-        str(update.effective_chat.id)
+        f"chat_{update.effective_chat.id}"
     )
 
     # Check for score template submission (before state routing)
@@ -825,7 +825,7 @@ async def cancel_handler(
     state_manager = context.bot_data['state_manager']
     session = await state_manager.get_or_create_session(
         user_id,
-        str(update.effective_chat.id)
+        f"chat_{update.effective_chat.id}"
     )
 
     if session.workflow_type is None:
@@ -859,7 +859,7 @@ async def train_handler(
     state_manager = context.bot_data['state_manager']
     session = await state_manager.get_or_create_session(
         user_id,
-        str(update.effective_chat.id)
+        f"chat_{update.effective_chat.id}"
     )
 
     # Check if workflow already active
@@ -953,6 +953,39 @@ async def handle_workflow_back(
             f"current_state={session.current_state}, "
             f"history_depth={session.state_history.get_depth()}"
         )
+
+        # SIMPLIFIED: For early /train and /predict states (before model selection), just show welcome message
+        from src.core.state_manager import MLTrainingState, MLPredictionState
+        early_training_states = [
+            MLTrainingState.CHOOSING_DATA_SOURCE.value,
+            MLTrainingState.AWAITING_FILE_PATH.value,
+            MLTrainingState.AWAITING_PASSWORD.value,
+            MLTrainingState.CHOOSING_LOAD_OPTION.value,
+            MLTrainingState.CONFIRMING_SCHEMA.value,
+            MLTrainingState.AWAITING_SCHEMA_INPUT.value,
+        ]
+        early_prediction_states = [
+            MLPredictionState.STARTED.value,
+            MLPredictionState.CHOOSING_DATA_SOURCE.value,
+            MLPredictionState.AWAITING_FILE_UPLOAD.value,
+            MLPredictionState.AWAITING_FILE_PATH.value,
+            MLPredictionState.AWAITING_PASSWORD.value,
+            MLPredictionState.CHOOSING_LOAD_OPTION.value,
+            MLPredictionState.CONFIRMING_SCHEMA.value,
+        ]
+
+        if session.current_state in early_training_states or session.current_state in early_prediction_states:
+            logger.info(f"🔙 Early training state - cancelling workflow and showing welcome for user {user_id}")
+            await state_manager.cancel_workflow(session)
+
+            # Get locale for welcome message
+            locale = session.language if session.language else 'en'
+
+            await query.edit_message_text(
+                get_welcome_message(locale),
+                parse_mode="Markdown"
+            )
+            return
 
         # Check if back navigation is possible
         if not session.can_go_back():

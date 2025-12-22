@@ -80,7 +80,7 @@ class ScriptHandler:
             task = self.parser.parse_request(
                 text=command_text,
                 user_id=update.effective_user.id,
-                conversation_id=str(update.effective_chat.id)
+                conversation_id=f"chat_{update.effective_chat.id}"
             )
 
             if task.task_type != "script":
@@ -144,7 +144,7 @@ class ScriptHandler:
             task = self.parser.parse_request(
                 text=message_text,
                 user_id=update.effective_user.id,
-                conversation_id=str(update.effective_chat.id)
+                conversation_id=f"chat_{update.effective_chat.id}"
             )
 
             if task.task_type != "script":

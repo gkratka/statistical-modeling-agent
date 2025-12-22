@@ -68,7 +68,7 @@ class PredictionTemplateHandlers:
         else:  # Message
             chat_id = query_or_message.chat_id
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if not session:
             # Try to get locale from context, default to None
@@ -225,7 +225,7 @@ class PredictionTemplateHandlers:
         """Handle template name text input."""
         user_id = update.effective_user.id
         chat_id = update.message.chat_id
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         if not session or session.current_state != MLPredictionState.SAVING_PRED_TEMPLATE.value:
             return
@@ -350,7 +350,7 @@ class PredictionTemplateHandlers:
             for t in templates
         ] + [[InlineKeyboardButton(
             I18nManager.t('templates.load.back_button', locale=locale, default="🔙 Back"),
-            callback_data="back"
+            callback_data="pred_back"
         )]]
 
         await query.edit_message_text(

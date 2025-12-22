@@ -1067,6 +1067,38 @@ class WorkflowRouter:
                 parse_mode="Markdown"
             )
 
+        elif current_state == MLTrainingState.AWAITING_PASSWORD.value:
+            # Password prompt for non-whitelisted path (Phase 3: Back Button Fix)
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            from src.bot.messages.local_path_messages import LocalPathMessages
+            from pathlib import Path
+
+            # Get pending path from session
+            pending_path = getattr(session, 'pending_auth_path', None)
+            if not pending_path:
+                self.logger.error("Pending auth path missing in session for AWAITING_PASSWORD state")
+                await query.edit_message_text(
+                    I18nManager.t('ml_training_local_path.errors.invalid_request', locale=locale),
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Resolve to parent directory for display
+            resolved_dir = str(Path(pending_path).parent)
+
+            # Create Cancel button
+            keyboard = [[InlineKeyboardButton(
+                I18nManager.t('workflow_state.buttons.cancel', locale=locale),
+                callback_data="password_cancel"
+            )]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.edit_message_text(
+                LocalPathMessages.password_prompt(pending_path, resolved_dir, locale=locale),
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
         elif current_state == MLTrainingState.CHOOSING_LOAD_OPTION.value:
             # Load option selection (Load Now vs Defer) - THE KEY STATE FOR USER'S BUG
             from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -1194,7 +1226,7 @@ class WorkflowRouter:
             # Model selection prompt for prediction workflow
             # Retrieve selected features and compatible models from session
             selected_features = session.selections.get('selected_features', [])
-            compatible_models = getattr(session, 'compatible_models', [])
+            compatible_models = session.selections.get('compatible_models', [])
 
             if not compatible_models:
                 # No compatible models stored - show error
@@ -1278,7 +1310,7 @@ class WorkflowRouter:
 
             # Get model info from session
             selected_model_id = session.selections.get('selected_model_id')
-            compatible_models = getattr(session, 'compatible_models', [])
+            compatible_models = session.selections.get('compatible_models', [])
 
             # Find the selected model to get target column
             target_column = I18nManager.t('common.unknown', locale=locale, default="Unknown")
@@ -1311,7 +1343,7 @@ class WorkflowRouter:
             selected_model_id = session.selections.get('selected_model_id')
             selected_features = session.selections.get('selected_features', [])
             prediction_column = session.selections.get('prediction_column_name', 'prediction')
-            compatible_models = getattr(session, 'compatible_models', [])
+            compatible_models = session.selections.get('compatible_models', [])
 
             # Find selected model details
             unknown_label = I18nManager.t('common.unknown', locale=locale, default="Unknown")

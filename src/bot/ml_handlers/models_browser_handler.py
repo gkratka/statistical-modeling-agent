@@ -53,7 +53,7 @@ class ModelsBrowserHandler:
         # Get or create session
         session = await self.state_manager.get_or_create_session(
             user_id=user_id,
-            conversation_id=str(chat_id)
+            conversation_id=f"chat_{chat_id}"
         )
 
         # Initialize workflow at VIEWING_MODEL_LIST state
@@ -183,7 +183,7 @@ class ModelsBrowserHandler:
             logger.error(f"Malformed update object: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Save state snapshot for back navigation
         session.save_state_snapshot()
@@ -246,7 +246,7 @@ class ModelsBrowserHandler:
         try:
             user_id = update.effective_user.id
             chat_id = update.effective_chat.id
-            session = await self.state_manager.get_session(user_id, str(chat_id))
+            session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
             locale = session.language
         except (AttributeError, Exception) as e:
             logger.error(f"Error getting session in pagination: {e}")
@@ -284,7 +284,7 @@ class ModelsBrowserHandler:
             logger.error(f"Malformed update object: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Restore previous state
         session.restore_previous_state()
@@ -314,7 +314,7 @@ class ModelsBrowserHandler:
             logger.error(f"Malformed update object: {e}")
             return
 
-        session = await self.state_manager.get_session(user_id, str(chat_id))
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
 
         # Cancel workflow
         await self.state_manager.cancel_workflow(session)
