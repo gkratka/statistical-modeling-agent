@@ -954,6 +954,30 @@ async def handle_workflow_back(
             f"history_depth={session.state_history.get_depth()}"
         )
 
+        # SIMPLIFIED: For early /train states (before model selection), just show welcome message
+        from src.core.state_manager import MLTrainingState
+        early_training_states = [
+            MLTrainingState.CHOOSING_DATA_SOURCE.value,
+            MLTrainingState.AWAITING_FILE_PATH.value,
+            MLTrainingState.AWAITING_PASSWORD.value,
+            MLTrainingState.CHOOSING_LOAD_OPTION.value,
+            MLTrainingState.CONFIRMING_SCHEMA.value,
+            MLTrainingState.AWAITING_SCHEMA_INPUT.value,
+        ]
+
+        if session.current_state in early_training_states:
+            logger.info(f"🔙 Early training state - cancelling workflow and showing welcome for user {user_id}")
+            await state_manager.cancel_workflow(session)
+
+            # Get locale for welcome message
+            locale = session.language if session.language else 'en'
+
+            await query.edit_message_text(
+                get_welcome_message(locale),
+                parse_mode="Markdown"
+            )
+            return
+
         # Check if back navigation is possible
         if not session.can_go_back():
             logger.warning(f"⚠️ Cannot go back - history empty for user {user_id}")
