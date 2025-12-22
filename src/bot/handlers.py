@@ -86,7 +86,7 @@ async def start_handler(
     if state_manager:
         session = await state_manager.get_or_create_session(
             user_id,
-            str(update.effective_chat.id)
+            f"chat_{update.effective_chat.id}"
         )
         locale = session.language if session.language else 'en'
 
@@ -118,7 +118,7 @@ async def help_handler(
     if state_manager:
         session = await state_manager.get_or_create_session(
             user_id,
-            str(update.effective_chat.id)
+            f"chat_{update.effective_chat.id}"
         )
         locale = session.language if session.language else 'en'
 
@@ -145,7 +145,7 @@ async def pt_handler(
     if state_manager:
         session = await state_manager.get_or_create_session(
             user_id,
-            str(update.effective_chat.id)
+            f"chat_{update.effective_chat.id}"
         )
         session.language = "pt"
         await state_manager.update_session(session)
@@ -175,7 +175,7 @@ async def en_handler(
     if state_manager:
         session = await state_manager.get_or_create_session(
             user_id,
-            str(update.effective_chat.id)
+            f"chat_{update.effective_chat.id}"
         )
         session.language = "en"
         await state_manager.update_session(session)
@@ -215,7 +215,7 @@ async def message_handler(
     state_manager = context.bot_data['state_manager']
     session = await state_manager.get_or_create_session(
         user_id,
-        str(update.effective_chat.id)
+        f"chat_{update.effective_chat.id}"
     )
 
     # Check for score template submission (before state routing)
@@ -804,7 +804,7 @@ async def cancel_handler(
     state_manager = context.bot_data['state_manager']
     session = await state_manager.get_or_create_session(
         user_id,
-        str(update.effective_chat.id)
+        f"chat_{update.effective_chat.id}"
     )
 
     if session.workflow_type is None:
@@ -838,7 +838,7 @@ async def train_handler(
     state_manager = context.bot_data['state_manager']
     session = await state_manager.get_or_create_session(
         user_id,
-        str(update.effective_chat.id)
+        f"chat_{update.effective_chat.id}"
     )
 
     # Check if workflow already active
