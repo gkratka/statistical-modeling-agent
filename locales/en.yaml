@@ -1190,11 +1190,11 @@ en:
 
   # Local Path ML Training Errors
   ml_training_local_path:
-  errors:
-    invalid_request: "❌ **Invalid Request**\n\nPlease restart with /train"
-    malformed_update: "❌ **Invalid Request**\n\nPlease try /train again."
-    state_transition_failed: "❌ State transition failed: %{error}"
-    session_expired: "❌ Session expired. Please restart with /train"
+    errors:
+      invalid_request: "❌ **Invalid Request**\n\nPlease restart with /train"
+      malformed_update: "❌ **Invalid Request**\n\nPlease try /train again."
+      state_transition_failed: "❌ State transition failed: %{error}"
+      session_expired: "❌ Session expired. Please restart with /train"
 
   # Data Source Selection
   data_source:
