@@ -806,8 +806,8 @@ class PredictionHandler:
             if set(selected_features) == set(model_features):
                 compatible_models.append(model)
 
-        # Store models in session for index-based button lookup
-        session.compatible_models = compatible_models
+        # Store models in session.selections for persistence (enables back button)
+        session.selections['compatible_models'] = compatible_models
 
         # Show model selection
         keyboard = create_model_selection_buttons(compatible_models, locale=locale)
@@ -857,7 +857,8 @@ class PredictionHandler:
         locale = session.language if session.language else None
 
         # Validate session has compatible_models
-        if not hasattr(session, 'compatible_models') or not session.compatible_models:
+        compatible_models = session.selections.get('compatible_models', [])
+        if not compatible_models:
             await query.edit_message_text(
                 I18nManager.t('prediction.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
@@ -865,7 +866,7 @@ class PredictionHandler:
             return
 
         # Validate index is in range
-        if index >= len(session.compatible_models):
+        if index >= len(compatible_models):
             await query.edit_message_text(
                 I18nManager.t('prediction.errors.invalid_selection', locale=locale),
                 parse_mode="Markdown"
@@ -873,7 +874,7 @@ class PredictionHandler:
             return
 
         # Lookup model from session by index
-        selected_model = session.compatible_models[index]
+        selected_model = compatible_models[index]
         model_id = selected_model['model_id']
 
         # Use model info from session (already populated from worker or local list_models)
@@ -946,7 +947,8 @@ class PredictionHandler:
         locale = session.language if session.language else None
 
         # Get compatible models from session
-        if not hasattr(session, 'compatible_models') or not session.compatible_models:
+        compatible_models = session.selections.get('compatible_models', [])
+        if not compatible_models:
             await query.edit_message_text(
                 I18nManager.t('prediction.errors.session_expired', locale=locale),
                 parse_mode="Markdown"
@@ -960,7 +962,7 @@ class PredictionHandler:
         # Show checkbox selection UI
         from src.bot.messages.prediction_messages import create_delete_models_checkbox_buttons
         keyboard = create_delete_models_checkbox_buttons(
-            session.compatible_models,
+            compatible_models,
             session.delete_selected_indices,
             locale=locale
         )
@@ -1005,9 +1007,10 @@ class PredictionHandler:
         await self.state_manager.update_session(session)
 
         # Refresh checkbox UI
+        compatible_models = session.selections.get('compatible_models', [])
         from src.bot.messages.prediction_messages import create_delete_models_checkbox_buttons
         keyboard = create_delete_models_checkbox_buttons(
-            session.compatible_models,
+            compatible_models,
             session.delete_selected_indices,
             locale=locale
         )
@@ -1050,10 +1053,11 @@ class PredictionHandler:
         )
 
         # Delete selected models
+        compatible_models = session.selections.get('compatible_models', [])
         deleted_count = 0
         for index in session.delete_selected_indices:
-            if index < len(session.compatible_models):
-                model = session.compatible_models[index]
+            if index < len(compatible_models):
+                model = compatible_models[index]
                 model_id = model.get('model_id')
                 try:
                     if worker_connected:

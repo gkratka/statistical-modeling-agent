@@ -703,6 +703,9 @@ class LocalPathMLTrainingHandler:
                 session.pending_auth_path = None
                 session.password_attempts = 0
 
+                # Save state snapshot BEFORE transition (enables back button)
+                session.save_state_snapshot()
+
                 await self.state_manager.transition_state(
                     session,
                     MLTrainingState.AWAITING_FILE_PATH.value
