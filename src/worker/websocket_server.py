@@ -68,6 +68,8 @@ class WebSocketServer:
             self.host,
             self.port,
             max_size=10 * 1024 * 1024 * 1024,  # 10GB for large model results
+            ping_interval=60,  # Ping every 60s (default 20s)
+            ping_timeout=600,  # 10 min timeout for long ML jobs (default 20s)
         )
         logger.info(f"WebSocket server started on ws://{self.host}:{self.port}")
 
