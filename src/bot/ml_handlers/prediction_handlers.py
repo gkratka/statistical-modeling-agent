@@ -1621,29 +1621,26 @@ class PredictionHandler:
                 if not result.get('success', False):
                     raise Exception(result.get('error', 'Worker prediction failed'))
 
-                # Worker returns predictions array
+                # Worker returns truncated predictions sample (to prevent OOM)
                 predictions = result.get('predictions', [])
-                df = result.get('dataframe')  # Worker may return the dataframe
+                total_predictions = result.get('count', len(predictions))
+                df = result.get('dataframe')  # Worker returns truncated sample
+                output_file = result.get('output_file')  # Full results saved here
 
-                # Convert from JSON/dict if worker returned serialized dataframe
+                # Convert from JSON/dict if worker returned serialized dataframe sample
                 if df is not None and not isinstance(df, pd.DataFrame):
                     df = pd.DataFrame(df)
 
-                # If worker didn't return dataframe, we need to load it for display
+                # If worker didn't return dataframe sample, create minimal one for display
                 if df is None:
-                    # Load the data locally for result display (if accessible)
-                    try:
-                        loaded = await self.data_loader.load_from_local_path(
-                            file_path=session.file_path,
-                            detect_schema_flag=False,
-                            session=session
-                        )
-                        df = loaded[0] if isinstance(loaded, tuple) else loaded
-                    except Exception:
-                        # Create minimal dataframe from features if local load fails
-                        df = pd.DataFrame(columns=selected_features)
-                        for i, pred in enumerate(predictions):
-                            df.loc[i] = [None] * len(selected_features)
+                    df = pd.DataFrame(columns=selected_features)
+                    for i, pred in enumerate(predictions):
+                        df.loc[i] = [None] * len(selected_features)
+
+                # Store output file path for user reference
+                if output_file:
+                    session.selections['output_file'] = output_file
+                    logger.info(f"Full predictions saved to: {output_file}")
 
                 # Add predictions to dataframe
                 df[prediction_column] = predictions
@@ -1748,16 +1745,23 @@ class PredictionHandler:
             )
 
             # Send success message with statistics
+            success_msg = PredictionMessages.prediction_success_message(
+                session.selections.get('model_type', 'Model'),
+                len(predictions),
+                prediction_column,
+                execution_time,
+                preview_data,
+                session.selections['prediction_stats'],
+                locale=locale
+            )
+
+            # Add output file info if worker saved full results
+            output_file = session.selections.get('output_file')
+            if output_file:
+                success_msg += f"\n\n📁 *Full results saved to:*\n`{output_file}`"
+
             await update.effective_message.reply_text(
-                PredictionMessages.prediction_success_message(
-                    session.selections.get('model_type', 'Model'),
-                    len(predictions),
-                    prediction_column,
-                    execution_time,
-                    preview_data,
-                    session.selections['prediction_stats'],
-                    locale=locale
-                ),
+                success_msg,
                 parse_mode="Markdown"
             )
 
@@ -2794,11 +2798,15 @@ class PredictionHandler:
 
             if job.status == JobStatus.COMPLETED:
                 logger.info(f"Prediction job {job_id} completed successfully")
+                # Support both new truncated format and old full format (backwards compatible)
                 return {
                     'success': True,
-                    'predictions': job.result.get('predictions', []),
-                    'count': job.result.get('count', 0),
-                    'dataframe': job.result.get('dataframe')
+                    'predictions': job.result.get('predictions_sample') or job.result.get('predictions', []),
+                    'count': job.result.get('predictions_count') or job.result.get('count', 0),
+                    'dataframe': job.result.get('dataframe_sample') or job.result.get('dataframe'),
+                    'dataframe_rows': job.result.get('dataframe_rows'),
+                    'dataframe_columns': job.result.get('dataframe_columns'),
+                    'output_file': job.result.get('output_file'),
                 }
             elif job.status == JobStatus.FAILED:
                 logger.warning(f"Prediction job {job_id} failed: {job.error}")

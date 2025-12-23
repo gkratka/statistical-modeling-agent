@@ -901,6 +901,15 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
         # Make predictions
         predictions = model.predict(X)
 
+        # Save full results to CSV file (prevents OOM on Railway bot)
+        output_dir = resolved_path.parent
+        output_filename = f"predictions_{job_id}.csv"
+        output_path = output_dir / output_filename
+
+        df_with_predictions = df.copy()
+        df_with_predictions['prediction'] = predictions
+        df_with_predictions.to_csv(output_path, index=False)
+
         # Send completion
         asyncio.create_task(
             ws_send_callback(
@@ -908,13 +917,20 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
             )
         )
 
+        # Return truncated sample only (max 10 rows) to prevent bot OOM
+        SAMPLE_SIZE = 10
+        sample_size = min(SAMPLE_SIZE, len(df))
+
         return create_result_message(
             job_id,
             True,
             data={
-                "predictions": predictions.tolist(),
-                "count": len(predictions),
-                "dataframe": df.to_dict('records'),  # Include original data for output
+                "predictions_sample": predictions[:sample_size].tolist(),
+                "predictions_count": len(predictions),
+                "dataframe_sample": df.head(sample_size).to_dict('records'),
+                "dataframe_rows": len(df),
+                "dataframe_columns": list(df.columns),
+                "output_file": str(output_path),
             },
         )
 
