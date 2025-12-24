@@ -903,7 +903,7 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
         # For regression/multiclass, use standard predict()
         task_type = metadata.get("task_type", "")
 
-        if task_type == "binary_classification":
+        if task_type == "classification":
             # For binary classification, get probability of positive class
             if hasattr(model, 'predict_proba'):
                 # sklearn, XGBoost, LightGBM, CatBoost classifiers
