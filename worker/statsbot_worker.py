@@ -899,7 +899,27 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
         )
 
         # Make predictions
-        predictions = model.predict(X)
+        # For binary classification, output probability scores (0.0-1.0) with 8 decimals
+        # For regression/multiclass, use standard predict()
+        task_type = metadata.get("task_type", "")
+
+        if task_type == "binary_classification":
+            # For binary classification, get probability of positive class
+            if hasattr(model, 'predict_proba'):
+                # sklearn, XGBoost, LightGBM, CatBoost classifiers
+                predictions = model.predict_proba(X)[:, 1]
+            elif hasattr(model, 'predict'):
+                # Keras already outputs probabilities via sigmoid activation
+                raw_predictions = model.predict(X)
+                predictions = raw_predictions.flatten()
+            else:
+                predictions = model.predict(X)
+
+            # Round to 8 decimal places for consistency
+            predictions = np.round(predictions, 8)
+        else:
+            # Regression and multiclass use standard predict
+            predictions = model.predict(X)
 
         # Save full results to CSV file (prevents OOM on Railway bot)
         output_dir = resolved_path.parent
