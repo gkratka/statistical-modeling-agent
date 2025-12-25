@@ -25,6 +25,7 @@ from telegram.ext import (
     filters,
     ContextTypes
 )
+from telegram.request import HTTPXRequest
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent
@@ -516,10 +517,15 @@ class StatisticalModelingBot:
             self.logger.info("Starting Statistical Modeling Agent bot...")
             self.logger.info(f"Log level: {config['log_level']}")
 
-            # Create application
+            # Create application with increased timeouts for long-running predictions
+            request = HTTPXRequest(
+                connect_timeout=30.0,
+                read_timeout=60.0,
+                write_timeout=60.0,
+            )
             self.application = Application.builder().token(
                 config["telegram_bot_token"]
-            ).build()
+            ).request(request).build()
 
             # Setup handlers
             self._setup_handlers()
