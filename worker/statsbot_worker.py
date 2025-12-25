@@ -814,6 +814,7 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
         )
 
     try:
+        import numpy as np
         import pandas as pd
         import pickle
 
