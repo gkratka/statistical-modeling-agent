@@ -379,6 +379,89 @@ class StatisticalModelingBot:
         )
         self.application.bot_data['models_handler'] = models_handler
 
+        # Register join workflow handlers (NEW - /join command)
+        from src.bot.handlers.join_handlers import JoinHandler
+        from src.core.state_manager import JoinWorkflowState
+
+        join_handler = JoinHandler(
+            state_manager=state_manager,
+            data_loader=data_loader,
+            path_validator=path_validator,
+            websocket_server=self._websocket_server
+        )
+
+        # Command handler for /join
+        self.application.add_handler(CommandHandler("join", join_handler.handle_start_join))
+
+        # Callback query handlers for join workflow buttons
+        self.application.add_handler(
+            CallbackQueryHandler(join_handler.handle_operation_selection, pattern=r"^join_op_")
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(join_handler.handle_dataframe_count, pattern=r"^join_count_")
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(join_handler.handle_dataframe_source, pattern=r"^join_df_source_")
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(join_handler.handle_key_column_selection, pattern=r"^join_key_")
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(join_handler.handle_output_path, pattern=r"^join_output_")
+        )
+
+        # Text input handlers for join workflow (file path and custom output path)
+        async def join_text_input_wrapper(update, context):
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            session = await state_manager.get_session(user_id, f"chat_{chat_id}")
+
+            if not session or session.workflow_type is None:
+                return
+
+            from src.core.state_manager import WorkflowType
+            if session.workflow_type != WorkflowType.JOIN_WORKFLOW:
+                return
+
+            current_state = session.current_state
+            # Handle file path input states
+            if "DF" in current_state.upper() and "PATH" in current_state.upper():
+                await join_handler.handle_file_path_input(update, context)
+            # Handle custom output path input
+            elif current_state == JoinWorkflowState.AWAITING_CUSTOM_OUTPUT_PATH.value:
+                await join_handler.handle_custom_output_path(update, context)
+
+        self.application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, join_text_input_wrapper),
+            group=4  # Separate group for join text input
+        )
+
+        # File upload handler for join workflow
+        async def join_upload_wrapper(update, context):
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            session = await state_manager.get_session(user_id, f"chat_{chat_id}")
+
+            if not session or session.workflow_type is None:
+                return
+
+            from src.core.state_manager import WorkflowType
+            if session.workflow_type != WorkflowType.JOIN_WORKFLOW:
+                return
+
+            current_state = session.current_state
+            # Handle file upload states
+            if "DF" in current_state.upper() and "UPLOAD" in current_state.upper():
+                await join_handler.handle_file_upload(update, context)
+
+        self.application.add_handler(
+            MessageHandler(filters.Document.ALL, join_upload_wrapper),
+            group=5  # Separate group for join file uploads
+        )
+
+        self.application.bot_data['join_handler'] = join_handler
+        self.logger.info("Join workflow handlers registered")
+
         # Script command handler
         from src.bot.script_handler import script_command_handler
         self.application.add_handler(CommandHandler("script", script_command_handler))
@@ -484,6 +567,7 @@ class StatisticalModelingBot:
         # Store in bot_data for handler access
         if self.application:
             self.application.bot_data['websocket_server'] = self._websocket_server
+            self.application.bot_data['job_queue'] = job_queue
             self.application.bot_data['worker_enabled'] = True
             # Store worker HTTP URL for /connect command
             # Use env var for production (Railway), fallback to localhost for dev
