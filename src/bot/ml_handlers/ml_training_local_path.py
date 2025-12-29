@@ -1782,6 +1782,10 @@ class LocalPathMLTrainingHandler:
                     [InlineKeyboardButton(
                         I18nManager.t('workflow_state.training.completion.buttons.skip_naming', locale=locale),
                         callback_data="skip_naming"
+                    )],
+                    [InlineKeyboardButton(
+                        I18nManager.t('templates.save.button', locale=locale, default="💾 Save as Template"),
+                        callback_data="save_as_template"
                     )]
                 ]
                 reply_markup = InlineKeyboardMarkup(keyboard)
