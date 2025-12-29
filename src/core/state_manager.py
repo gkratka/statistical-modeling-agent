@@ -31,6 +31,7 @@ class WorkflowType(Enum):
     DATA_EXPLORATION = "data_exploration"
     SCORE_WORKFLOW = "score_workflow"  # NEW: Combined train + predict workflow
     MODELS_BROWSER = "models_browser"  # NEW: /models command - interactive model catalog
+    JOIN_WORKFLOW = "join_workflow"    # NEW: /join command - dataframe join/union/concat/merge
 
 
 class MLTrainingState(Enum):
@@ -121,6 +122,47 @@ class ModelsBrowserState(Enum):
     """States for models browser workflow (/models command)."""
     VIEWING_MODEL_LIST = "viewing_model_list"      # User browsing paginated model list
     VIEWING_MODEL_DETAILS = "viewing_model_details"  # User viewing single model details
+
+
+class JoinWorkflowState(Enum):
+    """States for join workflow (/join command - dataframe operations)."""
+    # Step 1: Choose operation type
+    CHOOSING_OPERATION = "choosing_operation"
+
+    # Step 2: Choose number of dataframes
+    CHOOSING_DATAFRAME_COUNT = "choosing_dataframe_count"
+
+    # Steps 3-N: Collect dataframes (up to 4)
+    AWAITING_DF1_SOURCE = "awaiting_df1_source"    # Upload vs Local Path
+    AWAITING_DF1_PATH = "awaiting_df1_path"        # Local path input
+    AWAITING_DF1_UPLOAD = "awaiting_df1_upload"    # Telegram upload
+
+    AWAITING_DF2_SOURCE = "awaiting_df2_source"
+    AWAITING_DF2_PATH = "awaiting_df2_path"
+    AWAITING_DF2_UPLOAD = "awaiting_df2_upload"
+
+    AWAITING_DF3_SOURCE = "awaiting_df3_source"
+    AWAITING_DF3_PATH = "awaiting_df3_path"
+    AWAITING_DF3_UPLOAD = "awaiting_df3_upload"
+
+    AWAITING_DF4_SOURCE = "awaiting_df4_source"
+    AWAITING_DF4_PATH = "awaiting_df4_path"
+    AWAITING_DF4_UPLOAD = "awaiting_df4_upload"
+
+    # Step N+1: Key column selection (for join operations only)
+    CHOOSING_KEY_COLUMNS = "choosing_key_columns"
+
+    # Step N+2: Optional filter selection (NEW)
+    CHOOSING_FILTER = "choosing_filter"            # Show filter prompt with "No Filters" button
+    AWAITING_FILTER_INPUT = "awaiting_filter_input"  # User typing filter expression
+
+    # Step N+3: Output path selection
+    CHOOSING_OUTPUT_PATH = "choosing_output_path"
+    AWAITING_CUSTOM_OUTPUT_PATH = "awaiting_custom_output_path"
+
+    # Step N+4: Execution
+    EXECUTING_JOIN = "executing_join"
+    COMPLETE = "complete"
 
 
 @dataclass
@@ -526,11 +568,105 @@ MODELS_BROWSER_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     }
 }
 
+JOIN_WORKFLOW_TRANSITIONS: Dict[Optional[str], Set[str]] = {
+    # Start: /join command initiates workflow
+    None: {JoinWorkflowState.CHOOSING_OPERATION.value},
+
+    # Step 1: Choose operation type
+    JoinWorkflowState.CHOOSING_OPERATION.value: {
+        JoinWorkflowState.CHOOSING_DATAFRAME_COUNT.value  # After selecting operation
+    },
+
+    # Step 2: Choose dataframe count
+    JoinWorkflowState.CHOOSING_DATAFRAME_COUNT.value: {
+        JoinWorkflowState.AWAITING_DF1_SOURCE.value  # Start collecting dataframes
+    },
+
+    # Dataframe 1 collection
+    JoinWorkflowState.AWAITING_DF1_SOURCE.value: {
+        JoinWorkflowState.AWAITING_DF1_PATH.value,     # User chose local path
+        JoinWorkflowState.AWAITING_DF1_UPLOAD.value    # User chose upload
+    },
+    JoinWorkflowState.AWAITING_DF1_PATH.value: {
+        JoinWorkflowState.AWAITING_DF2_SOURCE.value    # Path validated, next dataframe
+    },
+    JoinWorkflowState.AWAITING_DF1_UPLOAD.value: {
+        JoinWorkflowState.AWAITING_DF2_SOURCE.value    # Upload received, next dataframe
+    },
+
+    # Dataframe 2 collection
+    JoinWorkflowState.AWAITING_DF2_SOURCE.value: {
+        JoinWorkflowState.AWAITING_DF2_PATH.value,
+        JoinWorkflowState.AWAITING_DF2_UPLOAD.value
+    },
+    JoinWorkflowState.AWAITING_DF2_PATH.value: {
+        JoinWorkflowState.AWAITING_DF3_SOURCE.value,   # If count > 2
+        JoinWorkflowState.CHOOSING_KEY_COLUMNS.value,  # If count == 2 and join op
+        JoinWorkflowState.CHOOSING_OUTPUT_PATH.value   # If count == 2 and union/concat
+    },
+    JoinWorkflowState.AWAITING_DF2_UPLOAD.value: {
+        JoinWorkflowState.AWAITING_DF3_SOURCE.value,
+        JoinWorkflowState.CHOOSING_KEY_COLUMNS.value,
+        JoinWorkflowState.CHOOSING_OUTPUT_PATH.value
+    },
+
+    # Dataframe 3 collection (optional)
+    JoinWorkflowState.AWAITING_DF3_SOURCE.value: {
+        JoinWorkflowState.AWAITING_DF3_PATH.value,
+        JoinWorkflowState.AWAITING_DF3_UPLOAD.value
+    },
+    JoinWorkflowState.AWAITING_DF3_PATH.value: {
+        JoinWorkflowState.AWAITING_DF4_SOURCE.value,   # If count > 3
+        JoinWorkflowState.CHOOSING_KEY_COLUMNS.value,  # If count == 3 and join op
+        JoinWorkflowState.CHOOSING_OUTPUT_PATH.value   # If count == 3 and union/concat
+    },
+    JoinWorkflowState.AWAITING_DF3_UPLOAD.value: {
+        JoinWorkflowState.AWAITING_DF4_SOURCE.value,
+        JoinWorkflowState.CHOOSING_KEY_COLUMNS.value,
+        JoinWorkflowState.CHOOSING_OUTPUT_PATH.value
+    },
+
+    # Dataframe 4 collection (optional)
+    JoinWorkflowState.AWAITING_DF4_SOURCE.value: {
+        JoinWorkflowState.AWAITING_DF4_PATH.value,
+        JoinWorkflowState.AWAITING_DF4_UPLOAD.value
+    },
+    JoinWorkflowState.AWAITING_DF4_PATH.value: {
+        JoinWorkflowState.CHOOSING_KEY_COLUMNS.value,  # If join op
+        JoinWorkflowState.CHOOSING_OUTPUT_PATH.value   # If union/concat
+    },
+    JoinWorkflowState.AWAITING_DF4_UPLOAD.value: {
+        JoinWorkflowState.CHOOSING_KEY_COLUMNS.value,
+        JoinWorkflowState.CHOOSING_OUTPUT_PATH.value
+    },
+
+    # Key column selection (for join operations)
+    JoinWorkflowState.CHOOSING_KEY_COLUMNS.value: {
+        JoinWorkflowState.CHOOSING_OUTPUT_PATH.value   # After key columns selected
+    },
+
+    # Output path selection
+    JoinWorkflowState.CHOOSING_OUTPUT_PATH.value: {
+        JoinWorkflowState.AWAITING_CUSTOM_OUTPUT_PATH.value,  # User wants custom path
+        JoinWorkflowState.EXECUTING_JOIN.value         # User accepts default
+    },
+    JoinWorkflowState.AWAITING_CUSTOM_OUTPUT_PATH.value: {
+        JoinWorkflowState.EXECUTING_JOIN.value         # Custom path provided
+    },
+
+    # Execution and completion
+    JoinWorkflowState.EXECUTING_JOIN.value: {
+        JoinWorkflowState.COMPLETE.value               # Job finished
+    },
+    JoinWorkflowState.COMPLETE.value: set()            # Terminal state
+}
+
 WORKFLOW_TRANSITIONS: Dict[WorkflowType, Dict[Optional[str], Set[str]]] = {
     WorkflowType.ML_TRAINING: ML_TRAINING_TRANSITIONS,
     WorkflowType.ML_PREDICTION: ML_PREDICTION_TRANSITIONS,
     WorkflowType.SCORE_WORKFLOW: SCORE_WORKFLOW_TRANSITIONS,
     WorkflowType.MODELS_BROWSER: MODELS_BROWSER_TRANSITIONS,
+    WorkflowType.JOIN_WORKFLOW: JOIN_WORKFLOW_TRANSITIONS,
 }
 
 ML_TRAINING_PREREQUISITES: Dict[str, PrerequisiteChecker] = {

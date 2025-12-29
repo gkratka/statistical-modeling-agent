@@ -962,6 +962,209 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
         return create_result_message(job_id, False, error=error_msg)
 
 
+def execute_join_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> str:
+    """
+    Execute dataframe join/union/concat/merge operation.
+
+    Args:
+        job_id: Job identifier
+        params: Join parameters
+            - operation: str - "left_join", "right_join", "inner_join", "outer_join",
+                              "cross_join", "union", "concat", "merge"
+            - file_paths: List[str] - Paths to input dataframes
+            - key_columns: Optional[List[str]] - Join key(s) for join operations
+            - output_path: str - Where to save result
+        ws_send_callback: Async callback to send progress updates
+
+    Returns:
+        JSON-encoded result message
+    """
+    # Check pandas is available
+    packages = check_ml_packages()
+    if not packages.get("pandas"):
+        return create_result_message(
+            job_id,
+            False,
+            error="Required package not available. Please install: pip install pandas",
+        )
+
+    try:
+        import pandas as pd
+        from pathlib import Path
+
+        # Extract parameters
+        operation = params.get("operation")
+        file_paths = params.get("file_paths", [])
+        key_columns = params.get("key_columns", [])
+        output_path = params.get("output_path")
+        filters = params.get("filters", [])  # NEW: Optional filters
+
+        if not operation:
+            return create_result_message(job_id, False, error="Missing operation parameter")
+        if not file_paths or len(file_paths) < 2:
+            return create_result_message(job_id, False, error="At least 2 file paths required")
+        if not output_path:
+            return create_result_message(job_id, False, error="Missing output_path parameter")
+
+        # Send progress: loading dataframes
+        asyncio.create_task(
+            ws_send_callback(
+                create_progress_message(job_id, "loading", 10, "Loading dataframes...")
+            )
+        )
+
+        # Load all dataframes
+        dfs = []
+        for i, path in enumerate(file_paths):
+            # Validate path
+            is_valid, error, resolved_path = validate_file_path(path)
+            if not is_valid:
+                return create_result_message(job_id, False, error=f"File {i+1}: {error}")
+
+            # Send progress
+            progress_pct = 10 + (i * 20)
+            asyncio.create_task(
+                ws_send_callback(
+                    create_progress_message(
+                        job_id, "loading", progress_pct, f"Loading dataframe {i+1} of {len(file_paths)}..."
+                    )
+                )
+            )
+
+            # Load dataframe
+            if resolved_path.suffix == ".csv":
+                df = pd.read_csv(resolved_path)
+            elif resolved_path.suffix in [".xlsx", ".xls"]:
+                df = pd.read_excel(resolved_path)
+            elif resolved_path.suffix == ".parquet":
+                df = pd.read_parquet(resolved_path)
+            else:
+                return create_result_message(
+                    job_id, False, error=f"Unsupported format: {resolved_path.suffix}"
+                )
+
+            dfs.append(df)
+
+        # Apply filters if provided (NEW)
+        if filters:
+            asyncio.create_task(
+                ws_send_callback(
+                    create_progress_message(job_id, "filtering", 60, f"Applying {len(filters)} filter(s)...")
+                )
+            )
+
+            # Apply each filter to all dataframes
+            filtered_dfs = []
+            for df in dfs:
+                filtered_df = df
+                for filter_expr in filters:
+                    try:
+                        # Convert simple equality to pandas-compatible format
+                        # e.g., "month = 1" -> "month == 1" for query()
+                        # Handle single = as ==
+                        query_expr = filter_expr
+                        if " = " in query_expr and " == " not in query_expr and " != " not in query_expr:
+                            query_expr = query_expr.replace(" = ", " == ")
+                        filtered_df = filtered_df.query(query_expr)
+                    except Exception as filter_error:
+                        # Skip filters for columns that don't exist in this dataframe
+                        print(f"Filter '{filter_expr}' skipped for dataframe: {filter_error}", flush=True)
+                        pass
+                filtered_dfs.append(filtered_df)
+            dfs = filtered_dfs
+
+        # Send progress: executing operation
+        asyncio.create_task(
+            ws_send_callback(
+                create_progress_message(job_id, "processing", 70, f"Executing {operation}...")
+            )
+        )
+
+        # Execute operation
+        if operation == "left_join":
+            result = dfs[0]
+            for df in dfs[1:]:
+                result = result.merge(df, on=key_columns, how="left")
+
+        elif operation == "right_join":
+            result = dfs[0]
+            for df in dfs[1:]:
+                result = result.merge(df, on=key_columns, how="right")
+
+        elif operation == "inner_join":
+            result = dfs[0]
+            for df in dfs[1:]:
+                result = result.merge(df, on=key_columns, how="inner")
+
+        elif operation == "outer_join":
+            result = dfs[0]
+            for df in dfs[1:]:
+                result = result.merge(df, on=key_columns, how="outer")
+
+        elif operation == "cross_join":
+            result = dfs[0]
+            for df in dfs[1:]:
+                result = result.merge(df, how="cross")
+
+        elif operation == "union":
+            # Requires same columns
+            result = pd.concat(dfs, ignore_index=True)
+
+        elif operation == "concat":
+            # Handles different columns (outer join)
+            result = pd.concat(dfs, ignore_index=True, join="outer")
+
+        elif operation == "merge":
+            # Standard pandas merge (same as inner join by default)
+            result = dfs[0]
+            for df in dfs[1:]:
+                if key_columns:
+                    result = result.merge(df, on=key_columns)
+                else:
+                    result = result.merge(df)
+
+        else:
+            return create_result_message(job_id, False, error=f"Unknown operation: {operation}")
+
+        # Send progress: saving result
+        asyncio.create_task(
+            ws_send_callback(
+                create_progress_message(job_id, "saving", 90, "Saving result...")
+            )
+        )
+
+        # Save result
+        output_path_obj = Path(output_path)
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        if output_path_obj.suffix == ".parquet":
+            result.to_parquet(output_path_obj, index=False)
+        elif output_path_obj.suffix in [".xlsx", ".xls"]:
+            result.to_excel(output_path_obj, index=False)
+        else:
+            # Default to CSV
+            result.to_csv(output_path_obj, index=False)
+
+        # Return result
+        return create_result_message(
+            job_id,
+            True,
+            data={
+                "output_file": str(output_path_obj),
+                "row_count": len(result),
+                "column_count": len(result.columns),
+                "columns": list(result.columns)[:20],  # Sample first 20 columns
+                "operation": operation,
+            },
+        )
+
+    except Exception as e:
+        import traceback
+
+        error_msg = f"Join operation failed: {str(e)}\n{traceback.format_exc()}"
+        return create_result_message(job_id, False, error=error_msg)
+
+
 def execute_save_file_job(job_id: str, params: Dict[str, Any]) -> str:
     """
     Execute save file job - save dataframe to local file.
@@ -1241,6 +1444,8 @@ class WorkerClient:
                 result = execute_delete_model_job(job_id, params)
             elif action == "set_model_name":
                 result = execute_set_model_name_job(job_id, params)
+            elif action == "join":
+                result = execute_join_job(job_id, params, self.send_message)
             else:
                 result = create_result_message(job_id, False, error=f"Unknown action: {action}")
         finally:
