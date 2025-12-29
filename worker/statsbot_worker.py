@@ -997,6 +997,7 @@ def execute_join_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> s
         file_paths = params.get("file_paths", [])
         key_columns = params.get("key_columns", [])
         output_path = params.get("output_path")
+        filters = params.get("filters", [])  # NEW: Optional filters
 
         if not operation:
             return create_result_message(job_id, False, error="Missing operation parameter")
@@ -1043,6 +1044,34 @@ def execute_join_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> s
                 )
 
             dfs.append(df)
+
+        # Apply filters if provided (NEW)
+        if filters:
+            asyncio.create_task(
+                ws_send_callback(
+                    create_progress_message(job_id, "filtering", 60, f"Applying {len(filters)} filter(s)...")
+                )
+            )
+
+            # Apply each filter to all dataframes
+            filtered_dfs = []
+            for df in dfs:
+                filtered_df = df
+                for filter_expr in filters:
+                    try:
+                        # Convert simple equality to pandas-compatible format
+                        # e.g., "month = 1" -> "month == 1" for query()
+                        # Handle single = as ==
+                        query_expr = filter_expr
+                        if " = " in query_expr and " == " not in query_expr and " != " not in query_expr:
+                            query_expr = query_expr.replace(" = ", " == ")
+                        filtered_df = filtered_df.query(query_expr)
+                    except Exception as filter_error:
+                        # Skip filters for columns that don't exist in this dataframe
+                        print(f"Filter '{filter_expr}' skipped for dataframe: {filter_error}", flush=True)
+                        pass
+                filtered_dfs.append(filtered_df)
+            dfs = filtered_dfs
 
         # Send progress: executing operation
         asyncio.create_task(

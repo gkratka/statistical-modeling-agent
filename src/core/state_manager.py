@@ -152,11 +152,15 @@ class JoinWorkflowState(Enum):
     # Step N+1: Key column selection (for join operations only)
     CHOOSING_KEY_COLUMNS = "choosing_key_columns"
 
-    # Step N+2: Output path selection
+    # Step N+2: Optional filter selection (NEW)
+    CHOOSING_FILTER = "choosing_filter"            # Show filter prompt with "No Filters" button
+    AWAITING_FILTER_INPUT = "awaiting_filter_input"  # User typing filter expression
+
+    # Step N+3: Output path selection
     CHOOSING_OUTPUT_PATH = "choosing_output_path"
     AWAITING_CUSTOM_OUTPUT_PATH = "awaiting_custom_output_path"
 
-    # Step N+3: Execution
+    # Step N+4: Execution
     EXECUTING_JOIN = "executing_join"
     COMPLETE = "complete"
 

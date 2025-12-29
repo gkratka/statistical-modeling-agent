@@ -22,6 +22,7 @@ from src.bot.messages.join_messages import (
     create_dataframe_source_buttons,
     create_key_column_buttons,
     create_output_path_buttons,
+    create_filter_buttons,
 )
 
 logger = logging.getLogger(__name__)
@@ -445,13 +446,13 @@ class JoinHandler:
                 parse_mode="Markdown"
             )
         else:
-            # All dataframes collected, move to key selection or output
+            # All dataframes collected, move to key selection or filter step
             if operation in JoinMessages.JOIN_OPERATIONS:
-                # Need key column selection
+                # Need key column selection first
                 await self._show_key_column_selection(update, session)
             else:
-                # Skip to output path selection
-                await self._show_output_path_selection(update, session)
+                # Stack operations skip key columns, go to filter step
+                await self._show_filter_step(update, session)
 
     async def _show_key_column_selection(self, update: Update, session) -> None:
         """Show key column selection for join operations."""
@@ -489,8 +490,48 @@ class JoinHandler:
             parse_mode="Markdown"
         )
 
-    async def _show_output_path_selection(self, update: Update, session) -> None:
-        """Show output path selection."""
+    async def _show_filter_step(self, update: Update, session, edit_message: bool = False) -> None:
+        """Show optional filter input step.
+
+        Args:
+            update: Telegram update object
+            session: Current user session
+            edit_message: If True, edit existing message; if False, send new message
+        """
+        # Initialize filters list if not present
+        if "filters" not in session.selections:
+            session.selections["filters"] = []
+
+        existing_filters = session.selections["filters"]
+        session.current_state = JoinWorkflowState.CHOOSING_FILTER.value
+        await self.state_manager.update_session(session)
+
+        keyboard = create_filter_buttons(has_filters=len(existing_filters) > 0)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        message_text = JoinMessages.filter_prompt(existing_filters)
+
+        if edit_message and update.callback_query:
+            await update.callback_query.edit_message_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+    async def _show_output_path_selection(self, update: Update, session, edit_message: bool = False) -> None:
+        """Show output path selection.
+
+        Args:
+            update: Telegram update object
+            session: Current user session
+            edit_message: If True, edit existing message; if False, send new message
+        """
         # Generate default output path (same directory as first input)
         first_df_path = session.selections["dataframes"][0]["path"]
         first_dir = os.path.dirname(first_df_path)
@@ -505,11 +546,20 @@ class JoinHandler:
         keyboard = create_output_path_buttons()
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(
-            JoinMessages.output_path_prompt(default_path),
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
+        message_text = JoinMessages.output_path_prompt(default_path)
+
+        if edit_message and update.callback_query:
+            await update.callback_query.edit_message_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text(
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
 
     # =========================================================================
     # Key Column Selection
@@ -549,25 +599,8 @@ class JoinHandler:
             await query.answer()  # Acknowledge before editing
             session.selections["key_columns"] = selected_keys
 
-            # Move to output path selection
-            first_df_path = session.selections["dataframes"][0]["path"]
-            first_dir = os.path.dirname(first_df_path)
-            operation = session.selections["join_operation"]
-            default_filename = f"joined_{operation}.csv"
-            default_path = os.path.join(first_dir, default_filename)
-
-            session.selections["default_output_path"] = default_path
-            session.current_state = JoinWorkflowState.CHOOSING_OUTPUT_PATH.value
-            await self.state_manager.update_session(session)
-
-            keyboard = create_output_path_buttons()
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await query.edit_message_text(
-                JoinMessages.output_path_prompt(default_path),
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
+            # Move to filter step (instead of output path directly)
+            await self._show_filter_step(update, session, edit_message=True)
         else:
             # Toggle a key column
             await query.answer()  # Acknowledge toggle
@@ -588,6 +621,141 @@ class JoinHandler:
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await query.edit_message_reply_markup(reply_markup=reply_markup)
+
+    # =========================================================================
+    # Filter Step Handlers (NEW)
+    # =========================================================================
+
+    async def handle_filter_selection(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle filter step button callbacks (skip or done)."""
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            callback_data = query.data
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_filter_selection: {e}")
+            await query.edit_message_text("An error occurred. Please try again.")
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        if not session or session.workflow_type != WorkflowType.JOIN_WORKFLOW:
+            await query.edit_message_text("Session expired. Please start again with /join")
+            return
+
+        if callback_data in ("join_filter_skip", "join_filter_done"):
+            # User chose to skip filters or is done adding filters
+            # Move to output path selection
+            await self._show_output_path_selection(update, session, edit_message=True)
+
+    async def handle_filter_input(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle filter text input from user."""
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            filter_text = update.message.text.strip()
+        except AttributeError as e:
+            logger.error(f"Malformed update in handle_filter_input: {e}")
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        if not session or session.workflow_type != WorkflowType.JOIN_WORKFLOW:
+            await update.message.reply_text("Session expired. Please start again with /join")
+            return
+
+        # Validate filter format and get corrected filter with proper column case
+        validation_error, corrected_filter = self._validate_filter_expression(filter_text, session)
+        if validation_error:
+            await update.message.reply_text(
+                JoinMessages.filter_error_message(validation_error),
+                parse_mode="Markdown"
+            )
+            return
+
+        # Add corrected filter (with proper column case) to list
+        if "filters" not in session.selections:
+            session.selections["filters"] = []
+        session.selections["filters"].append(corrected_filter)
+        await self.state_manager.update_session(session)
+
+        # Show confirmation with updated buttons
+        keyboard = create_filter_buttons(has_filters=True)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            JoinMessages.filter_added_message(corrected_filter, session.selections["filters"]),
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+    def _validate_filter_expression(self, filter_text: str, session) -> tuple:
+        """Validate filter expression format and column existence.
+
+        Args:
+            filter_text: Filter expression like "month = 1" or "status = 'active'"
+            session: Current session with dataframe info
+
+        Returns:
+            Tuple of (error_message, corrected_filter)
+            - If invalid: (error_string, None)
+            - If valid: (None, corrected_filter_with_proper_case)
+        """
+        import re
+
+        # Supported operators
+        operators = [">=", "<=", "!=", "==", ">", "<", "="]
+
+        # Check format: column operator value
+        found_operator = None
+        for op in operators:
+            if op in filter_text:
+                found_operator = op
+                break
+
+        if not found_operator:
+            return ("Missing operator. Use =, !=, >, <, >=, or <=", None)
+
+        parts = filter_text.split(found_operator, 1)
+        if len(parts) != 2:
+            return (f"Invalid format. Expected: column {found_operator} value", None)
+
+        column_name = parts[0].strip()
+        value = parts[1].strip()
+
+        if not column_name:
+            return ("Column name is empty", None)
+
+        if not value:
+            return ("Value is empty", None)
+
+        # Check if column exists in any of the dataframes (case-insensitive)
+        all_columns = set()
+        for df_info in session.selections.get("dataframes", []):
+            all_columns.update(df_info.get("columns", []))
+
+        # Build case-insensitive lookup: lowercase -> actual case
+        column_lookup = {col.lower(): col for col in all_columns}
+
+        if column_name.lower() not in column_lookup:
+            return (f"Column '{column_name}' not found in any dataframe", None)
+
+        # Get the actual column name with correct case
+        actual_column_name = column_lookup[column_name.lower()]
+
+        # Build corrected filter with proper column case
+        corrected_filter = f"{actual_column_name} {found_operator} {value}"
+
+        return (None, corrected_filter)
 
     # =========================================================================
     # Output Path Selection
@@ -650,11 +818,11 @@ class JoinHandler:
             await update.message.reply_text("Session expired. Please start again with /join")
             return
 
-        # Validate output directory is in allowed list
+        # Validate output directory exists (removed whitelist requirement)
         output_dir = os.path.dirname(output_path)
-        if not any(output_path.startswith(d) for d in self.data_loader.allowed_directories):
+        if output_dir and not os.path.isdir(output_dir):
             await update.message.reply_text(
-                JoinMessages.path_validation_error("not_in_whitelist", output_path),
+                JoinMessages.path_validation_error("not_found", output_path, "Parent directory does not exist."),
                 parse_mode="Markdown"
             )
             return
@@ -702,11 +870,13 @@ class JoinHandler:
 
         # Prepare job parameters
         file_paths = [df["path"] for df in dataframes]
+        filters = session.selections.get("filters", [])  # NEW: Include filters
         job_params = {
             "operation": operation,
             "file_paths": file_paths,
             "key_columns": key_columns,
             "output_path": output_path,
+            "filters": filters,  # NEW: Pass filters to worker
         }
 
         try:

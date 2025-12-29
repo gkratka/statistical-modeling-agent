@@ -407,6 +407,9 @@ class StatisticalModelingBot:
             CallbackQueryHandler(join_handler.handle_key_column_selection, pattern=r"^join_key_")
         )
         self.application.add_handler(
+            CallbackQueryHandler(join_handler.handle_filter_selection, pattern=r"^join_filter_")
+        )
+        self.application.add_handler(
             CallbackQueryHandler(join_handler.handle_output_path, pattern=r"^join_output_")
         )
 
@@ -430,6 +433,9 @@ class StatisticalModelingBot:
             # Handle custom output path input
             elif current_state == JoinWorkflowState.AWAITING_CUSTOM_OUTPUT_PATH.value:
                 await join_handler.handle_custom_output_path(update, context)
+            # Handle filter input (user can type filter expressions in CHOOSING_FILTER state)
+            elif current_state == JoinWorkflowState.CHOOSING_FILTER.value:
+                await join_handler.handle_filter_input(update, context)
 
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, join_text_input_wrapper),

@@ -230,6 +230,64 @@ class JoinMessages:
         else:
             return base_msg + (details or "Invalid path.")
 
+    # =========================================================================
+    # Filter Step Messages (NEW)
+    # =========================================================================
+
+    @staticmethod
+    def filter_prompt(existing_filters: List[str] = None) -> str:
+        """Prompt for optional filter input."""
+        if existing_filters is None:
+            existing_filters = []
+
+        base_msg = (
+            "*Optional Filters*\n\n"
+            "You can add filters to apply during the join operation.\n\n"
+            "*To add a filter, type it in this format:*\n"
+            "  `column_name = value`\n\n"
+            "*Examples:*\n"
+            "  `month = 1`\n"
+            "  `status = 'active'`\n"
+            "  `amount > 100`\n\n"
+            "*Supported operators:* =, !=, >, <, >=, <=\n\n"
+        )
+
+        if existing_filters:
+            filters_display = "\n".join(f"  • `{f}`" for f in existing_filters)
+            base_msg += (
+                f"*Current filters:*\n{filters_display}\n\n"
+                "Add another filter, or click 'Done with Filters' to continue."
+            )
+        else:
+            base_msg += "Or click 'No Filters' to proceed without filtering."
+
+        return base_msg
+
+    @staticmethod
+    def filter_added_message(filter_expr: str, all_filters: List[str]) -> str:
+        """Confirmation message after adding a filter."""
+        filters_display = "\n".join(f"  • `{f}`" for f in all_filters)
+        return (
+            f"*Filter Added*\n\n"
+            f"Added: `{filter_expr}`\n\n"
+            f"*All filters:*\n{filters_display}\n\n"
+            "Add another filter, or click 'Done with Filters' to continue."
+        )
+
+    @staticmethod
+    def filter_error_message(error: str) -> str:
+        """Error message for invalid filter format."""
+        return (
+            "*Invalid Filter Format*\n\n"
+            f"Error: {error}\n\n"
+            "*Expected format:* `column = value`\n\n"
+            "*Examples:*\n"
+            "  `month = 1`\n"
+            "  `status = 'active'`\n"
+            "  `amount > 100`\n\n"
+            "Please try again or click 'No Filters' to skip."
+        )
+
 
 # Button creation helpers
 
@@ -292,3 +350,22 @@ def create_output_path_buttons() -> List[List[InlineKeyboardButton]]:
         [InlineKeyboardButton("Use Default Path", callback_data="join_output_default")],
         [InlineKeyboardButton("Custom Path...", callback_data="join_output_custom")],
     ]
+
+
+def create_filter_buttons(has_filters: bool = False) -> List[List[InlineKeyboardButton]]:
+    """Create buttons for filter step.
+
+    Args:
+        has_filters: True if user has already added filters
+
+    Returns:
+        Button layout for filter step
+    """
+    if has_filters:
+        return [
+            [InlineKeyboardButton("Done with Filters", callback_data="join_filter_done")],
+        ]
+    else:
+        return [
+            [InlineKeyboardButton("No Filters", callback_data="join_filter_skip")],
+        ]
