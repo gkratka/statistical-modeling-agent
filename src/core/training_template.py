@@ -34,6 +34,9 @@ class TrainingTemplate:
     # Training configuration
     hyperparameters: Dict[str, Any] = field(default_factory=dict)
 
+    # Data loading preference
+    defer_loading: bool = False
+
     # Metadata
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_used: Optional[str] = None
@@ -51,6 +54,7 @@ class TrainingTemplate:
             "model_category": self.model_category,
             "model_type": self.model_type,
             "hyperparameters": self.hyperparameters,
+            "defer_loading": self.defer_loading,
             "created_at": self.created_at,
             "last_used": self.last_used,
             "description": self.description
@@ -69,6 +73,7 @@ class TrainingTemplate:
             model_category=data["model_category"],
             model_type=data["model_type"],
             hyperparameters=data.get("hyperparameters", {}),
+            defer_loading=data.get("defer_loading", False),
             created_at=data["created_at"],
             last_used=data.get("last_used"),
             description=data.get("description")

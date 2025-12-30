@@ -76,7 +76,8 @@ class LocalPathMLTrainingHandler:
             state_manager=state_manager,
             template_manager=template_manager,
             data_loader=data_loader,
-            path_validator=path_validator
+            path_validator=path_validator,
+            training_executor=self.handle_training_execution
         )
 
         # NEW: Initialize password validator (Phase 3: Password Protection)
@@ -4646,6 +4647,14 @@ def register_local_path_handlers(
         CallbackQueryHandler(
             handler.template_handlers.handle_template_load_option,
             pattern=r"^template_load_now$|^template_defer$"
+        )
+    )
+
+    # Template load & train button (for deferred templates)
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_template_load_and_train,
+            pattern=r"^template_load_and_train$"
         )
     )
 

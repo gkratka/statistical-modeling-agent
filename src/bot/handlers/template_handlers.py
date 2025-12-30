@@ -67,17 +67,17 @@ class TemplateHandlers:
         if len(args) == 0:
             # Show help + template list
             await self._show_template_help(update, user_id, locale)
-        elif len(args) == 1:
-            # Execute template
-            template_name = args[0].upper()
-            await self.handle_template_execution(update, context, user_id, template_name, locale)
+        elif len(args) == 1 and args[0].lower() == "list":
+            # List templates with details (check BEFORE generic single-arg)
+            await self.handle_template_list(update, user_id, locale)
         elif len(args) == 2 and args[0].lower() == "delete":
             # Delete template
             template_name = args[1].upper()
             await self.handle_template_delete(update, user_id, template_name, locale)
-        elif len(args) == 1 and args[0].lower() == "list":
-            # List templates with details
-            await self.handle_template_list(update, user_id, locale)
+        elif len(args) == 1:
+            # Execute template (generic single-arg, after "list" check)
+            template_name = args[0].upper()
+            await self.handle_template_execution(update, context, user_id, template_name, locale)
         else:
             # Invalid usage
             await update.message.reply_text(
@@ -154,9 +154,9 @@ class TemplateHandlers:
             )
             return
 
-        # Group by type
-        train_templates = [t for t in templates if t.get("type") == "train"]
-        predict_templates = [t for t in templates if t.get("type") == "predict"]
+        # Group by type (templates is list of (name, data) tuples)
+        train_templates = [(name, data) for name, data in templates if data.get("type") == "train"]
+        predict_templates = [(name, data) for name, data in templates if data.get("type") == "predict"]
 
         message = TemplateMessages.template_list_header(
             total=len(templates),
@@ -316,6 +316,27 @@ class TemplateHandlers:
                 parse_mode="Markdown"
             )
             logger.info(f"Template '{template_name}' saved for user {user_id}")
+
+            # Sync to ML Training storage (TemplateManager) for train templates
+            # This ensures both storage systems have consistent defer_loading values
+            if is_train_template:
+                try:
+                    from src.core.template_manager import TemplateManager
+                    from src.core.training_template import TemplateConfig
+                    tm = TemplateManager(TemplateConfig())
+                    ml_config = {
+                        "file_path": template_config.get("file_path", ""),
+                        "defer_loading": template_config.get("defer_loading", False),
+                        "target_column": template_config.get("target_column", ""),
+                        "feature_columns": template_config.get("feature_columns", []),
+                        "model_category": template_config.get("model_category", ""),
+                        "model_type": template_config.get("model_type", ""),
+                        "hyperparameters": template_config.get("model_parameters", {})
+                    }
+                    tm.save_template(user_id, template_name, ml_config)
+                    logger.info(f"Template '{template_name}' synced to ML Training storage")
+                except Exception as e:
+                    logger.warning(f"Failed to sync template to ML storage: {e}")
 
             # Restore previous state
             session.restore_previous_state()

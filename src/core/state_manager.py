@@ -407,7 +407,8 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     # NEW: Model naming workflow transitions
     MLTrainingState.TRAINING_COMPLETE.value: {
         MLTrainingState.NAMING_MODEL.value,          # User clicks "Name Model"
-        MLTrainingState.MODEL_NAMED.value            # User clicks "Skip" or auto-default
+        MLTrainingState.MODEL_NAMED.value,           # User clicks "Skip" or auto-default
+        MLTrainingState.SAVING_TEMPLATE.value        # User clicks "Save as Template"
     },
     MLTrainingState.NAMING_MODEL.value: {
         MLTrainingState.MODEL_NAMED.value,           # After name provided
@@ -428,7 +429,8 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     MLTrainingState.CONFIRMING_TEMPLATE.value: {
         MLTrainingState.CHOOSING_LOAD_OPTION.value,  # Proceed with template config
         MLTrainingState.LOADING_TEMPLATE.value,      # Go back to template list
-        MLTrainingState.TRAINING.value               # Direct to training after data load (Bug #9 fix)
+        MLTrainingState.TRAINING.value,              # Direct to training after data load (Bug #9 fix)
+        MLTrainingState.COMPLETE.value               # Direct to complete when defer_loading=True
     }
 }
 
