@@ -283,6 +283,9 @@ class XGBoostTrainer(ModelTrainer):
             recall_score,
             f1_score,
             roc_auc_score,
+            average_precision_score,
+            brier_score_loss,
+            log_loss,
             confusion_matrix
         )
 
@@ -312,12 +315,36 @@ class XGBoostTrainer(ModelTrainer):
                 y_true, y_pred, average=average_method, zero_division=0
             ))
 
-            # AUC-ROC for binary classification
-            if n_classes == 2 and model is not None and X is not None:
+            # Probability-based metrics (requires model and features)
+            if model is not None and X is not None:
                 try:
-                    y_proba = model.predict_proba(X)[:, 1]
-                    metrics["auc_roc"] = float(roc_auc_score(y_true, y_proba))
+                    y_proba = model.predict_proba(X)
+                    is_binary = n_classes == 2
+
+                    if is_binary:
+                        # Binary classification
+                        pos_proba = y_proba[:, 1]
+
+                        # ROC-AUC (primary metric)
+                        metrics["roc_auc"] = float(roc_auc_score(y_true, pos_proba))
+
+                        # AUC-PR (Precision-Recall AUC)
+                        metrics["auc_pr"] = float(average_precision_score(y_true, pos_proba))
+
+                        # Brier Score (calibration - lower is better)
+                        metrics["brier_score"] = float(brier_score_loss(y_true, pos_proba))
+
+                    else:
+                        # Multiclass: use one-vs-rest for ROC-AUC
+                        metrics["roc_auc"] = float(roc_auc_score(
+                            y_true, y_proba, multi_class='ovr', average='weighted'
+                        ))
+
+                    # Log Loss (works for both binary and multiclass)
+                    metrics["log_loss"] = float(log_loss(y_true, y_proba))
+
                 except Exception:
+                    # Probability-based metrics failed, skip them
                     pass
 
             # Confusion matrix

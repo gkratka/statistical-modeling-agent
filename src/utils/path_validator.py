@@ -73,14 +73,16 @@ def validate_local_path(
                     # Skip invalid forbidden paths
                     continue
 
-        # Layer 3: Directory whitelist enforcement
-        if not is_path_in_allowed_directory(resolved_path, allowed_dirs):
-            dirs_list = "\n".join(f"  • {d}" for d in allowed_dirs)
-            return (
-                False,
-                f"Path not in allowed directories.\n\nAllowed:\n{dirs_list}",
-                resolved_path  # FIX: Return resolved path for password flow
-            )
+        # Layer 3: Directory whitelist enforcement - DISABLED
+        # Password protection removed per user request (2025-12-29)
+        # All paths allowed except forbidden_directories (system paths)
+        # if not is_path_in_allowed_directory(resolved_path, allowed_dirs):
+        #     dirs_list = "\n".join(f"  • {d}" for d in allowed_dirs)
+        #     return (
+        #         False,
+        #         f"Path not in allowed directories.\n\nAllowed:\n{dirs_list}",
+        #         resolved_path
+        #     )
 
         # Layer 4: File existence and type checks (before extension to give better error messages)
         # Layer 4a: Explicit directory check (catch directory paths early with clear message)

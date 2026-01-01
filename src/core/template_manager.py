@@ -91,6 +91,7 @@ class TemplateManager:
                 model_category=config["model_category"],
                 model_type=config["model_type"],
                 hyperparameters=config.get("hyperparameters", {}),
+                defer_loading=config.get("defer_loading", False),
                 created_at=created_at or template_id.split("_")[-2] + "_" + template_id.split("_")[-1],
                 last_used=config.get("last_used"),
                 description=config.get("description")
@@ -270,6 +271,7 @@ class TemplateManager:
                 "model_category": template.model_category,
                 "model_type": template.model_type,
                 "hyperparameters": template.hyperparameters,
+                "defer_loading": template.defer_loading,
                 "last_used": template.last_used,
                 "description": template.description
             }

@@ -310,6 +310,10 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
                 precision_score,
                 recall_score,
                 f1_score,
+                roc_auc_score,
+                average_precision_score,
+                brier_score_loss,
+                log_loss,
                 confusion_matrix
             )
 
@@ -340,6 +344,44 @@ class KerasNeuralNetworkTrainer(ModelTrainer):
                 metrics["f1"] = float(f1_score(
                     y_true, y_pred_class, average=average_method, zero_division=0
                 ))
+
+                # Probability-based metrics
+                try:
+                    is_binary = n_classes == 2
+
+                    if is_binary:
+                        # Get probability of positive class
+                        if len(y_pred.shape) > 1 and y_pred.shape[1] == 1:
+                            pos_proba = y_pred.flatten()
+                        elif len(y_pred.shape) > 1:
+                            pos_proba = y_pred[:, 1]
+                        else:
+                            pos_proba = y_pred
+
+                        # ROC-AUC (primary metric)
+                        metrics["roc_auc"] = float(roc_auc_score(y_true, pos_proba))
+
+                        # AUC-PR (Precision-Recall AUC)
+                        metrics["auc_pr"] = float(average_precision_score(y_true, pos_proba))
+
+                        # Brier Score (calibration - lower is better)
+                        metrics["brier_score"] = float(brier_score_loss(y_true, pos_proba))
+
+                        # Log Loss for binary
+                        metrics["log_loss"] = float(log_loss(y_true, pos_proba))
+
+                    else:
+                        # Multiclass: use one-vs-rest for ROC-AUC
+                        if len(y_pred.shape) > 1:
+                            metrics["roc_auc"] = float(roc_auc_score(
+                                y_true, y_pred, multi_class='ovr', average='weighted'
+                            ))
+                            # Log Loss for multiclass
+                            metrics["log_loss"] = float(log_loss(y_true, y_pred))
+
+                except Exception:
+                    # Probability-based metrics failed, skip them
+                    pass
 
                 # Confusion matrix
                 conf_matrix = confusion_matrix(y_true, y_pred_class)

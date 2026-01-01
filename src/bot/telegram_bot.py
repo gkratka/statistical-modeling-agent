@@ -305,12 +305,13 @@ class StatisticalModelingBot:
                 pattern=r"^back_to_pred_templates$"
             )
         )
-        self.application.add_handler(
-            CallbackQueryHandler(
-                template_handlers.handle_template_save_request,
-                pattern=r"^save_pred_template$"
-            )
-        )
+        # COMMENTED OUT: Replaced by unified template system
+        # self.application.add_handler(
+        #     CallbackQueryHandler(
+        #         template_handlers.handle_template_save_request,
+        #         pattern=r"^save_pred_template$"
+        #     )
+        # )
         self.application.add_handler(
             CallbackQueryHandler(
                 template_handlers.handle_cancel_template,
@@ -318,21 +319,22 @@ class StatisticalModelingBot:
             )
         )
 
+        # COMMENTED OUT: Replaced by unified template system (now in group 6)
         # Register template name text input handler (group 3 to avoid collisions)
-        from src.core.state_manager import MLPredictionState
+        # from src.core.state_manager import MLPredictionState
 
-        async def template_name_text_wrapper(update, context):
-            user_id = update.effective_user.id
-            chat_id = update.effective_chat.id
-            session = await state_manager.get_session(user_id, f"chat_{chat_id}")
+        # async def template_name_text_wrapper(update, context):
+        #     user_id = update.effective_user.id
+        #     chat_id = update.effective_chat.id
+        #     session = await state_manager.get_session(user_id, f"chat_{chat_id}")
 
-            if session and session.current_state == MLPredictionState.SAVING_PRED_TEMPLATE.value:
-                await template_handlers.handle_template_name_input(update, context)
+        #     if session and session.current_state == MLPredictionState.SAVING_PRED_TEMPLATE.value:
+        #         await template_handlers.handle_template_name_input(update, context)
 
-        self.application.add_handler(
-            MessageHandler(filters.TEXT & ~filters.COMMAND, template_name_text_wrapper),
-            group=3  # Separate group for template text input
-        )
+        # self.application.add_handler(
+        #     MessageHandler(filters.TEXT & ~filters.COMMAND, template_name_text_wrapper),
+        #     group=3  # Separate group for template text input
+        # )
 
         # Store template manager in bot_data for access by other handlers
         self.application.bot_data['prediction_template_manager'] = template_manager
@@ -363,6 +365,49 @@ class StatisticalModelingBot:
         # Register models browser handler (NEW - /models command)
         models_handler = ModelsBrowserHandler(state_manager)
         self.application.add_handler(CommandHandler("models", models_handler.handle_models_command))
+
+        # Register unified template handler (NEW - /template command)
+        from src.bot.handlers.template_handlers import TemplateHandlers
+        template_handler = TemplateHandlers(state_manager)
+        self.application.add_handler(CommandHandler("template", template_handler.handle_template_command))
+
+        # Add callback query handler for "Save as Template" button clicks
+        # Support both train and predict template save buttons
+        self.application.add_handler(
+            CallbackQueryHandler(template_handler.handle_save_template_button, pattern="^save_as_template$")
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(template_handler.handle_save_template_button, pattern="^save_pred_template$")
+        )
+
+        # Add callback query handler for template save cancellation
+        self.application.add_handler(
+            CallbackQueryHandler(
+                lambda update, context: update.callback_query.answer() or update.callback_query.edit_message_text("Template save cancelled."),
+                pattern="^cancel_template$"
+            )
+        )
+
+        # Template name text input handler (group 6 to avoid collisions)
+        from src.core.state_manager import MLTrainingState, MLPredictionState
+
+        async def template_name_text_wrapper(update, context):
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            session = await state_manager.get_session(user_id, f"chat_{chat_id}")
+
+            if session and (
+                session.current_state == MLTrainingState.SAVING_TEMPLATE.value or
+                session.current_state == MLPredictionState.SAVING_PRED_TEMPLATE.value
+            ):
+                await template_handler.handle_template_name_input(update, context)
+
+        self.application.add_handler(
+            MessageHandler(filters.TEXT & ~filters.COMMAND, template_name_text_wrapper),
+            group=6  # Separate group for template text input
+        )
+
+        self.application.bot_data['template_handler'] = template_handler
 
         # Add callback query handlers for models browser navigation
         self.application.add_handler(

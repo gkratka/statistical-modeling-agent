@@ -6,10 +6,10 @@ This module provides handlers for saving and loading ML training templates.
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import CallbackContext
+from telegram.ext import CallbackContext, ContextTypes
 
 from src.core.state_manager import MLTrainingState, StateManager
 from src.core.template_manager import TemplateManager
@@ -18,6 +18,7 @@ from src.bot.messages import template_messages
 from src.processors.data_loader import DataLoader
 from src.utils.path_validator import PathValidator
 from src.utils.i18n_manager import I18nManager
+from src.worker.job_queue import JobType, JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,8 @@ class TemplateHandlers:
         state_manager: StateManager,
         template_manager: TemplateManager,
         data_loader: DataLoader,
-        path_validator: PathValidator
+        path_validator: PathValidator,
+        training_executor: Optional[Callable[[Update, ContextTypes.DEFAULT_TYPE], None]] = None
     ):
         """
         Initialize template handlers.
@@ -40,11 +42,13 @@ class TemplateHandlers:
             template_manager: TemplateManager instance
             data_loader: DataLoader instance
             path_validator: PathValidator instance
+            training_executor: Optional callback to auto-execute training after template load
         """
         self.state_manager = state_manager
         self.template_manager = template_manager
         self.data_loader = data_loader
         self.path_validator = path_validator
+        self.training_executor = training_executor
 
     # =========================================================================
     # Save Template Workflow
@@ -126,6 +130,7 @@ class TemplateHandlers:
         # Build template config from session
         template_config = {
             "file_path": session.file_path or "",
+            "defer_loading": getattr(session, "load_deferred", False),
             "target_column": session.selections.get("target_column", ""),
             "feature_columns": session.selections.get("feature_columns", []),
             "model_category": session.selections.get("model_category", ""),
@@ -273,6 +278,7 @@ class TemplateHandlers:
             "model_category": template.model_category,
             "model_type": template.model_type,
             "hyperparameters": template.hyperparameters,
+            "defer_loading": template.defer_loading,
             "last_used": template.last_used,
             "description": template.description
         }
@@ -280,6 +286,7 @@ class TemplateHandlers:
 
         # Populate session with template data
         session.file_path = template.file_path
+        session.load_deferred = template.defer_loading
         session.selections["target_column"] = template.target_column
         session.selections["feature_columns"] = template.feature_columns
         session.selections["model_category"] = template.model_category
@@ -310,21 +317,178 @@ class TemplateHandlers:
             created_at=template.created_at
         )
 
-        # Ask about loading data with i18n
         locale = session.language if session.language else None
-        keyboard = [
-            [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.load_now', locale=locale), callback_data="template_load_now")],
-            [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.defer_loading', locale=locale), callback_data="template_defer")],
-            [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back_to_templates', locale=locale), callback_data="workflow_back")]
-        ]
 
-        await query.edit_message_text(
-            summary,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        # DEBUG: Log defer_loading value to diagnose issue
+        logger.info(f"DEBUG defer_loading: template={template_name}, value={template.defer_loading}, type={type(template.defer_loading)}")
+        print(f"🔍 DEBUG defer_loading: template={template_name}, value={template.defer_loading}, type={type(template.defer_loading)}")
 
-        logger.info(f"User {user_id} selected template '{template_name}'")
+        # Respect template's defer_loading setting
+        if template.defer_loading:
+            # Template was saved with defer_loading=True, show button to load & train
+            keyboard = [
+                [InlineKeyboardButton(
+                    I18nManager.t('workflow_state.buttons.load_and_train', locale=locale, default="🚀 Load Data & Train"),
+                    callback_data="template_load_and_train"
+                )]
+            ]
+            await query.edit_message_text(
+                summary + "\n\n⏳ *Data loading deferred*\n\nClick button when ready to load data and start training:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            # Stay in CONFIRMING_TEMPLATE state - don't transition to COMPLETE
+            logger.info(f"User {user_id} selected deferred template '{template_name}', showing load & train button")
+        else:
+            # defer_loading=False: Dispatch training job to worker immediately
+            file_path = session.file_path
+            validation_result = self.path_validator.validate_path(file_path)
+
+            if not validation_result["is_valid"]:
+                await query.edit_message_text(
+                    template_messages.TEMPLATE_FILE_PATH_INVALID.format(
+                        path=file_path,
+                        error=validation_result['error']
+                    ),
+                    parse_mode="Markdown"
+                )
+                return
+
+            try:
+                # Show starting message
+                await query.edit_message_text(
+                    summary + "\n\n🚀 *Sending training job to worker...*\n\nThe worker will load and process the data locally.",
+                    parse_mode="Markdown"
+                )
+
+                # Get job queue from context
+                websocket_server = context.bot_data.get('websocket_server')
+                job_queue = websocket_server.job_queue if websocket_server else None
+
+                if not job_queue:
+                    await query.edit_message_text(
+                        "❌ *Worker not connected*\n\nPlease connect a local worker first using `/start`.",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                # Check if worker is connected for this user
+                websocket_server = context.bot_data.get('websocket_server')
+                worker_manager = websocket_server.worker_manager if websocket_server else None
+                if not worker_manager or not worker_manager.is_user_connected(user_id):
+                    await query.edit_message_text(
+                        "❌ *No worker connected*\n\nPlease connect a local worker first using `/start`.",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                # Create job params from template config (worker will load data locally)
+                job_params = {
+                    'file_path': file_path,
+                    'task_type': self._infer_task_type(template.model_type),
+                    'model_type': template.model_type,
+                    'target_column': template.target_column,
+                    'feature_columns': template.feature_columns,
+                    'hyperparameters': template.hyperparameters or {},
+                    'test_size': 0.2
+                }
+
+                logger.info(f"Dispatching template training job to worker: {job_params}")
+
+                # Create job - worker will load data locally
+                job_id = await job_queue.create_job(
+                    user_id=user_id,
+                    job_type=JobType.TRAIN,
+                    params=job_params,
+                    timeout=600.0  # 10 minutes
+                )
+
+                # Save state snapshot before transition
+                session.save_state_snapshot()
+
+                # Transition to TRAINING state
+                success, error_msg, _ = await self.state_manager.transition_state(
+                    session,
+                    MLTrainingState.TRAINING.value
+                )
+
+                if not success:
+                    await query.message.reply_text(f"❌ {error_msg}")
+                    return
+
+                logger.info(f"User {user_id} dispatched template '{template_name}' training job {job_id} to worker")
+
+                # Poll for job completion
+                import asyncio
+                max_wait = 600  # 10 minutes
+                poll_interval = 2
+                elapsed = 0
+
+                await query.edit_message_text(
+                    summary + "\n\n⏳ *Training in progress...*\n\nWorker is loading data and training the model locally.",
+                    parse_mode="Markdown"
+                )
+
+                while elapsed < max_wait:
+                    await asyncio.sleep(poll_interval)
+                    elapsed += poll_interval
+
+                    job = job_queue.get_job(job_id)
+                    if not job:
+                        await query.edit_message_text(
+                            "❌ *Training job not found*\n\nPlease try again.",
+                            parse_mode="Markdown"
+                        )
+                        return
+
+                    if job.status == JobStatus.COMPLETED:
+                        # Training succeeded
+                        result = job.result or {}
+                        model_id = result.get('model_id', 'Unknown')
+                        metrics = result.get('metrics', {})
+                        training_time = result.get('training_time', 0)
+
+                        # Format metrics
+                        metrics_text = "\n".join([f"• {k}: {v:.4f}" if isinstance(v, float) else f"• {k}: {v}" for k, v in metrics.items()])
+
+                        await query.edit_message_text(
+                            f"✅ *Training Complete!*\n\n"
+                            f"**Model ID:** `{model_id}`\n"
+                            f"**Training Time:** {training_time:.2f}s\n\n"
+                            f"**Metrics:**\n{metrics_text}",
+                            parse_mode="Markdown"
+                        )
+
+                        # Transition to COMPLETE
+                        await self.state_manager.transition_state(session, MLTrainingState.COMPLETE.value)
+                        return
+
+                    elif job.status == JobStatus.FAILED:
+                        await query.edit_message_text(
+                            f"❌ *Training Failed*\n\n{job.error or 'Unknown error'}",
+                            parse_mode="Markdown"
+                        )
+                        return
+
+                    elif job.status == JobStatus.TIMEOUT:
+                        await query.edit_message_text(
+                            "❌ *Training timed out*\n\nPlease try again with a smaller dataset.",
+                            parse_mode="Markdown"
+                        )
+                        return
+
+                # Max wait exceeded
+                await query.edit_message_text(
+                    "❌ *Training exceeded maximum wait time*\n\nPlease check your worker logs.",
+                    parse_mode="Markdown"
+                )
+
+            except Exception as e:
+                logger.error(f"Error dispatching template training job: {e}", exc_info=True)
+                await query.edit_message_text(
+                    template_messages.TEMPLATE_LOAD_FAILED.format(error=str(e)),
+                    parse_mode="Markdown"
+                )
 
     async def handle_template_load_option(
         self,
@@ -431,6 +595,172 @@ class TemplateHandlers:
 
             logger.info(f"User {user_id} deferred template data loading")
 
+    async def handle_template_load_and_train(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Handle 'Load & Train' button click for deferred templates."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = query.message.chat_id
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if not session:
+            await query.edit_message_text("❌ Session not found. Please start a new training session with /train")
+            return
+
+        locale = session.language if session.language else None
+        file_path = session.file_path
+
+        # Validate path
+        validation_result = self.path_validator.validate_path(file_path)
+        if not validation_result["is_valid"]:
+            await query.edit_message_text(
+                template_messages.TEMPLATE_FILE_PATH_INVALID.format(
+                    path=file_path,
+                    error=validation_result['error']
+                ),
+                parse_mode="Markdown"
+            )
+            return
+
+        try:
+            # Show starting message
+            await query.edit_message_text(
+                "🚀 *Sending training job to worker...*\n\nThe worker will load and process the data locally.",
+                parse_mode="Markdown"
+            )
+
+            # Get job queue from context
+            websocket_server = context.bot_data.get('websocket_server')
+            job_queue = websocket_server.job_queue if websocket_server else None
+
+            if not job_queue:
+                await query.edit_message_text(
+                    "❌ *Worker not connected*\n\nPlease connect a local worker first using `/start`.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Check if worker is connected for this user
+            websocket_server = context.bot_data.get('websocket_server')
+            worker_manager = websocket_server.worker_manager if websocket_server else None
+            if not worker_manager or not worker_manager.is_user_connected(user_id):
+                await query.edit_message_text(
+                    "❌ *No worker connected*\n\nPlease connect a local worker first using `/start`.",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Create job params from session config (worker will load data locally)
+            job_params = {
+                'file_path': file_path,
+                'task_type': self._infer_task_type(session.selections.get('model_type', '')),
+                'model_type': session.selections.get('model_type'),
+                'target_column': session.selections.get('target_column'),
+                'feature_columns': session.selections.get('feature_columns', []),
+                'hyperparameters': session.selections.get('hyperparameters', {}),
+                'test_size': 0.2
+            }
+
+            logger.info(f"Dispatching template training job to worker: {job_params}")
+
+            # Create job - worker will load data locally
+            job_id = await job_queue.create_job(
+                user_id=user_id,
+                job_type=JobType.TRAIN,
+                params=job_params,
+                timeout=600.0  # 10 minutes
+            )
+
+            # Transition to TRAINING state
+            session.save_state_snapshot()
+            success, error_msg, _ = await self.state_manager.transition_state(
+                session,
+                MLTrainingState.TRAINING.value
+            )
+
+            if not success:
+                await query.message.reply_text(f"❌ {error_msg}")
+                return
+
+            logger.info(f"User {user_id} dispatched template training job {job_id} to worker")
+
+            # Poll for job completion
+            import asyncio
+            max_wait = 600  # 10 minutes
+            poll_interval = 2
+            elapsed = 0
+
+            await query.edit_message_text(
+                "⏳ *Training in progress...*\n\nWorker is loading data and training the model locally.",
+                parse_mode="Markdown"
+            )
+
+            while elapsed < max_wait:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                job = job_queue.get_job(job_id)
+                if not job:
+                    await query.edit_message_text(
+                        "❌ *Training job not found*\n\nPlease try again.",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                if job.status == JobStatus.COMPLETED:
+                    # Training succeeded
+                    result = job.result or {}
+                    model_id = result.get('model_id', 'Unknown')
+                    metrics = result.get('metrics', {})
+                    training_time = result.get('training_time', 0)
+
+                    # Format metrics
+                    metrics_text = "\n".join([f"• {k}: {v:.4f}" if isinstance(v, float) else f"• {k}: {v}" for k, v in metrics.items()])
+
+                    await query.edit_message_text(
+                        f"✅ *Training Complete!*\n\n"
+                        f"**Model ID:** `{model_id}`\n"
+                        f"**Training Time:** {training_time:.2f}s\n\n"
+                        f"**Metrics:**\n{metrics_text}",
+                        parse_mode="Markdown"
+                    )
+
+                    # Transition to COMPLETE
+                    await self.state_manager.transition_state(session, MLTrainingState.COMPLETE.value)
+                    return
+
+                elif job.status == JobStatus.FAILED:
+                    await query.edit_message_text(
+                        f"❌ *Training Failed*\n\n{job.error or 'Unknown error'}",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+                elif job.status == JobStatus.TIMEOUT:
+                    await query.edit_message_text(
+                        "❌ *Training timed out*\n\nPlease try again with a smaller dataset.",
+                        parse_mode="Markdown"
+                    )
+                    return
+
+            # Max wait exceeded
+            await query.edit_message_text(
+                "❌ *Training exceeded maximum wait time*\n\nPlease check your worker logs.",
+                parse_mode="Markdown"
+            )
+
+        except Exception as e:
+            logger.error(f"Error dispatching template training job: {e}", exc_info=True)
+            await query.edit_message_text(
+                template_messages.TEMPLATE_LOAD_FAILED.format(error=str(e)),
+                parse_mode="Markdown"
+            )
+
     # =========================================================================
     # Cancel Template Workflow
     # =========================================================================
@@ -458,3 +788,28 @@ class TemplateHandlers:
             logger.info(f"User {user_id} cancelled template operation")
         else:
             await query.edit_message_text("❌ Cannot cancel: No previous state available.")
+
+    # =========================================================================
+    # Helper Methods
+    # =========================================================================
+
+    def _infer_task_type(self, model_type: str) -> str:
+        """Infer task type from model type string.
+
+        Args:
+            model_type: Model type string (e.g., 'xgboost_binary_classification')
+
+        Returns:
+            Task type: 'classification', 'regression', or 'neural_network'
+        """
+        model_type_lower = model_type.lower()
+
+        if 'classification' in model_type_lower:
+            return 'classification'
+        elif 'regression' in model_type_lower:
+            return 'regression'
+        elif 'neural' in model_type_lower or 'keras' in model_type_lower or 'mlp' in model_type_lower:
+            return 'neural_network'
+        else:
+            # Default to classification
+            return 'classification'
