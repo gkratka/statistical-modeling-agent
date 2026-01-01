@@ -15,6 +15,7 @@ from src.core.state_manager import MLTrainingState, StateManager
 from src.core.template_manager import TemplateManager
 from src.core.training_template import TemplateConfig
 from src.bot.messages import template_messages
+from src.bot.messages.training_messages import format_training_metrics
 from src.processors.data_loader import DataLoader
 from src.utils.path_validator import PathValidator
 from src.utils.i18n_manager import I18nManager
@@ -445,17 +446,35 @@ class TemplateHandlers:
                         # Training succeeded
                         result = job.result or {}
                         model_id = result.get('model_id', 'Unknown')
+                        model_type = result.get('model_info', {}).get('model_type', 'Unknown')
                         metrics = result.get('metrics', {})
                         training_time = result.get('training_time', 0)
+                        task_type = result.get('model_info', {}).get('task_type', 'classification')
 
-                        # Format metrics
-                        metrics_text = "\n".join([f"• {k}: {v:.4f}" if isinstance(v, float) else f"• {k}: {v}" for k, v in metrics.items()])
+                        # Format metrics with priority ordering
+                        metrics_text = format_training_metrics(metrics, task_type)
+
+                        # Format dataset stats
+                        dataset_stats = result.get('dataset_stats', {})
+                        stats_text = ""
+                        if dataset_stats:
+                            stats_lines = [f"• Rows: {dataset_stats.get('n_rows', 'N/A')}"]
+                            if 'class_distribution' in dataset_stats:
+                                dist = dataset_stats['class_distribution']
+                                dist_str = ", ".join(f"Class {k}: {v['count']} ({v['pct']}%)" for k, v in sorted(dist.items()))
+                                stats_lines.append(f"• Classes: {dist_str}")
+                            elif 'quartiles' in dataset_stats:
+                                q = dataset_stats['quartiles']
+                                stats_lines.append(f"• Target: Q1={q['q1']:.2f}, Median={q['median']:.2f}, Q3={q['q3']:.2f}")
+                            stats_text = "📊 *Dataset:*\n" + "\n".join(stats_lines) + "\n\n"
 
                         await query.edit_message_text(
                             f"✅ *Training Complete!*\n\n"
-                            f"**Model ID:** `{model_id}`\n"
-                            f"**Training Time:** {training_time:.2f}s\n\n"
-                            f"**Metrics:**\n{metrics_text}",
+                            f"🎯 Model: {model_type}\n"
+                            f"🆔 Model ID: `{model_id}`\n\n"
+                            f"{stats_text}"
+                            f"📈 *Performance Metrics:*\n{metrics_text}\n\n"
+                            f"⏱ Training Time: {training_time:.2f}s",
                             parse_mode="Markdown"
                         )
 
@@ -716,17 +735,35 @@ class TemplateHandlers:
                     # Training succeeded
                     result = job.result or {}
                     model_id = result.get('model_id', 'Unknown')
+                    model_type = result.get('model_info', {}).get('model_type', 'Unknown')
                     metrics = result.get('metrics', {})
                     training_time = result.get('training_time', 0)
+                    task_type = result.get('model_info', {}).get('task_type', 'classification')
 
-                    # Format metrics
-                    metrics_text = "\n".join([f"• {k}: {v:.4f}" if isinstance(v, float) else f"• {k}: {v}" for k, v in metrics.items()])
+                    # Format metrics with priority ordering
+                    metrics_text = format_training_metrics(metrics, task_type)
+
+                    # Format dataset stats
+                    dataset_stats = result.get('dataset_stats', {})
+                    stats_text = ""
+                    if dataset_stats:
+                        stats_lines = [f"• Rows: {dataset_stats.get('n_rows', 'N/A')}"]
+                        if 'class_distribution' in dataset_stats:
+                            dist = dataset_stats['class_distribution']
+                            dist_str = ", ".join(f"Class {k}: {v['count']} ({v['pct']}%)" for k, v in sorted(dist.items()))
+                            stats_lines.append(f"• Classes: {dist_str}")
+                        elif 'quartiles' in dataset_stats:
+                            q = dataset_stats['quartiles']
+                            stats_lines.append(f"• Target: Q1={q['q1']:.2f}, Median={q['median']:.2f}, Q3={q['q3']:.2f}")
+                        stats_text = "📊 *Dataset:*\n" + "\n".join(stats_lines) + "\n\n"
 
                     await query.edit_message_text(
                         f"✅ *Training Complete!*\n\n"
-                        f"**Model ID:** `{model_id}`\n"
-                        f"**Training Time:** {training_time:.2f}s\n\n"
-                        f"**Metrics:**\n{metrics_text}",
+                        f"🎯 Model: {model_type}\n"
+                        f"🆔 Model ID: `{model_id}`\n\n"
+                        f"{stats_text}"
+                        f"📈 *Performance Metrics:*\n{metrics_text}\n\n"
+                        f"⏱ Training Time: {training_time:.2f}s",
                         parse_mode="Markdown"
                     )
 
