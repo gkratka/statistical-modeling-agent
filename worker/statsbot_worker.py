@@ -706,7 +706,12 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             model.fit(X_train, y_train)
 
         # Evaluate
-        from sklearn.metrics import r2_score, mean_squared_error, accuracy_score
+        from sklearn.metrics import (
+            r2_score, mean_squared_error, accuracy_score,
+            precision_score, recall_score, f1_score,
+            roc_auc_score, average_precision_score, brier_score_loss, log_loss
+        )
+        import numpy as np
 
         if task_type == "regression":
             y_pred = model.predict(X_test)
@@ -716,7 +721,35 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             }
         else:  # classification
             y_pred = model.predict(X_test)
-            metrics = {"accuracy": float(accuracy_score(y_test, y_pred))}
+            n_classes = len(np.unique(y_test))
+            is_binary = n_classes == 2
+            average_method = 'binary' if is_binary else 'weighted'
+
+            metrics = {
+                "accuracy": float(accuracy_score(y_test, y_pred)),
+                "precision": float(precision_score(y_test, y_pred, average=average_method, zero_division=0)),
+                "recall": float(recall_score(y_test, y_pred, average=average_method, zero_division=0)),
+                "f1": float(f1_score(y_test, y_pred, average=average_method, zero_division=0)),
+            }
+
+            # Probability-based metrics (if model supports predict_proba)
+            try:
+                if hasattr(model, 'predict_proba'):
+                    y_proba = model.predict_proba(X_test)
+
+                    if is_binary:
+                        pos_proba = y_proba[:, 1]
+                        metrics["roc_auc"] = float(roc_auc_score(y_test, pos_proba))
+                        metrics["auc_pr"] = float(average_precision_score(y_test, pos_proba))
+                        metrics["brier_score"] = float(brier_score_loss(y_test, pos_proba))
+                    else:
+                        metrics["roc_auc"] = float(roc_auc_score(
+                            y_test, y_proba, multi_class='ovr', average='weighted'
+                        ))
+
+                    metrics["log_loss"] = float(log_loss(y_test, y_proba))
+            except Exception:
+                pass  # Skip probability-based metrics if they fail
 
         # Send progress update
         asyncio.create_task(

@@ -1859,25 +1859,35 @@ class LocalPathMLTrainingHandler:
                 f"• MSE: {mse_str}"
             )
         else:
-            # Classification metrics
+            # Classification metrics (priority order: probability-based first)
+            roc_auc = metrics.get('roc_auc')
+            auc_pr = metrics.get('auc_pr')
+            brier_score = metrics.get('brier_score')
+            log_loss_val = metrics.get('log_loss')
+            f1 = metrics.get('f1', 'N/A')
             accuracy = metrics.get('accuracy', 'N/A')
             precision = metrics.get('precision', 'N/A')
             recall = metrics.get('recall', 'N/A')
-            f1 = metrics.get('f1', 'N/A')
 
-            # Format values before f-string
-            accuracy_str = f"{accuracy:.4f}" if isinstance(accuracy, float) else str(accuracy)
-            precision_str = f"{precision:.4f}" if isinstance(precision, float) else str(precision)
-            recall_str = f"{recall:.4f}" if isinstance(recall, float) else str(recall)
-            f1_str = f"{f1:.4f}" if isinstance(f1, float) else str(f1)
+            lines = [header]
 
-            return (
-                f"{header}\n"
-                f"• Accuracy: {accuracy_str}\n"
-                f"• Precision: {precision_str}\n"
-                f"• Recall: {recall_str}\n"
-                f"• F1 Score: {f1_str}"
-            )
+            # Probability-based metrics first (if available)
+            if roc_auc is not None:
+                lines.append(f"• AUC-ROC: {roc_auc:.4f}")
+            if auc_pr is not None:
+                lines.append(f"• AUC-PR: {auc_pr:.4f}")
+            if brier_score is not None:
+                lines.append(f"• Brier Score: {brier_score:.4f}")
+            if log_loss_val is not None:
+                lines.append(f"• Log Loss: {log_loss_val:.4f}")
+
+            # Standard metrics
+            lines.append(f"• F1 Score: {f1:.4f}" if isinstance(f1, float) else f"• F1 Score: {f1}")
+            lines.append(f"• Accuracy: {accuracy:.4f}" if isinstance(accuracy, float) else f"• Accuracy: {accuracy}")
+            lines.append(f"• Precision: {precision:.4f}" if isinstance(precision, float) else f"• Precision: {precision}")
+            lines.append(f"• Recall: {recall:.4f}" if isinstance(recall, float) else f"• Recall: {recall}")
+
+            return "\n".join(lines)
 
     async def handle_keras_epochs(
         self,

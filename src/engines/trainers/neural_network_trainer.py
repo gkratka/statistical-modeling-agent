@@ -21,6 +21,9 @@ from sklearn.metrics import (
     recall_score,
     f1_score,
     roc_auc_score,
+    average_precision_score,
+    brier_score_loss,
+    log_loss,
     confusion_matrix
 )
 
@@ -200,20 +203,38 @@ class NeuralNetworkTrainer(ModelTrainer):
             "f1": float(f1)
         }
 
-        # Add ROC-AUC if probabilities available
+        # Probability-based metrics (if probabilities available)
         if y_proba is not None:
             try:
-                if n_classes == 2:
-                    roc_auc = roc_auc_score(y_true, y_proba[:, 1])
+                is_binary = n_classes == 2
+
+                if is_binary:
+                    # Get probability of positive class
+                    pos_proba = y_proba[:, 1]
+
+                    # ROC-AUC (primary metric)
+                    metrics["roc_auc"] = float(roc_auc_score(y_true, pos_proba))
+
+                    # AUC-PR (Precision-Recall AUC)
+                    metrics["auc_pr"] = float(average_precision_score(y_true, pos_proba))
+
+                    # Brier Score (calibration - lower is better)
+                    metrics["brier_score"] = float(brier_score_loss(y_true, pos_proba))
+
                 else:
-                    roc_auc = roc_auc_score(
+                    # Multiclass: use one-vs-rest for ROC-AUC
+                    metrics["roc_auc"] = float(roc_auc_score(
                         y_true,
                         y_proba,
                         multi_class='ovr',
                         average='weighted'
-                    )
-                metrics["roc_auc"] = float(roc_auc)
+                    ))
+
+                # Log Loss (works for both binary and multiclass)
+                metrics["log_loss"] = float(log_loss(y_true, y_proba))
+
             except Exception:
+                # Probability-based metrics failed, skip them
                 pass
 
         # Add confusion matrix

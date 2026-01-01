@@ -358,7 +358,13 @@ class CatBoostTrainer(ModelTrainer):
             y: Targets for evaluation (optional)
 
         Returns:
-            Dictionary of metrics
+            Dictionary of metrics including:
+            - accuracy, precision, recall, f1 (basic metrics)
+            - roc_auc: Area Under ROC Curve (primary classification metric)
+            - auc_pr: Area Under Precision-Recall Curve
+            - brier_score: Calibration metric (binary only, lower is better)
+            - log_loss: Probabilistic accuracy (lower is better)
+            - confusion_matrix: Raw confusion matrix
         """
         from sklearn.metrics import (
             mean_squared_error,
@@ -369,6 +375,9 @@ class CatBoostTrainer(ModelTrainer):
             recall_score,
             f1_score,
             roc_auc_score,
+            average_precision_score,
+            brier_score_loss,
+            log_loss,
             confusion_matrix
         )
 
@@ -386,7 +395,8 @@ class CatBoostTrainer(ModelTrainer):
             metrics["accuracy"] = float(accuracy_score(y_true, y_pred))
 
             n_classes = unique_vals
-            average_method = 'binary' if n_classes == 2 else 'weighted'
+            is_binary = n_classes == 2
+            average_method = 'binary' if is_binary else 'weighted'
 
             metrics["precision"] = float(precision_score(
                 y_true, y_pred, average=average_method, zero_division=0
@@ -398,12 +408,35 @@ class CatBoostTrainer(ModelTrainer):
                 y_true, y_pred, average=average_method, zero_division=0
             ))
 
-            # AUC-ROC for binary classification
-            if n_classes == 2 and model is not None and X is not None:
+            # Probability-based metrics (requires model and features)
+            if model is not None and X is not None:
                 try:
-                    y_proba = model.predict_proba(X)[:, 1]
-                    metrics["auc_roc"] = float(roc_auc_score(y_true, y_proba))
+                    y_proba = model.predict_proba(X)
+
+                    if is_binary:
+                        # Binary classification
+                        pos_proba = y_proba[:, 1]
+
+                        # ROC-AUC (primary metric)
+                        metrics["roc_auc"] = float(roc_auc_score(y_true, pos_proba))
+
+                        # AUC-PR (Precision-Recall AUC)
+                        metrics["auc_pr"] = float(average_precision_score(y_true, pos_proba))
+
+                        # Brier Score (calibration - lower is better)
+                        metrics["brier_score"] = float(brier_score_loss(y_true, pos_proba))
+
+                    else:
+                        # Multiclass: use one-vs-rest for ROC-AUC
+                        metrics["roc_auc"] = float(roc_auc_score(
+                            y_true, y_proba, multi_class='ovr', average='weighted'
+                        ))
+
+                    # Log Loss (works for both binary and multiclass)
+                    metrics["log_loss"] = float(log_loss(y_true, y_proba))
+
                 except Exception:
+                    # Probability-based metrics failed, skip them
                     pass
 
             # Confusion matrix
