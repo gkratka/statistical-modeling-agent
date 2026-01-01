@@ -1744,6 +1744,7 @@ class LocalPathMLTrainingHandler:
             if result.get('success'):
                 model_id = result.get('model_id', 'N/A')
                 metrics = result.get('metrics', {})
+                dataset_stats = result.get('dataset_stats', {})
                 model_info = result.get('model_info', {})  # For local worker training
 
                 # Transition to TRAINING_COMPLETE state
@@ -1771,8 +1772,8 @@ class LocalPathMLTrainingHandler:
                 # Get locale from session
                 locale = session.language if session.language else None
 
-                # Format metrics based on task type
-                metrics_text = self._format_sklearn_metrics(metrics, task_type, locale)
+                # Format metrics based on task type (pass dataset_stats for display)
+                metrics_text = self._format_sklearn_metrics(metrics, task_type, locale, dataset_stats)
 
                 # Show naming options with inline keyboard
                 keyboard = [
@@ -1834,9 +1835,25 @@ class LocalPathMLTrainingHandler:
                 parse_mode="Markdown"
             )
 
-    def _format_sklearn_metrics(self, metrics: dict, task_type: str, locale: Optional[str] = None) -> str:
+    def _format_sklearn_metrics(self, metrics: dict, task_type: str, locale: Optional[str] = None, dataset_stats: dict = None) -> str:
         """Format sklearn/XGBoost metrics for user display."""
         header = I18nManager.t('workflow_state.training.metrics.performance_header', locale=locale)
+        output_lines = []
+
+        # Dataset stats section (if available)
+        if dataset_stats:
+            output_lines.append("📊 Dataset:")
+            output_lines.append(f"• Rows: {dataset_stats.get('n_rows', 'N/A')}")
+
+            if 'class_distribution' in dataset_stats:
+                dist = dataset_stats['class_distribution']
+                dist_str = ", ".join(f"Class {k}: {v['count']} ({v['pct']}%)" for k, v in sorted(dist.items()))
+                output_lines.append(f"• Classes: {dist_str}")
+            elif 'quartiles' in dataset_stats:
+                q = dataset_stats['quartiles']
+                output_lines.append(f"• Target: Q1={q['q1']:.2f}, Median={q['median']:.2f}, Q3={q['q3']:.2f}")
+
+            output_lines.append("")  # Blank line before metrics
 
         if task_type == 'regression':
             # Regression metrics
@@ -1851,13 +1868,14 @@ class LocalPathMLTrainingHandler:
             mae_str = f"{mae:.4f}" if isinstance(mae, float) else str(mae)
             mse_str = f"{mse:.4f}" if isinstance(mse, float) else str(mse)
 
-            return (
-                f"{header}\n"
-                f"• R² Score: {r2_str}\n"
-                f"• RMSE: {rmse_str}\n"
-                f"• MAE: {mae_str}\n"
+            output_lines.extend([
+                header,
+                f"• R² Score: {r2_str}",
+                f"• RMSE: {rmse_str}",
+                f"• MAE: {mae_str}",
                 f"• MSE: {mse_str}"
-            )
+            ])
+            return "\n".join(output_lines)
         else:
             # Classification metrics (priority order: probability-based first)
             roc_auc = metrics.get('roc_auc')
@@ -1869,25 +1887,25 @@ class LocalPathMLTrainingHandler:
             precision = metrics.get('precision', 'N/A')
             recall = metrics.get('recall', 'N/A')
 
-            lines = [header]
+            output_lines.append(header)
 
             # Probability-based metrics first (if available)
             if roc_auc is not None:
-                lines.append(f"• AUC-ROC: {roc_auc:.4f}")
+                output_lines.append(f"• AUC-ROC: {roc_auc:.4f}")
             if auc_pr is not None:
-                lines.append(f"• AUC-PR: {auc_pr:.4f}")
+                output_lines.append(f"• AUC-PR: {auc_pr:.4f}")
             if brier_score is not None:
-                lines.append(f"• Brier Score: {brier_score:.4f}")
+                output_lines.append(f"• Brier Score: {brier_score:.4f}")
             if log_loss_val is not None:
-                lines.append(f"• Log Loss: {log_loss_val:.4f}")
+                output_lines.append(f"• Log Loss: {log_loss_val:.4f}")
 
             # Standard metrics
-            lines.append(f"• F1 Score: {f1:.4f}" if isinstance(f1, float) else f"• F1 Score: {f1}")
-            lines.append(f"• Accuracy: {accuracy:.4f}" if isinstance(accuracy, float) else f"• Accuracy: {accuracy}")
-            lines.append(f"• Precision: {precision:.4f}" if isinstance(precision, float) else f"• Precision: {precision}")
-            lines.append(f"• Recall: {recall:.4f}" if isinstance(recall, float) else f"• Recall: {recall}")
+            output_lines.append(f"• F1 Score: {f1:.4f}" if isinstance(f1, float) else f"• F1 Score: {f1}")
+            output_lines.append(f"• Accuracy: {accuracy:.4f}" if isinstance(accuracy, float) else f"• Accuracy: {accuracy}")
+            output_lines.append(f"• Precision: {precision:.4f}" if isinstance(precision, float) else f"• Precision: {precision}")
+            output_lines.append(f"• Recall: {recall:.4f}" if isinstance(recall, float) else f"• Recall: {recall}")
 
-            return "\n".join(lines)
+            return "\n".join(output_lines)
 
     async def handle_keras_epochs(
         self,
@@ -4149,6 +4167,7 @@ class LocalPathMLTrainingHandler:
                     'success': True,
                     'model_id': job.result.get('model_id'),
                     'metrics': job.result.get('metrics', {}),
+                    'dataset_stats': job.result.get('dataset_stats', {}),
                     'training_time': job.result.get('training_time', 0),
                     'model_info': job.result.get('model_info', {})  # For local worker naming
                 }

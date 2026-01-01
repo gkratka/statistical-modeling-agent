@@ -573,6 +573,30 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             X, y, test_size=0.2, random_state=42
         )
 
+        # Compute dataset stats for display
+        from collections import Counter
+        dataset_stats = {
+            "n_rows": len(y_train) + len(y_test),
+            "n_train": len(y_train),
+            "n_test": len(y_test)
+        }
+
+        if task_type == "classification":
+            # Class distribution (using full dataset before split for accurate counts)
+            counts = Counter(y)
+            total = len(y)
+            dataset_stats["class_distribution"] = {
+                str(k): {"count": int(v), "pct": round(100*v/total, 1)}
+                for k, v in sorted(counts.items())
+            }
+        else:
+            # Regression quartiles
+            dataset_stats["quartiles"] = {
+                "q1": float(np.percentile(y, 25)),
+                "median": float(np.percentile(y, 50)),
+                "q3": float(np.percentile(y, 75))
+            }
+
         # Encode categorical columns for all ML models
         from sklearn.preprocessing import LabelEncoder
         encoders = {}
@@ -808,6 +832,7 @@ def execute_train_job(job_id: str, params: Dict[str, Any], ws_send_callback) -> 
             job_id, True, data={
                 "model_id": model_id,
                 "metrics": metrics,
+                "dataset_stats": dataset_stats,
                 "model_info": {
                     "model_type": model_type,
                     "task_type": task_type,
