@@ -634,18 +634,25 @@ class TemplateHandlers:
         locale = session.language if session.language else None
         file_path = session.file_path
 
-        # Validate path
-        validation_result = self.path_validator.validate_path(file_path)
-        if not validation_result["is_valid"]:
-            await query.edit_message_text(
-                template_messages.TEMPLATE_FILE_PATH_INVALID.format(
-                    path=file_path,
-                    error=validation_result['error']
-                ),
-                parse_mode="Markdown"
-            )
-            return
+        # Check if worker is connected FIRST (for prod where file is on user's machine)
+        websocket_server = context.bot_data.get('websocket_server')
+        worker_manager = websocket_server.worker_manager if websocket_server else None
+        worker_connected = worker_manager and worker_manager.is_user_connected(user_id)
 
+        if not worker_connected:
+            # No worker - validate path locally (dev scenario)
+            validation_result = self.path_validator.validate_path(file_path)
+            if not validation_result["is_valid"]:
+                await query.edit_message_text(
+                    template_messages.TEMPLATE_FILE_PATH_INVALID.format(
+                        path=file_path,
+                        error=validation_result['error']
+                    ),
+                    parse_mode="Markdown"
+                )
+                return
+
+        # Worker connected or local validation passed - proceed with training
         try:
             # Show starting message
             await query.edit_message_text(
@@ -653,23 +660,10 @@ class TemplateHandlers:
                 parse_mode="Markdown"
             )
 
-            # Get job queue from context
-            websocket_server = context.bot_data.get('websocket_server')
             job_queue = websocket_server.job_queue if websocket_server else None
-
-            if not job_queue:
+            if not job_queue or not worker_connected:
                 await query.edit_message_text(
                     "❌ *Worker not connected*\n\nPlease connect a local worker first using `/start`.",
-                    parse_mode="Markdown"
-                )
-                return
-
-            # Check if worker is connected for this user
-            websocket_server = context.bot_data.get('websocket_server')
-            worker_manager = websocket_server.worker_manager if websocket_server else None
-            if not worker_manager or not worker_manager.is_user_connected(user_id):
-                await query.edit_message_text(
-                    "❌ *No worker connected*\n\nPlease connect a local worker first using `/start`.",
                     parse_mode="Markdown"
                 )
                 return
