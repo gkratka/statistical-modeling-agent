@@ -95,8 +95,8 @@ class TemplateConfig:
     enabled: bool = True
     templates_dir: str = "./templates"
     max_templates_per_user: int = 50
-    allowed_name_pattern: str = r"^[a-zA-Z0-9_]{1,32}$"
-    name_max_length: int = 32
+    allowed_name_pattern: str = r"^[a-zA-Z0-9_]+$"
+    name_max_length: int = 255
 
     @classmethod
     def from_dict(cls, config: Dict[str, Any]) -> "TemplateConfig":
