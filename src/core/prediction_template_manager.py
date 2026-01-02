@@ -114,6 +114,7 @@ class PredictionTemplateManager:
                 feature_columns=config["feature_columns"],
                 output_column_name=config["output_column_name"],
                 save_path=config.get("save_path"),
+                defer_loading=config.get("defer_loading", False),
                 description=config.get("description"),
                 created_at=created_at or template_id.split("_")[-2] + "_" + template_id.split("_")[-1],
                 last_used=config.get("last_used")
