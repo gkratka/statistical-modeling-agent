@@ -388,12 +388,18 @@ en:
 
       # Prediction Template Messages
       template_save_prompt: |
-        📝 *Enter a name for this prediction template:*
-        *Rules:*
-        • Only letters, numbers, and underscores
-        • Maximum 32 characters
-        • Must be unique
-        *Example:* sales\_forecast\_template
+        📝 *Enter a template name:*
+
+        *Format:*
+        • Training: `TRAIN_<MODEL>_<TARGET>`
+        • Prediction: `PREDICT_<MODEL>_<PREDICTED_COLUMN>`
+
+        *Examples:*
+        • `TRAIN_CATBST_CLASS2`
+        • `PREDICT_XGBST_PRICE`
+        • `TRAIN_KERAS_CHURN`
+
+        Type your template name now:
       template_saved_success: "✅ *Template '%{name}' saved successfully!*\nYou can now use this template for future predictions."
       template_updated_success: "✅ *Template '%{name}' updated successfully!*\nYour changes have been saved."
       template_load_prompt: "📋 *Select a prediction template:*\nYou have %{count} saved template(s)."

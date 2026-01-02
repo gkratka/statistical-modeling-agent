@@ -305,6 +305,18 @@ class StatisticalModelingBot:
                 pattern=r"^back_to_pred_templates$"
             )
         )
+        self.application.add_handler(
+            CallbackQueryHandler(
+                template_handlers.handle_template_delete,
+                pattern=r"^delete_pred_template:"
+            )
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(
+                template_handlers.handle_overwrite_confirmation,
+                pattern=r"^confirm_overwrite_pred_template$"
+            )
+        )
         # COMMENTED OUT: Replaced by unified template system
         # self.application.add_handler(
         #     CallbackQueryHandler(
@@ -376,8 +388,14 @@ class StatisticalModelingBot:
         self.application.add_handler(
             CallbackQueryHandler(template_handler.handle_save_template_button, pattern="^save_as_template$")
         )
+        # Route prediction template save to PredictionTemplateHandlers (stored in bot_data)
+        async def save_pred_template_wrapper(update, context):
+            prediction_handlers = context.bot_data.get('prediction_template_handlers')
+            if prediction_handlers:
+                await prediction_handlers.handle_template_save_request(update, context)
+
         self.application.add_handler(
-            CallbackQueryHandler(template_handler.handle_save_template_button, pattern="^save_pred_template$")
+            CallbackQueryHandler(save_pred_template_wrapper, pattern="^save_pred_template$")
         )
 
         # Add callback query handler for template save cancellation
@@ -396,11 +414,15 @@ class StatisticalModelingBot:
             chat_id = update.effective_chat.id
             session = await state_manager.get_session(user_id, f"chat_{chat_id}")
 
-            if session and (
-                session.current_state == MLTrainingState.SAVING_TEMPLATE.value or
-                session.current_state == MLPredictionState.SAVING_PRED_TEMPLATE.value
-            ):
-                await template_handler.handle_template_name_input(update, context)
+            if session:
+                if session.current_state == MLTrainingState.SAVING_TEMPLATE.value:
+                    # Training templates use unified handler
+                    await template_handler.handle_template_name_input(update, context)
+                elif session.current_state == MLPredictionState.SAVING_PRED_TEMPLATE.value:
+                    # Prediction templates use PredictionTemplateHandlers
+                    prediction_handlers = context.bot_data.get('prediction_template_handlers')
+                    if prediction_handlers:
+                        await prediction_handlers.handle_template_name_input(update, context)
 
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, template_name_text_wrapper),

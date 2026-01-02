@@ -9,12 +9,15 @@ from src.utils.i18n_manager import I18nManager
 
 # Template save prompts
 PRED_TEMPLATE_SAVE_PROMPT = (
-    "📝 *Enter a name for this prediction template:*\n"
-    "*Rules:*\n"
-    "• Only letters, numbers, and underscores\n"
-    "• Maximum 32 characters\n"
-    "• Must be unique\n"
-    "*Example:* sales\\_forecast\\_template"
+    "📝 *Enter a template name:*\n\n"
+    "*Format:*\n"
+    "• Training: `TRAIN_<MODEL>_<TARGET>`\n"
+    "• Prediction: `PREDICT_<MODEL>_<PREDICTED_COLUMN>`\n\n"
+    "*Examples:*\n"
+    "• `TRAIN_CATBST_CLASS2`\n"
+    "• `PREDICT_XGBST_PRICE`\n"
+    "• `TRAIN_KERAS_CHURN`\n\n"
+    "Type your template name now:"
 )
 
 PRED_TEMPLATE_SAVED_SUCCESS = (

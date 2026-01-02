@@ -385,7 +385,7 @@ class PredictionMessages:
         prediction_column: str,
         execution_time: float,
         preview_data: str,
-        statistics: Optional[Dict[str, float]] = None, locale: Optional[str] = None) -> str:
+        statistics: Optional[Dict[str, Any]] = None, locale: Optional[str] = None) -> str:
         """Success message with prediction results and statistics."""
         msg = (
             f"{I18nManager.t('workflows.prediction.results.success_header', locale=locale)}\n\n"
@@ -398,16 +398,25 @@ class PredictionMessages:
             # Escape prediction column name to prevent markdown parsing errors (e.g., "class_predicted" has underscore)
             escaped_pred_col = escape_markdown_v1(prediction_column)
             msg += f"**{I18nManager.t('workflows.prediction.results.statistics_header', locale=locale)} ({escaped_pred_col}):**\n"
-            if 'mean' in statistics:
-                msg += f"{I18nManager.t('workflows.prediction.results.stat_mean', locale=locale)} {statistics['mean']:.4f}\n"
-            if 'std' in statistics:
-                msg += f"{I18nManager.t('workflows.prediction.results.stat_std', locale=locale)} {statistics['std']:.4f}\n"
-            if 'min' in statistics:
-                msg += f"{I18nManager.t('workflows.prediction.results.stat_min', locale=locale)} {statistics['min']:.4f}\n"
-            if 'max' in statistics:
-                msg += f"{I18nManager.t('workflows.prediction.results.stat_max', locale=locale)} {statistics['max']:.4f}\n"
-            if 'median' in statistics:
-                msg += f"{I18nManager.t('workflows.prediction.results.stat_median', locale=locale)} {statistics['median']:.4f}\n"
+
+            # Show class distribution for classification predictions
+            if 'class_distribution' in statistics:
+                class_dist = statistics['class_distribution']
+                for class_val in sorted(class_dist.keys()):
+                    info = class_dist[class_val]
+                    msg += f"• Class {class_val}: {info['count']} ({info['percentage']}%)\n"
+            else:
+                # Show numeric statistics for regression
+                if 'mean' in statistics:
+                    msg += f"{I18nManager.t('workflows.prediction.results.stat_mean', locale=locale)} {statistics['mean']:.4f}\n"
+                if 'std' in statistics:
+                    msg += f"{I18nManager.t('workflows.prediction.results.stat_std', locale=locale)} {statistics['std']:.4f}\n"
+                if 'min' in statistics:
+                    msg += f"{I18nManager.t('workflows.prediction.results.stat_min', locale=locale)} {statistics['min']:.4f}\n"
+                if 'max' in statistics:
+                    msg += f"{I18nManager.t('workflows.prediction.results.stat_max', locale=locale)} {statistics['max']:.4f}\n"
+                if 'median' in statistics:
+                    msg += f"{I18nManager.t('workflows.prediction.results.stat_median', locale=locale)} {statistics['median']:.4f}\n"
             msg += "\n"
 
         # Escape preview data to prevent markdown parsing errors (column names may have special chars)

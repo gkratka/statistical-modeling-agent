@@ -119,8 +119,8 @@ templates:
   enabled: true                     # Feature flag: enable/disable templates
   templates_dir: ./templates        # Directory for saved templates
   max_templates_per_user: 50        # Maximum templates per user
-  allowed_name_pattern: "^[a-zA-Z0-9_]{1,32}$"  # Template name validation regex
-  name_max_length: 32               # Maximum template name length
+  allowed_name_pattern: "^[a-zA-Z0-9_]+$"  # Template name validation regex
+  name_max_length: 255              # Maximum template name length
 
 # Local Worker Configuration (Hybrid ML Execution)
 worker:

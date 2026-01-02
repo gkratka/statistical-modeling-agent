@@ -18,6 +18,7 @@ from src.processors.data_loader import DataLoader
 from src.utils.path_validator import PathValidator
 from src.engines.ml_engine import MLEngine
 from src.utils.i18n_manager import I18nManager
+from src.utils.exceptions import ModelNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,62 @@ class PredictionTemplateHandlers:
                 await query_or_message.reply_text(error_text)
             return False
         return True
+
+    async def _model_exists_on_worker(
+        self,
+        user_id: int,
+        model_id: str,
+        context: CallbackContext
+    ) -> bool:
+        """Check if model exists on worker.
+
+        Args:
+            user_id: Telegram user ID
+            model_id: Model ID to check
+            context: Bot context
+
+        Returns:
+            True if model exists on worker, False otherwise
+        """
+        from src.worker.job_queue import JobType, JobStatus
+        import asyncio
+
+        websocket_server = context.bot_data.get('websocket_server')
+        if not websocket_server:
+            return False
+
+        job_queue = getattr(websocket_server, 'job_queue', None)
+        worker_manager = websocket_server.worker_manager
+
+        if not job_queue or not worker_manager.is_user_connected(user_id):
+            return False
+
+        try:
+            job_id = await job_queue.create_job(
+                user_id=user_id,
+                job_type=JobType.LIST_MODELS,
+                params={},
+                timeout=30.0
+            )
+
+            max_wait, poll_interval, elapsed = 30, 0.5, 0
+            while elapsed < max_wait:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                job = job_queue.get_job(job_id)
+                if not job:
+                    return False
+                if job.status == JobStatus.COMPLETED:
+                    models = job.result.get('models', [])
+                    return any(m.get('model_id') == model_id for m in models)
+                elif job.status in (JobStatus.FAILED, JobStatus.TIMEOUT):
+                    return False
+
+            return False
+        except Exception as e:
+            logger.error(f"Error checking model on worker: {e}")
+            return False
 
     async def _validate_and_load_template_data(self, session, query):
         """
@@ -244,14 +301,6 @@ class PredictionTemplateHandlers:
             )
             return
 
-        # Check if exists
-        if self.template_manager.template_exists(user_id, template_name):
-            await update.message.reply_text(
-                pt_messages.pred_template_exists(name=template_name, locale=locale),
-                parse_mode="Markdown"
-            )
-            return
-
         # Build template config from session
         model_id = session.selections.get("selected_model_id", "")
         feature_columns = session.selections.get("selected_features", [])
@@ -274,6 +323,34 @@ class PredictionTemplateHandlers:
                     'templates.save.missing_config',
                     locale=locale
                 )
+            )
+            return
+
+        # Check if exists - offer to overwrite
+        if self.template_manager.template_exists(user_id, template_name):
+            # Store pending template data in session for overwrite confirmation
+            session.selections["pending_template_name"] = template_name
+            session.selections["pending_template_config"] = template_config
+
+            keyboard = [
+                [InlineKeyboardButton(
+                    I18nManager.t('templates.overwrite.yes', locale=locale, default="✅ Yes, Overwrite"),
+                    callback_data="confirm_overwrite_pred_template"
+                )],
+                [InlineKeyboardButton(
+                    I18nManager.t('templates.overwrite.no', locale=locale, default="❌ No, Cancel"),
+                    callback_data="cancel_pred_template"
+                )]
+            ]
+            await update.message.reply_text(
+                I18nManager.t(
+                    'templates.overwrite.prompt',
+                    locale=locale,
+                    name=template_name,
+                    default=f"⚠️ Template '*{template_name}*' already exists.\n\nDo you want to overwrite it?"
+                ),
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
 
@@ -387,12 +464,19 @@ class PredictionTemplateHandlers:
             )
             return
 
-        # Validate model exists
-        model_info = self.ml_engine.get_model_info(user_id, template.model_id)
-        if not model_info:
+        # Validate model exists on worker (not local storage)
+        model_exists = await self._model_exists_on_worker(user_id, template.model_id, context)
+
+        if not model_exists:
+            # Show delete button so user can remove stale template
+            delete_keyboard = [[InlineKeyboardButton(
+                I18nManager.t('templates.delete.button', locale=locale, default="🗑️ Delete This Template"),
+                callback_data=f"delete_pred_template:{template_name}"
+            )]]
             await query.edit_message_text(
                 pt_messages.pred_template_model_invalid(model_id=template.model_id, locale=locale),
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(delete_keyboard)
             )
             return
 
@@ -580,3 +664,103 @@ class PredictionTemplateHandlers:
             return
 
         await self.handle_template_source_selection(update, context)
+
+    async def handle_template_delete(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Handle template deletion request."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+
+        # Extract locale from session if available
+        chat_id = query.message.chat_id
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+        locale = session.language if session and session.language else None
+
+        # Extract template name from callback data
+        template_name = query.data.split(":", 1)[1]
+
+        # Delete template
+        success = self.template_manager.delete_template(user_id, template_name)
+
+        if success:
+            await query.edit_message_text(
+                I18nManager.t(
+                    'templates.delete.success',
+                    locale=locale,
+                    name=template_name,
+                    default=f"✅ Template '{template_name}' has been deleted."
+                ),
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text(
+                I18nManager.t(
+                    'templates.delete.failed',
+                    locale=locale,
+                    name=template_name,
+                    default=f"❌ Failed to delete template '{template_name}'."
+                ),
+                parse_mode="Markdown"
+            )
+
+    async def handle_overwrite_confirmation(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Handle template overwrite confirmation."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = query.message.chat_id
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if not session:
+            await query.edit_message_text("❌ Session expired. Please start again with /predict")
+            return
+
+        locale = session.language if session.language else None
+
+        # Get pending template data from session
+        template_name = session.selections.get("pending_template_name")
+        template_config = session.selections.get("pending_template_config")
+
+        if not template_name or not template_config:
+            await query.edit_message_text(
+                I18nManager.t('templates.overwrite.no_pending', locale=locale, default="❌ No pending template to save."),
+                parse_mode="Markdown"
+            )
+            return
+
+        # Delete old template first
+        self.template_manager.delete_template(user_id, template_name)
+
+        # Save new template
+        success, message = self.template_manager.save_template(
+            user_id=user_id,
+            template_name=template_name,
+            config=template_config
+        )
+
+        # Clean up pending data
+        session.selections.pop("pending_template_name", None)
+        session.selections.pop("pending_template_config", None)
+
+        if success:
+            await query.edit_message_text(
+                pt_messages.pred_template_saved_success(name=template_name, locale=locale),
+                parse_mode="Markdown"
+            )
+            # Transition back to COMPLETE
+            await self.state_manager.transition_state(session, MLPredictionState.COMPLETE.value)
+        else:
+            await query.edit_message_text(
+                I18nManager.t('templates.save.failed', locale=locale, default="❌ Failed to save template."),
+                parse_mode="Markdown"
+            )

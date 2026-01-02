@@ -414,7 +414,10 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
         MLTrainingState.MODEL_NAMED.value,           # After name provided
         MLTrainingState.TRAINING_COMPLETE.value      # Back button (optional)
     },
-    MLTrainingState.MODEL_NAMED.value: {MLTrainingState.COMPLETE.value},
+    MLTrainingState.MODEL_NAMED.value: {
+        MLTrainingState.COMPLETE.value,
+        MLTrainingState.SAVING_TEMPLATE.value  # User clicks "Save as Template" after naming
+    },
 
     MLTrainingState.COMPLETE.value: set(),
 

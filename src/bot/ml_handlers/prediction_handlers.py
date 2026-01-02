@@ -34,6 +34,7 @@ from src.bot.utils.markdown_escape import escape_markdown_v1
 from src.engines.ml_engine import MLEngine
 from src.engines.ml_config import MLEngineConfig
 from src.utils.i18n_manager import I18nManager
+from src.utils.stats_utils import compute_dataset_stats
 
 logger = logging.getLogger(__name__)
 
@@ -902,6 +903,7 @@ class PredictionHandler:
         session.selections['selected_model_id'] = model_id
         session.selections['model_target_column'] = model_info.get('target_column')
         session.selections['model_type'] = model_info.get('model_type')
+        session.selections['task_type'] = model_info.get('task_type', 'classification')
 
         # Save snapshot and transition
         session.save_state_snapshot()
@@ -1724,13 +1726,28 @@ class PredictionHandler:
 
             # Store DataFrame with predictions in session for later save
             session.selections['predictions_result'] = df
-            session.selections['prediction_stats'] = {
+
+            # Compute prediction stats including class distribution for classification
+            task_type = session.selections.get('task_type', 'classification')
+            prediction_stats = {
                 'mean': float(pd.Series(predictions).mean()),
                 'std': float(pd.Series(predictions).std()),
                 'min': float(pd.Series(predictions).min()),
                 'max': float(pd.Series(predictions).max()),
-                'median': float(pd.Series(predictions).median())
+                'median': float(pd.Series(predictions).median()),
+                'n_rows': len(predictions)
             }
+
+            # Add class distribution for classification predictions
+            if task_type == 'classification':
+                try:
+                    stats = compute_dataset_stats(df, prediction_column, task_type)
+                    if 'class_distribution' in stats:
+                        prediction_stats['class_distribution'] = stats['class_distribution']
+                except Exception:
+                    pass  # Skip if stats computation fails
+
+            session.selections['prediction_stats'] = prediction_stats
             session.selections['execution_time'] = execution_time
 
             # Generate preview (first 10 rows with prediction column)

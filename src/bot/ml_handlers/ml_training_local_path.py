@@ -3931,19 +3931,27 @@ class LocalPathMLTrainingHandler:
                 MLTrainingState.MODEL_NAMED.value
             )
 
-            # Send success confirmation
+            # Send success confirmation with template button
+            template_keyboard = [
+                [InlineKeyboardButton(
+                    I18nManager.t('templates.save.button', locale=locale, default="💾 Save as Template"),
+                    callback_data="save_as_template"
+                )]
+            ]
+            template_reply_markup = InlineKeyboardMarkup(template_keyboard)
+
             await update.message.reply_text(
                 f"✅ **Model Named Successfully!**\n\n"
                 f"📝 **Name:** {escape_markdown_v1(custom_name)}\n"
                 f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)}: `{model_id}`\n"
                 f"{I18nManager.t('workflow_state.training.model_type_display', locale=locale)} {model_info.get('model_type', 'N/A')}\n\n"
                 f"{I18nManager.t('workflow_state.training.ready_for_predictions', locale=locale)}",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=template_reply_markup
             )
 
-            # Complete workflow after successful naming
-            await self.state_manager.transition_state(session, MLTrainingState.COMPLETE.value)
-            await self.state_manager.complete_workflow(user_id)
+            # Stay in MODEL_NAMED state to allow "Save as Template" button click
+            # Workflow completes when user ignores button or after template is saved
 
             # Stop handler propagation
             raise ApplicationHandlerStop
@@ -4051,19 +4059,27 @@ class LocalPathMLTrainingHandler:
                 MLTrainingState.MODEL_NAMED.value
             )
 
-            # Send confirmation
+            # Send confirmation with template button
+            template_keyboard = [
+                [InlineKeyboardButton(
+                    I18nManager.t('templates.save.button', locale=locale, default="💾 Save as Template"),
+                    callback_data="save_as_template"
+                )]
+            ]
+            template_reply_markup = InlineKeyboardMarkup(template_keyboard)
+
             await query.edit_message_text(
                 f"{I18nManager.t('workflow_state.training.model_ready', locale=locale)}\n\n"
                 f"{I18nManager.t('workflow_state.training.default_name_display', locale=locale)} {escape_markdown_v1(default_name)}\n"
                 f"{I18nManager.t('workflow_state.training.completion.model_id_label', locale=locale)} `{model_id}`\n"
                 f"{I18nManager.t('workflow_state.training.model_type_display', locale=locale)} {model_info.get('model_type', 'N/A')}\n\n"
                 f"{I18nManager.t('workflow_state.training.ready_for_predictions', locale=locale)}",
-                parse_mode="Markdown"
+                parse_mode="Markdown",
+                reply_markup=template_reply_markup
             )
 
-            # Complete workflow after successful skip naming
-            await self.state_manager.transition_state(session, MLTrainingState.COMPLETE.value)
-            await self.state_manager.complete_workflow(user_id)
+            # Stay in MODEL_NAMED state to allow "Save as Template" button click
+            # Workflow completes when user ignores button or after template is saved
 
         except Exception as e:
             logger.error(f"Error setting default model name: {e}")

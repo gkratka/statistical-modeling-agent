@@ -21,6 +21,7 @@ from src.processors.language_generator import LanguageGenerator
 from src.processors.pagination_manager import PaginationManager
 from src.utils.result_formatter import TelegramResultFormatter
 from src.utils.logger import get_logger
+from src.bot.messages.training_messages import format_training_metrics
 
 logger = get_logger(__name__)
 
@@ -208,16 +209,19 @@ class ResultProcessor:
         # Success case - process training results
         model_id = result.get("model_id", "unknown")
         metrics = result.get("metrics", {})
+        model_info = result.get("model_info", {})
+        model_type = model_info.get("model_type", "unknown")
+        task_type = model_info.get("task_type", "classification")
 
         # Build text output with model ID and metrics
         emoji = "🤖 " if self.config.use_emojis else ""
         text = f"{emoji}**ML Training Complete**\n\n"
+        text += f"🎯 Model: {model_type}\n"
         text += f"Model ID: `{model_id}`\n\n"
-        text += "**Metrics:**\n"
+        text += "**📈 Performance Metrics:**\n"
 
-        for metric_name, value in metrics.items():
-            if isinstance(value, (int, float)):
-                text += f"• {metric_name}: {value:.4f}\n"
+        # Use priority-ordered metrics formatter
+        text += format_training_metrics(metrics, task_type) + "\n"
 
         # Add regression equation if available (for simple linear models)
         model_info = result.get('model_info', {})
