@@ -28,6 +28,7 @@ class PredictionTemplate:
 
     # Optional fields
     save_path: Optional[str] = None  # Default save location for predictions
+    defer_loading: bool = False  # Whether to defer data loading until prediction run
     description: Optional[str] = None  # User notes
 
     # Metadata

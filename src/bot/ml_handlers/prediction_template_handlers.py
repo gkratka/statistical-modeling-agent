@@ -352,6 +352,7 @@ class PredictionTemplateHandlers:
             "feature_columns": feature_columns,
             "output_column_name": output_column_name,
             "save_path": session.selections.get("output_file_path"),
+            "defer_loading": getattr(session, 'load_deferred', False),
             "description": None  # Could be extended to ask user for description
         }
 
@@ -535,6 +536,7 @@ class PredictionTemplateHandlers:
 
         # Populate session with template data
         session.file_path = template.file_path
+        session.load_deferred = getattr(template, 'defer_loading', False)
         session.selections["selected_model_id"] = template.model_id
         session.selections["selected_features"] = template.feature_columns
         session.selections["prediction_column_name"] = template.output_column_name
@@ -594,7 +596,35 @@ class PredictionTemplateHandlers:
         # Extract locale from session
         locale = session.language if session.language else None
 
-        # Validate and load data
+        # Check if template was saved with defer_loading - if so, skip data loading
+        if getattr(session, 'load_deferred', False):
+            # Defer loading: Don't load data now, transition directly to READY_TO_RUN
+            session.save_state_snapshot()
+            if not await self._transition_or_error(
+                session, MLPredictionState.READY_TO_RUN.value, query
+            ):
+                return
+
+            await query.edit_message_text(
+                I18nManager.t(
+                    'templates.messages.deferred_template_loaded',
+                    locale=locale,
+                    default="✅ Template loaded!\n\nData will be loaded when you run predictions."
+                ),
+                parse_mode="Markdown"
+            )
+
+            keyboard = [[InlineKeyboardButton(
+                I18nManager.t('templates.messages.run_prediction_button', locale=locale, default="🚀 Run Prediction"),
+                callback_data="pred_run"
+            )]]
+            await query.message.reply_text(
+                I18nManager.t('templates.messages.ready_to_run', locale=locale, default="Ready to run predictions!"),
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+
+        # Load data immediately (defer_loading=False)
         df = await self._validate_and_load_template_data(session, query, context)
         if df is None:
             return
