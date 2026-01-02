@@ -19,6 +19,7 @@ from src.utils.path_validator import PathValidator
 from src.engines.ml_engine import MLEngine
 from src.utils.i18n_manager import I18nManager
 from src.utils.exceptions import ModelNotFoundError
+from src.worker.job_queue import JobType, JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -214,9 +215,36 @@ class PredictionTemplateHandlers:
                 return None
 
         try:
-            df, _, _ = await self.data_loader.load_from_local_path(file_path)
-            await self.state_manager.store_data(session, df)
-            return df
+            import asyncio
+
+            if worker_connected:
+                # Load data via worker (prod scenario - file is on user's machine)
+                job_queue = websocket_server.job_queue
+                job_id = await job_queue.create_job(
+                    user_id=user_id,
+                    job_type=JobType.LOAD_DATA,
+                    params={'file_path': file_path},
+                    timeout=60.0
+                )
+
+                # Poll for result
+                for _ in range(30):  # 30 seconds max
+                    await asyncio.sleep(1)
+                    job = await job_queue.get_job(job_id)
+                    if job and job.status == JobStatus.COMPLETED:
+                        df = job.result.get('dataframe')
+                        if df is not None:
+                            await self.state_manager.store_data(session, df)
+                            return df
+                        raise Exception('Worker returned no dataframe')
+                    elif job and job.status in (JobStatus.FAILED, JobStatus.TIMEOUT):
+                        raise Exception(job.result.get('error', 'Data loading failed'))
+                raise Exception('Data loading timeout')
+            else:
+                # Load locally (dev scenario)
+                df, _, _ = await self.data_loader.load_from_local_path(file_path)
+                await self.state_manager.store_data(session, df)
+                return df
         except Exception as e:
             logger.error(f"Error loading prediction template data: {e}", exc_info=True)
             await query.edit_message_text(
