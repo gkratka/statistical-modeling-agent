@@ -411,42 +411,73 @@ class LocalPathMLTrainingHandler:
         print("✅ DEBUG: Validating message sent")
 
         try:
-            # Validate path only (don't load data yet)
-            from src.utils.path_validator import validate_local_path, get_file_size_mb
             from pathlib import Path
 
-            is_valid, error_msg, resolved_path = validate_local_path(
-                path=file_path,
-                allowed_dirs=self.data_loader.allowed_directories,
-                max_size_mb=self.data_loader.local_max_size_mb,
-                allowed_extensions=self.data_loader.local_extensions,
-                forbidden_dirs=self.data_loader.forbidden_directories
+            # Check if worker is connected (for prod where file is on user's machine)
+            user_id = update.effective_user.id
+            websocket_server = context.bot_data.get('websocket_server')
+            worker_connected = (
+                websocket_server and
+                websocket_server.worker_manager.is_user_connected(user_id)
             )
+            print(f"🔌 DEBUG: Worker connected: {worker_connected}")
 
-            if not is_valid:
-                # NEW: Check if error is specifically whitelist failure
-                if "not in allowed directories" in error_msg.lower():
-                    # Whitelist check failed - prompt for password
-                    await validating_msg.delete()
-                    await self._prompt_for_password(
-                        update, context, session, file_path, resolved_path
-                    )
-                    raise ApplicationHandlerStop
+            if worker_connected:
+                # Use worker to validate file (prod scenario - file is on user's machine)
+                print(f"🖥️ DEBUG: Using worker to validate file path")
+                file_info = await self._get_file_info_from_worker(user_id, file_path, context)
+
+                if file_info and file_info.get('exists'):
+                    # File exists on worker - use worker's resolved path and size
+                    resolved_path = Path(file_info.get('file_path', file_path))
+                    size_mb = file_info.get('size_mb', 0)
+                    print(f"✅ DEBUG: Worker validated file: {resolved_path}, size: {size_mb}MB")
                 else:
-                    # Other validation error (path traversal, size, etc.)
+                    # File not found on worker
                     await validating_msg.delete()
-                    error_display = LocalPathMessages.format_path_error(
-                        error_type="security_validation",
-                        path=file_path,
-                        error_details=error_msg,
-                        locale=locale
-                    )
-                    await update.message.reply_text(error_display)
+                    error_msg = file_info.get('error', f'File not found: {file_path}') if file_info else f'File not found: {file_path}'
+                    print(f"❌ DEBUG: Worker file validation failed: {error_msg}")
+                    await update.message.reply_text(f"❌ {error_msg}")
                     return
+            else:
+                # No worker - use local validation (dev scenario)
+                print(f"🏠 DEBUG: No worker, using local validation")
+                from src.utils.path_validator import validate_local_path, get_file_size_mb
+
+                is_valid, error_msg, resolved_path = validate_local_path(
+                    path=file_path,
+                    allowed_dirs=self.data_loader.allowed_directories,
+                    max_size_mb=self.data_loader.local_max_size_mb,
+                    allowed_extensions=self.data_loader.local_extensions,
+                    forbidden_dirs=self.data_loader.forbidden_directories
+                )
+
+                if not is_valid:
+                    # Check if error is specifically whitelist failure
+                    if "not in allowed directories" in error_msg.lower():
+                        # Whitelist check failed - prompt for password
+                        await validating_msg.delete()
+                        await self._prompt_for_password(
+                            update, context, session, file_path, resolved_path
+                        )
+                        raise ApplicationHandlerStop
+                    else:
+                        # Other validation error (path traversal, size, etc.)
+                        await validating_msg.delete()
+                        error_display = LocalPathMessages.format_path_error(
+                            error_type="security_validation",
+                            path=file_path,
+                            error_details=error_msg,
+                            locale=locale
+                        )
+                        await update.message.reply_text(error_display)
+                        return
+
+                # Get file size for local validation
+                size_mb = get_file_size_mb(resolved_path)
 
             # Path valid - store it and get file size
             session.file_path = str(resolved_path)
-            size_mb = get_file_size_mb(resolved_path)
             print(f"📏 DEBUG: File size calculated: {size_mb}MB")
 
             # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
