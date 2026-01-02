@@ -228,12 +228,15 @@ class PredictionTemplateHandlers:
                 )
 
                 # Poll for result
+                import pandas as pd
                 for _ in range(30):  # 30 seconds max
                     await asyncio.sleep(1)
                     job = await job_queue.get_job(job_id)
                     if job and job.status == JobStatus.COMPLETED:
-                        df = job.result.get('dataframe')
-                        if df is not None:
+                        df_records = job.result.get('dataframe')
+                        if df_records is not None:
+                            # Convert dict records back to DataFrame
+                            df = pd.DataFrame(df_records)
                             await self.state_manager.store_data(session, df)
                             return df
                         raise Exception('Worker returned no dataframe')
