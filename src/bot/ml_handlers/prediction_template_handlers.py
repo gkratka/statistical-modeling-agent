@@ -176,33 +176,42 @@ class PredictionTemplateHandlers:
             logger.error(f"Error checking model on worker: {e}")
             return False
 
-    async def _validate_and_load_template_data(self, session, query):
+    async def _validate_and_load_template_data(self, session, query, context):
         """
         Validate file path and load data from template.
 
         Args:
             session: Session object
             query: Callback query object
+            context: Telegram context for worker access
 
         Returns:
             DataFrame if successful, None otherwise
         """
         file_path = session.file_path
-        validation_result = self.path_validator.validate_path(file_path)
+        user_id = session.user_id
 
         # Extract locale from session
         locale = session.language if session.language else None
 
-        if not validation_result["is_valid"]:
-            await query.edit_message_text(
-                pt_messages.pred_template_file_path_invalid(
-                    path=file_path,
-                    error=validation_result['error'],
-                    locale=locale
-                ),
-                parse_mode="Markdown"
-            )
-            return None
+        # Check if worker is connected FIRST (for prod where file is on user's machine)
+        websocket_server = context.bot_data.get('websocket_server')
+        worker_manager = websocket_server.worker_manager if websocket_server else None
+        worker_connected = worker_manager and worker_manager.is_user_connected(user_id)
+
+        if not worker_connected:
+            # No worker - validate path locally (dev scenario)
+            validation_result = self.path_validator.validate_path(file_path)
+            if not validation_result["is_valid"]:
+                await query.edit_message_text(
+                    pt_messages.pred_template_file_path_invalid(
+                        path=file_path,
+                        error=validation_result['error'],
+                        locale=locale
+                    ),
+                    parse_mode="Markdown"
+                )
+                return None
 
         try:
             df, _, _ = await self.data_loader.load_from_local_path(file_path)
@@ -555,7 +564,7 @@ class PredictionTemplateHandlers:
         locale = session.language if session.language else None
 
         # Validate and load data
-        df = await self._validate_and_load_template_data(session, query)
+        df = await self._validate_and_load_template_data(session, query, context)
         if df is None:
             return
 
