@@ -38,6 +38,7 @@ class JobType(str, Enum):
     DELETE_MODEL = "delete_model"
     SET_MODEL_NAME = "set_model_name"
     JOIN = "join"
+    LOAD_DATA = "load_data"
 
 
 class JobStatus(str, Enum):

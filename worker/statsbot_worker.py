@@ -368,6 +368,49 @@ def execute_file_info_job(job_id: str, params: Dict[str, Any]) -> str:
         return create_result_message(job_id, False, error=str(e))
 
 
+def execute_load_data_job(job_id: str, params: Dict[str, Any]) -> str:
+    """
+    Load data from local filesystem and return as dataframe.
+
+    Args:
+        job_id: Job identifier
+        params: Parameters with 'file_path' key
+
+    Returns:
+        JSON-encoded result message with dataframe
+    """
+    try:
+        file_path = params.get('file_path')
+        if not file_path:
+            return create_result_message(job_id, False, error="Missing file_path parameter")
+
+        path = Path(file_path).expanduser().resolve()
+
+        if not path.exists():
+            return create_result_message(job_id, False, error=f"File not found: {file_path}")
+        if not path.is_file():
+            return create_result_message(job_id, False, error=f"Not a file: {file_path}")
+
+        # Load data based on file extension
+        suffix = path.suffix.lower()
+        if suffix == '.csv':
+            df = pd.read_csv(path)
+        elif suffix in ('.xlsx', '.xls'):
+            df = pd.read_excel(path)
+        elif suffix == '.parquet':
+            df = pd.read_parquet(path)
+        else:
+            return create_result_message(job_id, False, error=f"Unsupported file format: {suffix}")
+
+        return create_result_message(job_id, True, data={
+            'dataframe': df.to_dict('records'),
+            'columns': list(df.columns),
+            'rows': len(df)
+        })
+    except Exception as e:
+        return create_result_message(job_id, False, error=str(e))
+
+
 def execute_list_models_job(job_id: str) -> str:
     """
     Execute list_models job.
@@ -1504,6 +1547,8 @@ class WorkerClient:
                 result = execute_set_model_name_job(job_id, params)
             elif action == "join":
                 result = execute_join_job(job_id, params, self.send_message)
+            elif action == "load_data":
+                result = execute_load_data_job(job_id, params)
             else:
                 result = create_result_message(job_id, False, error=f"Unknown action: {action}")
         finally:
