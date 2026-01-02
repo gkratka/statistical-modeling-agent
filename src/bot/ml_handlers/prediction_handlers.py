@@ -297,38 +297,59 @@ class PredictionHandler:
         )
 
         try:
-            # Validate path
-            result = self.path_validator.validate_path(file_path)
+            from pathlib import Path
 
-            if not result['is_valid']:
-                await safe_delete_message(validating_msg)
+            # Check if worker is connected (for prod where file is on user's machine)
+            websocket_server = context.bot_data.get('websocket_server')
+            worker_connected = (
+                websocket_server and
+                websocket_server.worker_manager.is_user_connected(user_id)
+            )
 
-                # Check if error is specifically whitelist failure
-                if "not in allowed directories" in result['error'].lower():
-                    # Whitelist check failed - prompt for password
-                    await self._prompt_for_password(
-                        update, context, session, file_path, result.get('resolved_path')
-                    )
-                    raise ApplicationHandlerStop
+            if worker_connected:
+                # Use worker to validate file (prod scenario - file is on user's machine)
+                file_info = await self._get_file_info_from_worker(user_id, file_path, context)
+
+                if file_info and file_info.get('exists'):
+                    resolved_path = Path(file_info.get('file_path', file_path))
+                    size_mb = file_info.get('size_mb', 0)
                 else:
-                    # Other validation error (path traversal, size, etc.)
-                    keyboard = create_path_error_recovery_buttons(locale=locale)
-                    reply_markup = InlineKeyboardMarkup(keyboard)
-                    await update.message.reply_text(
-                        PredictionMessages.file_loading_error(file_path, result['error'], locale=locale),
-                        reply_markup=reply_markup,
-                        parse_mode="Markdown"
-                    )
-                    # Stay in AWAITING_FILE_PATH state to allow retry
+                    await safe_delete_message(validating_msg)
+                    error_msg = file_info.get('error', f'File not found: {file_path}') if file_info else f'File not found: {file_path}'
+                    await update.message.reply_text(f"❌ {error_msg}")
                     return
+            else:
+                # No worker - use local validation (dev scenario)
+                result = self.path_validator.validate_path(file_path)
+
+                if not result['is_valid']:
+                    await safe_delete_message(validating_msg)
+
+                    # Check if error is specifically whitelist failure
+                    if "not in allowed directories" in result['error'].lower():
+                        # Whitelist check failed - prompt for password
+                        await self._prompt_for_password(
+                            update, context, session, file_path, result.get('resolved_path')
+                        )
+                        raise ApplicationHandlerStop
+                    else:
+                        # Other validation error (path traversal, size, etc.)
+                        keyboard = create_path_error_recovery_buttons(locale=locale)
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        await update.message.reply_text(
+                            PredictionMessages.file_loading_error(file_path, result['error'], locale=locale),
+                            reply_markup=reply_markup,
+                            parse_mode="Markdown"
+                        )
+                        # Stay in AWAITING_FILE_PATH state to allow retry
+                        return
+
+                resolved_path = result['resolved_path']
+                from src.utils.path_validator import get_file_size_mb
+                size_mb = get_file_size_mb(resolved_path)
 
             # Store path and file size
-            resolved_path = result['resolved_path']
             session.file_path = str(resolved_path)
-
-            # Get file size for load option prompt
-            from src.utils.path_validator import get_file_size_mb
-            size_mb = get_file_size_mb(resolved_path)
 
             # Save snapshot and transition to load option selection
             session.save_state_snapshot()
