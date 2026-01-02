@@ -231,7 +231,7 @@ class PredictionTemplateHandlers:
                 import pandas as pd
                 for _ in range(30):  # 30 seconds max
                     await asyncio.sleep(1)
-                    job = await job_queue.get_job(job_id)
+                    job = job_queue.get_job(job_id)
                     if job and job.status == JobStatus.COMPLETED:
                         df_records = job.result.get('dataframe')
                         if df_records is not None:

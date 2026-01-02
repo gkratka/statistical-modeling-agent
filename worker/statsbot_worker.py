@@ -23,6 +23,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import pandas as pd
+
 # Version
 __version__ = "1.0.0"
 
