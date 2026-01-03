@@ -4,8 +4,10 @@ Template workflow handlers for ML training.
 This module provides handlers for saving and loading ML training templates.
 """
 
+import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -156,6 +158,14 @@ class TemplateHandlers:
         )
 
         if success:
+            # Save local backup (non-blocking)
+            self._save_local_backup(
+                template_name=template_name,
+                template_config=template_config,
+                template_type="train",
+                file_path=session.file_path or ""
+            )
+
             await update.message.reply_text(
                 template_messages.TEMPLATE_SAVED_SUCCESS.format(name=template_name),
                 parse_mode="Markdown"
@@ -823,6 +833,44 @@ class TemplateHandlers:
     # =========================================================================
     # Helper Methods
     # =========================================================================
+
+    def _save_local_backup(
+        self,
+        template_name: str,
+        template_config: dict,
+        template_type: str,
+        file_path: str
+    ) -> None:
+        """Save template backup to local filesystem.
+
+        Args:
+            template_name: Name of the template
+            template_config: Template configuration dict
+            template_type: Type of template ('train' or 'predict')
+            file_path: Path to data file (backup saved in same directory)
+        """
+        try:
+            if not file_path:
+                logger.debug("No file_path provided, skipping local backup")
+                return
+
+            backup_dir = Path(file_path).parent
+            backup_path = backup_dir / f"template_{template_name}.json"
+
+            backup_data = {
+                "name": template_name,
+                "type": template_type,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                **template_config
+            }
+
+            with open(backup_path, 'w') as f:
+                json.dump(backup_data, f, indent=2, default=str)
+
+            logger.info(f"Local template backup saved: {backup_path}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save local template backup: {e}")
 
     def _infer_task_type(self, model_type: str) -> str:
         """Infer task type from model type string.

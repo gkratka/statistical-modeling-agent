@@ -311,6 +311,15 @@ class TemplateHandlers:
 
         success = self._save_template(user_id, template_name, template_data)
         if success:
+            # Save local backup (non-blocking)
+            file_path = template_config.get("file_path", "")
+            self._save_local_backup(
+                template_name=template_name,
+                template_config=template_config,
+                template_type=template_type,
+                file_path=file_path
+            )
+
             await update.message.reply_text(
                 TemplateMessages.template_saved(name=template_name, locale=locale),
                 parse_mode="Markdown"
@@ -641,3 +650,41 @@ class TemplateHandlers:
         )
 
         return template_list
+
+    def _save_local_backup(
+        self,
+        template_name: str,
+        template_config: dict,
+        template_type: str,
+        file_path: str
+    ) -> None:
+        """Save template backup to local filesystem.
+
+        Args:
+            template_name: Name of the template
+            template_config: Template configuration dict
+            template_type: Type of template ('train' or 'predict')
+            file_path: Path to data file (backup saved in same directory)
+        """
+        try:
+            if not file_path:
+                logger.debug("No file_path provided, skipping local backup")
+                return
+
+            backup_dir = Path(file_path).parent
+            backup_path = backup_dir / f"template_{template_name}.json"
+
+            backup_data = {
+                "name": template_name,
+                "type": template_type,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                **template_config
+            }
+
+            with open(backup_path, 'w') as f:
+                json.dump(backup_data, f, indent=2, default=str)
+
+            logger.info(f"Local template backup saved: {backup_path}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save local template backup: {e}")
