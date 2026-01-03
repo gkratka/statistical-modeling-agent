@@ -513,7 +513,7 @@ class TemplateHandlers:
             "target_column": session.selections.get("target_column") or session.selections.get("target", ""),
             "feature_columns": session.selections.get("feature_columns") or session.selections.get("features", []),
             "model_type": session.selections.get("model_type", ""),
-            "model_parameters": session.selections.get("hyperparameters", {}),
+            "hyperparameters": session.selections.get("hyperparameters", {}),
             "model_name": session.selections.get("model_name")
         }
 
