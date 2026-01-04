@@ -4,8 +4,10 @@ Prediction Template workflow handlers.
 This module provides handlers for saving and loading ML prediction templates.
 """
 
+import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from telegram import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -353,7 +355,7 @@ class PredictionTemplateHandlers:
             "output_column_name": output_column_name,
             "save_path": session.selections.get("output_file_path"),
             "defer_loading": getattr(session, 'load_deferred', False),
-            "description": None  # Could be extended to ask user for description
+            "description": None,  # Could be extended to ask user for description
         }
 
         # Validate required fields
@@ -403,6 +405,17 @@ class PredictionTemplateHandlers:
         )
 
         if success:
+            # Save local backup (non-blocking)
+            backup_file_path = (
+                template_config.get("save_path") or template_config.get("file_path") or ""
+            )
+            self._save_local_backup(
+                template_name=template_name,
+                template_config=template_config,
+                template_type="predict",
+                file_path=backup_file_path
+            )
+
             await update.message.reply_text(
                 pt_messages.pred_template_saved_success(name=template_name, locale=locale),
                 parse_mode="Markdown"
@@ -466,10 +479,19 @@ class PredictionTemplateHandlers:
         keyboard = [
             [InlineKeyboardButton(f"📄 {t.template_name}", callback_data=f"load_pred_template:{t.template_name}")]
             for t in templates
-        ] + [[InlineKeyboardButton(
+        ]
+
+        # Add "Upload Template" button
+        keyboard.append([InlineKeyboardButton(
+            I18nManager.t('templates.upload.button', locale=locale, default="📤 Upload Template"),
+            callback_data="upload_pred_template"
+        )])
+
+        # Add Back button
+        keyboard.append([InlineKeyboardButton(
             I18nManager.t('templates.load.back_button', locale=locale, default="🔙 Back"),
             callback_data="pred_back"
-        )]]
+        )])
 
         await query.edit_message_text(
             pt_messages.pred_template_load_prompt(count=len(templates), locale=locale),
@@ -579,6 +601,187 @@ class PredictionTemplateHandlers:
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+    async def handle_upload_pred_template_request(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Handle 'Upload Template' button click for prediction."""
+        query = update.callback_query
+        await query.answer()
+
+        session = await self._get_session_or_error(update, query)
+        if not session:
+            return
+
+        session.save_state_snapshot()
+
+        if not await self._transition_or_error(
+            session, MLPredictionState.AWAITING_PRED_TEMPLATE_UPLOAD.value, query
+        ):
+            return
+
+        locale = session.language if session.language else None
+        keyboard = [[InlineKeyboardButton(
+            I18nManager.t('templates.save.cancel_button', locale=locale, default="❌ Cancel"),
+            callback_data="cancel_pred_template_upload"
+        )]]
+
+        await query.edit_message_text(
+            "📤 *Upload Prediction Template*\n\n"
+            "Please send me a prediction template JSON file.\n\n"
+            "*Requirements:*\n"
+            "• Must be a `.json` file\n"
+            "• Must contain: `file_path`, `model_id`, `feature_columns`, `output_column_name`\n"
+            "• Template type must be `predict` (if specified)",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def handle_pred_template_upload(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Handle prediction template JSON file upload."""
+        user_id = update.effective_user.id
+        chat_id = update.message.chat_id
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if not session or session.current_state != MLPredictionState.AWAITING_PRED_TEMPLATE_UPLOAD.value:
+            return
+
+        locale = session.language if session.language else None
+        document = update.message.document
+
+        # Validate file type
+        if not document or not document.file_name.endswith('.json'):
+            await update.message.reply_text(
+                "❌ *Invalid file type*\n\n"
+                "Please upload a `.json` file.",
+                parse_mode="Markdown"
+            )
+            return
+
+        try:
+            # Download file
+            file = await context.bot.get_file(document.file_id)
+            import io
+            json_bytes = io.BytesIO()
+            await file.download_to_memory(json_bytes)
+            json_bytes.seek(0)
+
+            # Parse JSON
+            template_data = json.loads(json_bytes.read().decode('utf-8'))
+
+            # Validate template structure
+            is_valid, error_msg = self._validate_pred_template_structure(template_data, context)
+            if not is_valid:
+                await update.message.reply_text(
+                    f"❌ *Invalid template structure*\n\n{error_msg}",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Check model exists (same as database template)
+            model_id = template_data['model_id']
+            model_exists = await self._model_exists_on_worker(user_id, model_id, context)
+
+            if not model_exists:
+                await update.message.reply_text(
+                    pt_messages.pred_template_model_invalid(model_id=model_id, locale=locale),
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Populate session with template data
+            session.file_path = template_data['file_path']
+            session.load_deferred = template_data.get('defer_loading', False)
+            session.selections['selected_model_id'] = template_data['model_id']
+            session.selections['selected_features'] = template_data['feature_columns']
+            session.selections['prediction_column_name'] = template_data['output_column_name']
+            if template_data.get('save_path'):
+                session.selections['output_file_path'] = template_data['save_path']
+
+            # Save snapshot and transition to CONFIRMING_PRED_TEMPLATE
+            session.save_state_snapshot()
+            if not await self._transition_or_error(
+                session, MLPredictionState.CONFIRMING_PRED_TEMPLATE.value, update.message
+            ):
+                return
+
+            # Display template details (reuse existing formatting)
+            template_name = template_data.get('name', 'Uploaded Template')
+            summary = pt_messages.format_pred_template_summary(
+                template_name=template_name,
+                file_path=template_data['file_path'],
+                model_id=template_data['model_id'],
+                features=template_data['feature_columns'],
+                output_column=template_data['output_column_name'],
+                description=template_data.get('description'),
+                created_at=template_data.get('created_at', 'Unknown'),
+                locale=locale
+            )
+
+            # Show "Use This Template" button (same as database template flow)
+            keyboard = [[InlineKeyboardButton(
+                I18nManager.t('templates.load.use_template_button', locale=locale, default="✅ Use This Template"),
+                callback_data="confirm_pred_template"
+            )]]
+
+            await update.message.reply_text(
+                summary,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        except json.JSONDecodeError:
+            await update.message.reply_text(
+                "❌ *Invalid JSON file*\n\n"
+                "The file could not be parsed as valid JSON.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Error processing uploaded prediction template: {e}", exc_info=True)
+            await update.message.reply_text(
+                f"❌ *Upload failed*\n\n{str(e)}",
+                parse_mode="Markdown"
+            )
+
+    def _validate_pred_template_structure(
+        self,
+        template_data: dict,
+        context: CallbackContext
+    ) -> tuple:
+        """
+        Validate prediction template JSON structure.
+
+        Returns:
+            Tuple of (is_valid: bool, error_message: str)
+        """
+        required_fields = ['file_path', 'model_id', 'feature_columns', 'output_column_name']
+
+        # Check required fields
+        missing = [f for f in required_fields if f not in template_data]
+        if missing:
+            return False, f"Missing required fields: {', '.join(missing)}"
+
+        # Check template type (if provided)
+        if 'type' in template_data and template_data['type'] != 'predict':
+            return False, f"Wrong template type: expected 'predict', got '{template_data['type']}'"
+
+        # Validate types
+        if not isinstance(template_data['file_path'], str):
+            return False, "field 'file_path' must be a string"
+        if not isinstance(template_data['model_id'], str):
+            return False, "field 'model_id' must be a string"
+        if not isinstance(template_data['feature_columns'], list):
+            return False, "field 'feature_columns' must be a list"
+        if not isinstance(template_data['output_column_name'], str):
+            return False, "field 'output_column_name' must be a string"
+
+        return True, ""
 
     async def handle_template_confirmation(
         self,
@@ -823,6 +1026,17 @@ class PredictionTemplateHandlers:
         session.selections.pop("pending_template_config", None)
 
         if success:
+            # Save local backup (non-blocking)
+            backup_file_path = (
+                template_config.get("save_path") or template_config.get("file_path") or ""
+            )
+            self._save_local_backup(
+                template_name=template_name,
+                template_config=template_config,
+                template_type="predict",
+                file_path=backup_file_path
+            )
+
             await query.edit_message_text(
                 pt_messages.pred_template_saved_success(name=template_name, locale=locale),
                 parse_mode="Markdown"
@@ -834,3 +1048,41 @@ class PredictionTemplateHandlers:
                 I18nManager.t('templates.save.failed', locale=locale, default="❌ Failed to save template."),
                 parse_mode="Markdown"
             )
+
+    def _save_local_backup(
+        self,
+        template_name: str,
+        template_config: dict,
+        template_type: str,
+        file_path: str
+    ) -> None:
+        """Save template backup to local filesystem.
+
+        Args:
+            template_name: Name of the template
+            template_config: Template configuration dict
+            template_type: Type of template ('train' or 'predict')
+            file_path: Path to data file (backup saved in same directory)
+        """
+        try:
+            if not file_path:
+                logger.debug("No file_path provided, skipping local backup")
+                return
+
+            backup_dir = Path(file_path).parent
+            backup_path = backup_dir / f"template_{template_name}.json"
+
+            backup_data = {
+                "name": template_name,
+                "type": template_type,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                **template_config
+            }
+
+            with open(backup_path, 'w') as f:
+                json.dump(backup_data, f, indent=2, default=str)
+
+            logger.info(f"Local template backup saved: {backup_path}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save local template backup: {e}")
