@@ -499,6 +499,12 @@ class PredictionTemplateHandlers:
             callback_data="upload_pred_template"
         )])
 
+        # Add "Delete Templates" button (like /predict model selection)
+        keyboard.append([InlineKeyboardButton(
+            I18nManager.t('templates.delete.button', locale=locale, default="🗑️ Delete Templates"),
+            callback_data="manage_pred_templates"
+        )])
+
         # Add Back button
         keyboard.append([InlineKeyboardButton(
             I18nManager.t('templates.load.back_button', locale=locale, default="🔙 Back"),
@@ -973,15 +979,9 @@ class PredictionTemplateHandlers:
         success = self.template_manager.delete_template(user_id, template_name)
 
         if success:
-            await query.edit_message_text(
-                I18nManager.t(
-                    'templates.delete.success',
-                    locale=locale,
-                    name=template_name,
-                    default=f"✅ Template '{template_name}' has been deleted."
-                ),
-                parse_mode="Markdown"
-            )
+            logger.info(f"User {user_id} deleted prediction template: {template_name}")
+            # Always refresh the delete templates view
+            await self.handle_manage_pred_templates(update, context)
         else:
             await query.edit_message_text(
                 I18nManager.t(
@@ -1098,3 +1098,99 @@ class PredictionTemplateHandlers:
 
         except Exception as e:
             logger.warning(f"Failed to save local template backup: {e}")
+
+    # =========================================================================
+    # Template Management (Delete)
+    # =========================================================================
+
+    async def handle_manage_pred_templates(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Show prediction templates with delete buttons for management."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = query.message.chat_id
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if not session:
+            await query.edit_message_text("❌ Session not found. Please start a new prediction session with /predict")
+            return
+
+        locale = session.language if session.language else None
+
+        # No state transition needed - stay in current state (like /predict model deletion)
+        # Get user's templates
+        templates = self.template_manager.list_templates(user_id)
+
+        if not templates:
+            # No templates - show upload button
+            keyboard = [
+                [InlineKeyboardButton(
+                    I18nManager.t('templates.upload.button', locale=locale, default="📤 Upload Template"),
+                    callback_data="upload_pred_template"
+                )],
+                [InlineKeyboardButton(
+                    I18nManager.t('workflow_state.buttons.back', locale=locale, default="🔙 Back"),
+                    callback_data="back_to_pred_templates"
+                )]
+            ]
+            await query.edit_message_text(
+                "📁 *No templates to manage*\n\nAll templates have been deleted.",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+            return
+
+        # Display templates with delete buttons
+        keyboard = []
+        for template in templates:
+            button_text = f"🗑️ {template.template_name}"
+            callback_data = f"delete_pred_template:{template.template_name}"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
+
+        # Add Back button
+        keyboard.append([InlineKeyboardButton(
+            I18nManager.t('workflow_state.buttons.back', locale=locale, default="🔙 Back"),
+            callback_data="back_to_pred_templates"
+        )])
+
+        await query.edit_message_text(
+            f"🗑️ *Manage Prediction Templates*\n\n"
+            f"Tap a template to delete it:\n\n"
+            f"_{len(templates)} template(s) available_",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+        logger.info(f"User {user_id} entered prediction template management mode with {len(templates)} templates")
+
+    async def handle_back_to_pred_template_list(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Return to normal prediction template selection view."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = query.message.chat_id
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if not session:
+            await query.edit_message_text("❌ Session not found.")
+            return
+
+        # Transition back to LOADING_PRED_TEMPLATE state
+        session.save_state_snapshot()
+        await self.state_manager.transition_state(
+            session,
+            MLPredictionState.LOADING_PRED_TEMPLATE.value
+        )
+
+        # Show normal template list
+        await self.handle_template_source_selection(update, context)

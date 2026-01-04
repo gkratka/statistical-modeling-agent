@@ -4764,6 +4764,26 @@ def register_local_path_handlers(
         )
     )
 
+    # Template management (delete) handlers
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_manage_templates,
+            pattern=r"^manage_train_templates$"
+        )
+    )
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_delete_template,
+            pattern=r"^delete_train_template:"
+        )
+    )
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_back_to_template_list,
+            pattern=r"^back_to_train_templates$"
+        )
+    )
+
     print("  ✓ Template handlers registered")
 
     # Model naming workflow handlers (Phase 4)

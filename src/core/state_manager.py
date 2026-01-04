@@ -67,6 +67,7 @@ class MLTrainingState(Enum):
     LOADING_TEMPLATE = "loading_template"          # User browsing templates
     CONFIRMING_TEMPLATE = "confirming_template"    # User confirming template selection
     AWAITING_TRAIN_TEMPLATE_UPLOAD = "awaiting_train_template_upload"  # Waiting for JSON file upload
+    MANAGING_TEMPLATES = "managing_templates"      # User managing/deleting templates
 
     # CatBoost configuration states
     CONFIGURING_CATBOOST_ITERATIONS = "configuring_catboost_iterations"
@@ -108,6 +109,7 @@ class MLPredictionState(Enum):
     CONFIRMING_PRED_TEMPLATE = "confirming_pred_template"  # Reviewing selected template
     SAVING_PRED_TEMPLATE = "saving_pred_template"          # Entering template name
     AWAITING_PRED_TEMPLATE_UPLOAD = "awaiting_pred_template_upload"  # Waiting for JSON file upload
+    MANAGING_PRED_TEMPLATES = "managing_pred_templates"    # User managing/deleting prediction templates
 
 
 class ScoreWorkflowState(Enum):

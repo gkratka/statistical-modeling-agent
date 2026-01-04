@@ -307,7 +307,7 @@ class StatisticalModelingBot:
         )
         self.application.add_handler(
             CallbackQueryHandler(
-                template_handlers.handle_back_to_templates,
+                template_handlers.handle_back_to_pred_template_list,
                 pattern=r"^back_to_pred_templates$"
             )
         )
@@ -334,6 +334,13 @@ class StatisticalModelingBot:
             CallbackQueryHandler(
                 template_handlers.handle_cancel_template,
                 pattern=r"^cancel_pred_template$"
+            )
+        )
+        # Prediction template management (delete)
+        self.application.add_handler(
+            CallbackQueryHandler(
+                template_handlers.handle_manage_pred_templates,
+                pattern=r"^manage_pred_templates$"
             )
         )
 
