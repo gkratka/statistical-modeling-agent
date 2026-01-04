@@ -227,9 +227,19 @@ class TemplateHandlers:
         templates = self.template_manager.list_templates(user_id)
 
         if not templates:
+            # Still show Upload Template button even with no saved templates
+            locale = session.language if session.language else None
+            keyboard = [
+                [InlineKeyboardButton(
+                    I18nManager.t('templates.upload.button', locale=locale, default="📤 Upload Template"),
+                    callback_data="upload_train_template"
+                )],
+                [InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back', locale=locale), callback_data="workflow_back")]
+            ]
             await query.edit_message_text(
-                template_messages.TEMPLATE_NO_TEMPLATES,
-                parse_mode="Markdown"
+                template_messages.TEMPLATE_NO_TEMPLATES + "\n\nUpload a template JSON file to get started:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
 

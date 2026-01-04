@@ -469,9 +469,21 @@ class PredictionTemplateHandlers:
         templates = self.template_manager.list_templates(user_id)
 
         if not templates:
+            # Still show Upload Template button even with no saved templates
+            keyboard = [
+                [InlineKeyboardButton(
+                    I18nManager.t('templates.upload.button', locale=locale, default="📤 Upload Template"),
+                    callback_data="upload_pred_template"
+                )],
+                [InlineKeyboardButton(
+                    I18nManager.t('templates.load.back_button', locale=locale, default="🔙 Back"),
+                    callback_data="pred_back"
+                )]
+            ]
             await query.edit_message_text(
-                pt_messages.pred_template_no_templates(locale=locale),
-                parse_mode="Markdown"
+                pt_messages.pred_template_no_templates(locale=locale) + "\n\nUpload a template JSON file to get started:",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return
 
