@@ -766,12 +766,11 @@ def create_path_error_recovery_buttons(locale: Optional[str] = None) -> List[Lis
 
 # NEW: Button helpers for local file save workflow
 def create_output_option_buttons(locale: Optional[str] = None) -> List[List[InlineKeyboardButton]]:
-    """Create output method selection buttons."""
+    """Create output method selection buttons.
+
+    Note: 'Save to Local Path' button removed since predictions are auto-saved locally.
+    """
     return [
-        [InlineKeyboardButton(
-            I18nManager.t('workflows.prediction.buttons.save_local', locale=locale),
-            callback_data="pred_output_local"
-        )],
         [InlineKeyboardButton(
             I18nManager.t('workflows.prediction.buttons.download_telegram', locale=locale),
             callback_data="pred_output_telegram"

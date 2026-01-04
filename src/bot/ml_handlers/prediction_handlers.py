@@ -1895,32 +1895,7 @@ class PredictionHandler:
         # Extract locale from session
         locale = session.language if session.language else None
 
-        if choice == "local":
-            # Transition to AWAITING_SAVE_PATH with validation
-            success, error_msg, missing = await self.state_manager.transition_state(
-                session,
-                MLPredictionState.AWAITING_SAVE_PATH.value
-            )
-
-            # Validate transition succeeded before continuing
-            if not success:
-                missing_str = ', '.join(missing) if missing else 'unknown'
-                await query.edit_message_text(
-                    I18nManager.t('prediction.errors.transition_failed', locale=locale, error=error_msg, missing=missing_str),
-                    parse_mode="Markdown"
-                )
-                logger.error(
-                    f"Transition to AWAITING_SAVE_PATH failed: {error_msg} | Missing: {missing}"
-                )
-                return
-
-            allowed_dirs = self.data_loader.allowed_directories
-            await query.edit_message_text(
-                PredictionMessages.save_path_input_prompt(allowed_dirs, locale=locale),
-                parse_mode="Markdown"
-            )
-
-        elif choice == "telegram":
+        if choice == "telegram":
             # Send file via Telegram (legacy behavior)
             df = session.selections.get('predictions_result')
             output_path = Path(tempfile.gettempdir()) / f"predictions_{session.user_id}_{int(time.time())}.csv"
