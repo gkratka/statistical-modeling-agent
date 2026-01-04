@@ -256,9 +256,9 @@ class TemplateHandlers:
             I18nManager.t('templates.upload.button', locale=locale, default="📤 Upload Template"),
             callback_data="upload_train_template"
         )])
-        # Add "Manage Templates" button for deletion
+        # Add "Delete Templates" button (like /predict model selection)
         keyboard.append([InlineKeyboardButton(
-            I18nManager.t('templates.manage.button', locale=locale, default="🗑️ Manage Templates"),
+            I18nManager.t('templates.delete.button', locale=locale, default="🗑️ Delete Templates"),
             callback_data="manage_train_templates"
         )])
         keyboard.append([InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back', locale=locale), callback_data="workflow_back")])
@@ -1059,17 +1059,7 @@ class TemplateHandlers:
 
         locale = session.language if session.language else None
 
-        # Transition to MANAGING_TEMPLATES state
-        session.save_state_snapshot()
-        success, error_msg, _ = await self.state_manager.transition_state(
-            session,
-            MLTrainingState.MANAGING_TEMPLATES.value
-        )
-
-        if not success:
-            await query.edit_message_text(f"❌ {error_msg}")
-            return
-
+        # No state transition needed - stay in current state (like /predict model deletion)
         # Get user's templates
         templates = self.template_manager.list_templates(user_id)
 

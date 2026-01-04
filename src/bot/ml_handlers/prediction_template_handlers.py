@@ -499,9 +499,9 @@ class PredictionTemplateHandlers:
             callback_data="upload_pred_template"
         )])
 
-        # Add "Manage Templates" button for deletion
+        # Add "Delete Templates" button (like /predict model selection)
         keyboard.append([InlineKeyboardButton(
-            I18nManager.t('templates.manage.button', locale=locale, default="🗑️ Manage Templates"),
+            I18nManager.t('templates.delete.button', locale=locale, default="🗑️ Delete Templates"),
             callback_data="manage_pred_templates"
         )])
 
@@ -980,19 +980,8 @@ class PredictionTemplateHandlers:
 
         if success:
             logger.info(f"User {user_id} deleted prediction template: {template_name}")
-            # If in manage mode, refresh the manage view
-            if session and session.current_state == MLPredictionState.MANAGING_PRED_TEMPLATES.value:
-                await self.handle_manage_pred_templates(update, context)
-            else:
-                await query.edit_message_text(
-                    I18nManager.t(
-                        'templates.delete.success',
-                        locale=locale,
-                        name=template_name,
-                        default=f"✅ Template '{template_name}' has been deleted."
-                    ),
-                    parse_mode="Markdown"
-                )
+            # Always refresh the delete templates view
+            await self.handle_manage_pred_templates(update, context)
         else:
             await query.edit_message_text(
                 I18nManager.t(
@@ -1133,17 +1122,7 @@ class PredictionTemplateHandlers:
 
         locale = session.language if session.language else None
 
-        # Transition to MANAGING_PRED_TEMPLATES state
-        session.save_state_snapshot()
-        success, error_msg, _ = await self.state_manager.transition_state(
-            session,
-            MLPredictionState.MANAGING_PRED_TEMPLATES.value
-        )
-
-        if not success:
-            await query.edit_message_text(f"❌ {error_msg}")
-            return
-
+        # No state transition needed - stay in current state (like /predict model deletion)
         # Get user's templates
         templates = self.template_manager.list_templates(user_id)
 
