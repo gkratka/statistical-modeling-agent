@@ -295,6 +295,12 @@ class StatisticalModelingBot:
         )
         self.application.add_handler(
             CallbackQueryHandler(
+                template_handlers.handle_upload_pred_template_request,
+                pattern=r"^upload_pred_template$"
+            )
+        )
+        self.application.add_handler(
+            CallbackQueryHandler(
                 template_handlers.handle_template_confirmation,
                 pattern=r"^confirm_pred_template$"
             )
@@ -347,6 +353,23 @@ class StatisticalModelingBot:
         #     MessageHandler(filters.TEXT & ~filters.COMMAND, template_name_text_wrapper),
         #     group=3  # Separate group for template text input
         # )
+
+        # Document handler for prediction template uploads (group 4 to avoid conflicts)
+        from src.core.state_manager import MLPredictionState
+
+        async def pred_template_document_handler(update, context):
+            """Handle document uploads for prediction template upload workflow."""
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            session = await state_manager.get_session(user_id, f"chat_{chat_id}")
+
+            if session and session.current_state == MLPredictionState.AWAITING_PRED_TEMPLATE_UPLOAD.value:
+                await template_handlers.handle_pred_template_upload(update, context)
+
+        self.application.add_handler(
+            MessageHandler(filters.Document.ALL, pred_template_document_handler),
+            group=4  # Separate group to avoid conflicts
+        )
 
         # Store template manager in bot_data for access by other handlers
         self.application.bot_data['prediction_template_manager'] = template_manager

@@ -4,8 +4,10 @@ Template workflow handlers for ML training.
 This module provides handlers for saving and loading ML training templates.
 """
 
+import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -156,6 +158,14 @@ class TemplateHandlers:
         )
 
         if success:
+            # Save local backup (non-blocking)
+            self._save_local_backup(
+                template_name=template_name,
+                template_config=template_config,
+                template_type="train",
+                file_path=session.file_path or ""
+            )
+
             await update.message.reply_text(
                 template_messages.TEMPLATE_SAVED_SUCCESS.format(name=template_name),
                 parse_mode="Markdown"
@@ -231,6 +241,11 @@ class TemplateHandlers:
             callback_data = f"load_template:{template.template_name}"
             keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
 
+        # Add "Upload Template" button
+        keyboard.append([InlineKeyboardButton(
+            I18nManager.t('templates.upload.button', locale=locale, default="📤 Upload Template"),
+            callback_data="upload_train_template"
+        )])
         keyboard.append([InlineKeyboardButton(I18nManager.t('workflow_state.buttons.back', locale=locale), callback_data="workflow_back")])
 
         await query.edit_message_text(
@@ -508,6 +523,192 @@ class TemplateHandlers:
                     template_messages.TEMPLATE_LOAD_FAILED.format(error=str(e)),
                     parse_mode="Markdown"
                 )
+
+    async def handle_upload_template_request(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Handle 'Upload Template' button click for training."""
+        query = update.callback_query
+        await query.answer()
+
+        user_id = update.effective_user.id
+        chat_id = query.message.chat_id
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if not session:
+            await query.edit_message_text("❌ Session not found. Please start a new training session with /train")
+            return
+
+        session.save_state_snapshot()
+
+        # Transition to AWAITING_TRAIN_TEMPLATE_UPLOAD
+        success, error_msg, _ = await self.state_manager.transition_state(
+            session,
+            MLTrainingState.AWAITING_TRAIN_TEMPLATE_UPLOAD.value
+        )
+
+        if not success:
+            await query.edit_message_text(f"❌ {error_msg}")
+            return
+
+        # Prompt for file upload
+        locale = session.language if session.language else None
+        keyboard = [[InlineKeyboardButton(
+            I18nManager.t('workflow_state.buttons.cancel', locale=locale, default="❌ Cancel"),
+            callback_data="cancel_template_upload"
+        )]]
+
+        await query.edit_message_text(
+            "📤 *Upload Template*\n\n"
+            "Please send me a training template JSON file.\n\n"
+            "*Requirements:*\n"
+            "• Must be a `.json` file\n"
+            "• Must contain: `file_path`, `target_column`, `feature_columns`, `model_type`\n"
+            "• Template type must be `train` (if specified)",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    async def handle_train_template_upload(
+        self,
+        update: Update,
+        context: CallbackContext
+    ) -> None:
+        """Handle training template JSON file upload."""
+        user_id = update.effective_user.id
+        chat_id = update.message.chat_id
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if not session or session.current_state != MLTrainingState.AWAITING_TRAIN_TEMPLATE_UPLOAD.value:
+            return
+
+        locale = session.language if session.language else None
+        document = update.message.document
+
+        # Validate file type
+        if not document or not document.file_name.endswith('.json'):
+            await update.message.reply_text(
+                "❌ *Invalid file type*\n\n"
+                "Please upload a `.json` file.",
+                parse_mode="Markdown"
+            )
+            return
+
+        try:
+            # Download file
+            file = await context.bot.get_file(document.file_id)
+            import io
+            json_bytes = io.BytesIO()
+            await file.download_to_memory(json_bytes)
+            json_bytes.seek(0)
+
+            # Parse JSON
+            template_data = json.loads(json_bytes.read().decode('utf-8'))
+
+            # Validate template structure
+            is_valid, error_msg = self._validate_train_template_structure(template_data)
+            if not is_valid:
+                await update.message.reply_text(
+                    f"❌ *Invalid template structure*\n\n{error_msg}",
+                    parse_mode="Markdown"
+                )
+                return
+
+            # Populate session with template data (same as database template)
+            session.file_path = template_data['file_path']
+            session.load_deferred = template_data.get('defer_loading', False)
+            session.selections['target_column'] = template_data['target_column']
+            session.selections['feature_columns'] = template_data['feature_columns']
+            session.selections['model_category'] = template_data.get('model_category', '')
+            session.selections['model_type'] = template_data['model_type']
+            session.selections['hyperparameters'] = template_data.get('hyperparameters', {})
+
+            # Save snapshot and transition to CONFIRMING_TEMPLATE
+            session.save_state_snapshot()
+            success, error_msg, _ = await self.state_manager.transition_state(
+                session,
+                MLTrainingState.CONFIRMING_TEMPLATE.value
+            )
+
+            if not success:
+                await update.message.reply_text(f"❌ {error_msg}")
+                return
+
+            # Display template details (reuse existing formatting)
+            template_name = template_data.get('name', 'Uploaded Template')
+            summary = template_messages.format_template_summary(
+                template_name=template_name,
+                file_path=template_data['file_path'],
+                target=template_data['target_column'],
+                features=template_data['feature_columns'],
+                model_category=template_data.get('model_category', ''),
+                model_type=template_data['model_type'],
+                created_at=template_data.get('created_at', 'Unknown')
+            )
+
+            # Show "Load & Train" button (same as database template flow)
+            if template_data.get('defer_loading', False):
+                keyboard = [[InlineKeyboardButton(
+                    I18nManager.t('workflow_state.buttons.load_and_train', locale=locale, default="🚀 Load Data & Train"),
+                    callback_data="template_load_and_train"
+                )]]
+                await update.message.reply_text(
+                    summary + "\n\n⏳ *Data loading deferred*\n\nClick button when ready to load data and start training:",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                # Immediate training (same as database template flow)
+                await update.message.reply_text(
+                    summary + "\n\n✅ *Template loaded successfully*\n\n"
+                    "The training workflow will continue with this configuration.",
+                    parse_mode="Markdown"
+                )
+
+        except json.JSONDecodeError:
+            await update.message.reply_text(
+                "❌ *Invalid JSON file*\n\n"
+                "The file could not be parsed as valid JSON.",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Error processing uploaded template: {e}", exc_info=True)
+            await update.message.reply_text(
+                f"❌ *Upload failed*\n\n{str(e)}",
+                parse_mode="Markdown"
+            )
+
+    def _validate_train_template_structure(self, template_data: dict) -> tuple:
+        """
+        Validate training template JSON structure.
+
+        Returns:
+            Tuple of (is_valid: bool, error_message: str)
+        """
+        required_fields = ['file_path', 'target_column', 'feature_columns', 'model_type']
+
+        # Check required fields
+        missing = [f for f in required_fields if f not in template_data]
+        if missing:
+            return False, f"Missing required fields: {', '.join(missing)}"
+
+        # Check template type (if provided)
+        if 'type' in template_data and template_data['type'] != 'train':
+            return False, f"Wrong template type: expected 'train', got '{template_data['type']}'"
+
+        # Validate types
+        if not isinstance(template_data['file_path'], str):
+            return False, "field 'file_path' must be a string"
+        if not isinstance(template_data['target_column'], str):
+            return False, "field 'target_column' must be a string"
+        if not isinstance(template_data['feature_columns'], list):
+            return False, "field 'feature_columns' must be a list"
+        if not isinstance(template_data['model_type'], str):
+            return False, "field 'model_type' must be a string"
+
+        return True, ""
 
     async def handle_template_load_option(
         self,
@@ -823,6 +1024,44 @@ class TemplateHandlers:
     # =========================================================================
     # Helper Methods
     # =========================================================================
+
+    def _save_local_backup(
+        self,
+        template_name: str,
+        template_config: dict,
+        template_type: str,
+        file_path: str
+    ) -> None:
+        """Save template backup to local filesystem.
+
+        Args:
+            template_name: Name of the template
+            template_config: Template configuration dict
+            template_type: Type of template ('train' or 'predict')
+            file_path: Path to data file (backup saved in same directory)
+        """
+        try:
+            if not file_path:
+                logger.debug("No file_path provided, skipping local backup")
+                return
+
+            backup_dir = Path(file_path).parent
+            backup_path = backup_dir / f"template_{template_name}.json"
+
+            backup_data = {
+                "name": template_name,
+                "type": template_type,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                **template_config
+            }
+
+            with open(backup_path, 'w') as f:
+                json.dump(backup_data, f, indent=2, default=str)
+
+            logger.info(f"Local template backup saved: {backup_path}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save local template backup: {e}")
 
     def _infer_task_type(self, model_type: str) -> str:
         """Infer task type from model type string.

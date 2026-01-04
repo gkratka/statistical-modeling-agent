@@ -1733,6 +1733,12 @@ class LocalPathMLTrainingHandler:
                     hyperparameters = get_template(model_type)
                     print(f"⚡ DEBUG: Using LightGBM template hyperparameters: {hyperparameters}")
 
+            # Store hyperparameters in session for template backup
+            if hyperparameters:
+                session.selections['hyperparameters'] = hyperparameters
+                session.selections['hyperparameters_used'] = hyperparameters
+                await self.state_manager.update_session(session)
+
             # Check data source to determine execution path
             # local_path files exist on user's machine → must route through JobQueue to worker
             # uploaded files are available on server → can execute directly
@@ -4718,6 +4724,14 @@ def register_local_path_handlers(
         )
     )
 
+    # Upload template button
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.template_handlers.handle_upload_template_request,
+            pattern=r"^upload_train_template$"
+        )
+    )
+
     # Template load options
     application.add_handler(
         CallbackQueryHandler(
@@ -4776,5 +4790,22 @@ def register_local_path_handlers(
     )
 
     print("  ✓ Model naming handlers registered")
+
+    # Document handler for template uploads (group 5 to avoid conflicts with main document handler)
+    async def training_template_document_handler(update, context):
+        """Handle document uploads for training template upload workflow."""
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        session = await state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        if session and session.current_state == MLTrainingState.AWAITING_TRAIN_TEMPLATE_UPLOAD.value:
+            await handler.template_handlers.handle_train_template_upload(update, context)
+
+    application.add_handler(
+        MessageHandler(filters.Document.ALL, training_template_document_handler),
+        group=5  # Separate group to avoid conflicts
+    )
+
+    print("  ✓ Template upload document handler registered")
 
     print("✅ Local path ML training handlers registered successfully")

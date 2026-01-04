@@ -66,6 +66,7 @@ class MLTrainingState(Enum):
     SAVING_TEMPLATE = "saving_template"            # User saving template
     LOADING_TEMPLATE = "loading_template"          # User browsing templates
     CONFIRMING_TEMPLATE = "confirming_template"    # User confirming template selection
+    AWAITING_TRAIN_TEMPLATE_UPLOAD = "awaiting_train_template_upload"  # Waiting for JSON file upload
 
     # CatBoost configuration states
     CONFIGURING_CATBOOST_ITERATIONS = "configuring_catboost_iterations"
@@ -106,6 +107,7 @@ class MLPredictionState(Enum):
     LOADING_PRED_TEMPLATE = "loading_pred_template"        # Browsing prediction templates
     CONFIRMING_PRED_TEMPLATE = "confirming_pred_template"  # Reviewing selected template
     SAVING_PRED_TEMPLATE = "saving_pred_template"          # Entering template name
+    AWAITING_PRED_TEMPLATE_UPLOAD = "awaiting_pred_template_upload"  # Waiting for JSON file upload
 
 
 class ScoreWorkflowState(Enum):
@@ -427,7 +429,12 @@ ML_TRAINING_TRANSITIONS: Dict[Optional[str], Set[str]] = {
         MLTrainingState.COMPLETE.value               # User cancels after saving
     },
     MLTrainingState.LOADING_TEMPLATE.value: {
-        MLTrainingState.CONFIRMING_TEMPLATE.value    # After selecting template
+        MLTrainingState.CONFIRMING_TEMPLATE.value,   # After selecting template
+        MLTrainingState.AWAITING_TRAIN_TEMPLATE_UPLOAD.value  # User chooses "Upload Template"
+    },
+    MLTrainingState.AWAITING_TRAIN_TEMPLATE_UPLOAD.value: {
+        MLTrainingState.CONFIRMING_TEMPLATE.value,   # After uploading valid template
+        MLTrainingState.LOADING_TEMPLATE.value       # User cancels upload
     },
     MLTrainingState.CONFIRMING_TEMPLATE.value: {
         MLTrainingState.CHOOSING_LOAD_OPTION.value,  # Proceed with template config
@@ -511,7 +518,12 @@ ML_PREDICTION_TRANSITIONS: Dict[Optional[str], Set[str]] = {
     # NEW: Prediction template workflow transitions
     MLPredictionState.LOADING_PRED_TEMPLATE.value: {
         MLPredictionState.CONFIRMING_PRED_TEMPLATE.value,  # User selects template
+        MLPredictionState.AWAITING_PRED_TEMPLATE_UPLOAD.value,  # User chooses "Upload Template"
         MLPredictionState.STARTED.value                    # Go back to start
+    },
+    MLPredictionState.AWAITING_PRED_TEMPLATE_UPLOAD.value: {
+        MLPredictionState.CONFIRMING_PRED_TEMPLATE.value,  # After uploading valid template
+        MLPredictionState.LOADING_PRED_TEMPLATE.value      # User cancels upload
     },
     MLPredictionState.CONFIRMING_PRED_TEMPLATE.value: {
         MLPredictionState.READY_TO_RUN.value,              # After loading data, ready to run
