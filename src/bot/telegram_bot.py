@@ -5,6 +5,8 @@ Main Telegram bot application for the Statistical Modeling Agent.
 This module implements the core bot application following the architecture
 specified in CLAUDE.md. It handles bot initialization, configuration,
 and graceful shutdown.
+
+Version: 2.1.0 - Template management improvements
 """
 
 import asyncio
