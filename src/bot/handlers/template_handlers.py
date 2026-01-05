@@ -507,6 +507,7 @@ class TemplateHandlers:
 
     def _build_train_template_config(self, session) -> Dict[str, Any]:
         """Build training template config from session."""
+        logger.info(f"Building train template config, session.file_path='{session.file_path}'")
         return {
             "file_path": session.file_path or "",
             "defer_loading": getattr(session, "load_deferred", False),
@@ -667,8 +668,9 @@ class TemplateHandlers:
             file_path: Path to data file (backup saved in same directory)
         """
         try:
+            logger.info(f"_save_local_backup called with file_path='{file_path}'")
             if not file_path:
-                logger.debug("No file_path provided, skipping local backup")
+                logger.warning("No file_path provided, skipping local backup")
                 return
 
             backup_dir = Path(file_path).parent

@@ -480,6 +480,11 @@ class LocalPathMLTrainingHandler:
             session.file_path = str(resolved_path)
             print(f"📏 DEBUG: File size calculated: {size_mb}MB")
 
+            # BUGFIX: Explicitly persist file_path to session before transition
+            # This ensures file_path is available when saving templates later
+            await self.state_manager.update_session(session)
+            print(f"💾 DEBUG: session.file_path persisted: '{session.file_path}'")
+
             # Save state snapshot BEFORE transition (Phase 2: Workflow Back Button Fix)
             session.save_state_snapshot()
             self.logger.debug("📸 State snapshot saved before transition to CHOOSING_LOAD_OPTION")
@@ -665,6 +670,11 @@ class LocalPathMLTrainingHandler:
             # Store file path and get size
             session.file_path = pending_path
             print(f"🔍 PATH_DEBUG: session.file_path AFTER password = '{session.file_path}'")
+
+            # BUGFIX: Explicitly persist file_path to session before transition
+            # This ensures file_path is available when saving templates later
+            await self.state_manager.update_session(session)
+            print(f"💾 DEBUG: session.file_path persisted: '{session.file_path}'")
 
             # Check if worker is connected (for prod where file is on user's machine)
             websocket_server = context.bot_data.get('websocket_server')
