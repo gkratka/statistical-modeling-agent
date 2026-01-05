@@ -1977,7 +1977,7 @@ class PredictionHandler:
             # Generate default filename if needed
             model_id = session.selections.get('selected_model_id', 'model')
             timestamp = int(time.time())
-            default_filename = self._generate_default_filename(model_id, timestamp)
+            default_filename = self._generate_default_filename(model_id, timestamp, session)
 
             # Use user's filename if provided, otherwise use default
             filename = user_filename if use_user_filename else default_filename
@@ -2237,19 +2237,56 @@ class PredictionHandler:
                 parse_mode="Markdown"
             )
 
-    def _generate_default_filename(self, model_id: str, timestamp: int) -> str:
-        """Generate descriptive default filename."""
-        from datetime import datetime
+    def _generate_default_filename(self, model_id: str, timestamp: int, session=None) -> str:
+        """Generate descriptive default filename.
 
-        # Extract model type from model_id (format: model_{user_id}_{type}_{timestamp})
-        parts = model_id.split('_')
-        model_type = parts[2] if len(parts) > 2 else 'model'
+        Format: predictions_job_{MODEL_TYPE}_{PRED_COLUMN}_{job_id}.csv
+        Example: predictions_job_RANDOMFOREST_PRICE_c13cf90cc57b.csv
 
-        # Format timestamp
-        dt = datetime.fromtimestamp(timestamp)
-        date_str = dt.strftime("%Y%m%d_%H%M%S")
+        Args:
+            model_id: Model identifier (format: model_{user_id}_{type}_{timestamp})
+            timestamp: Unix timestamp for job ID generation
+            session: Optional session object containing model_type and prediction_column_name
 
-        return f"predictions_{model_type}_{date_str}.csv"
+        Returns:
+            Descriptive filename with model type, prediction column, and unique job ID
+        """
+        import re
+
+        # Extract model_type from session or fallback to parsing model_id
+        if session and hasattr(session, 'selections'):
+            model_type = session.selections.get('model_type', '')
+            prediction_column = session.selections.get('prediction_column_name', '')
+        else:
+            # Fallback: parse from model_id (format: model_{user_id}_{type}_{timestamp})
+            parts = model_id.split('_')
+            model_type = parts[2] if len(parts) > 2 else 'model'
+            prediction_column = ''
+
+        # Clean and sanitize model_type
+        model_type_clean = model_type.upper().replace('_', '').replace('-', '')
+        if not model_type_clean:
+            model_type_clean = 'MODEL'
+        # Truncate if too long
+        model_type_clean = model_type_clean[:20]
+
+        # Clean and sanitize prediction_column_name
+        if prediction_column:
+            # Remove "_predicted" suffix if present
+            prediction_column = re.sub(r'_predicted$', '', prediction_column, flags=re.IGNORECASE)
+            # Convert to uppercase and sanitize
+            pred_col_clean = prediction_column.upper().replace(' ', '').replace('-', '').replace('_', '')
+            # Remove special characters
+            pred_col_clean = re.sub(r'[^A-Z0-9]', '', pred_col_clean)
+            # Truncate if too long
+            pred_col_clean = pred_col_clean[:20]
+        else:
+            pred_col_clean = 'TARGET'
+
+        # Generate short unique job ID from timestamp (12 hex characters)
+        job_id = format(timestamp, 'x')[:12].zfill(12)
+
+        return f"predictions_job_{model_type_clean}_{pred_col_clean}_{job_id}.csv"
 
     # =========================================================================
     # PHASE 2: Template Save Skip Handler
