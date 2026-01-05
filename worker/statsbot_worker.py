@@ -1027,7 +1027,10 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
 
         # Save full results to CSV file (prevents OOM on Railway bot)
         output_dir = resolved_path.parent
-        output_filename = f"predictions_{job_id}.csv"
+        # Include model type and target column in filename for clarity
+        model_type_clean = metadata.get("model_type", "MODEL").upper().replace("_", "")
+        target_col_clean = metadata.get("target_column", "PRED").upper().replace("_", "").replace(" ", "")
+        output_filename = f"predictions_{model_type_clean}_{target_col_clean}_{job_id}.csv"
         output_path = output_dir / output_filename
 
         df_with_predictions = df.copy()
