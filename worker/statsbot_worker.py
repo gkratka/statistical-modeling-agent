@@ -78,14 +78,14 @@ def detect_path_traversal(path: str) -> bool:
 
 
 def validate_file_path(
-    path: str, max_size_mb: int = 1000, allowed_extensions: Optional[List[str]] = None
+    path: str, max_size_mb: int = 10000, allowed_extensions: Optional[List[str]] = None
 ) -> Tuple[bool, Optional[str], Optional[Path]]:
     """
     Validate local file path with security checks.
 
     Args:
         path: File path to validate
-        max_size_mb: Maximum file size in MB (default: 1000)
+        max_size_mb: Maximum file size in MB (default: 10000)
         allowed_extensions: List of allowed extensions (default: ['.csv', '.xlsx', '.parquet'])
 
     Returns:
