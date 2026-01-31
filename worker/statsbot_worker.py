@@ -993,7 +993,20 @@ def execute_predict_job(job_id: str, params: Dict[str, Any], ws_send_callback) -
         # Apply encoders to categorical columns if available
         for col, encoder in encoders.items():
             if col in X.columns:
-                X[col] = encoder.transform(X[col].astype(str))
+                col_values = X[col].astype(str)
+                known_classes = set(encoder.classes_)
+                unseen = set(col_values.unique()) - known_classes
+
+                if unseen:
+                    print(f"[WARN] Column '{col}' has unseen categories: {sorted(unseen)}. "
+                          f"Mapping to '{encoder.classes_[0]}' (most frequent)")
+                    X[col] = col_values.apply(
+                        lambda v: v if v in known_classes else encoder.classes_[0]
+                    )
+                else:
+                    X[col] = col_values
+
+                X[col] = encoder.transform(X[col])
 
         # Send progress update
         asyncio.create_task(
