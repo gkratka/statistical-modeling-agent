@@ -64,7 +64,7 @@ class DataLoader:
         self.local_enabled = local_config.get('enabled', False)
         self.allowed_directories = local_config.get('allowed_directories', [])
         self.forbidden_directories = local_config.get('forbidden_directories', [])
-        self.local_max_size_mb = local_config.get('max_file_size_mb', 1000)
+        self.local_max_size_mb = local_config.get('max_file_size_mb', 10000)
         self.local_extensions = local_config.get('allowed_extensions', ['.csv', '.xlsx', '.xls', '.parquet'])
 
     async def load_from_telegram(

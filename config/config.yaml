@@ -78,7 +78,7 @@ local_data:
     - /bin
     - /etc
 
-  max_file_size_mb: 1000            # 1GB maximum file size for local paths
+  max_file_size_mb: 10000            # 10GB maximum file size for local paths
   allowed_extensions:               # Allowed file extensions
     - .csv
     - .xlsx
