@@ -769,12 +769,12 @@ def create_model_selection_buttons(
         nav_row = []
         if page > 0:
             nav_row.append(InlineKeyboardButton(
-                I18nManager.t('models_browser.navigation.prev_button', locale=locale),
+                "◀️ Prev",
                 callback_data=f"pred_page_{page-1}"
             ))
         if page < total_pages - 1:
             nav_row.append(InlineKeyboardButton(
-                I18nManager.t('models_browser.navigation.next_button', locale=locale),
+                "Next ▶️",
                 callback_data=f"pred_page_{page+1}"
             ))
         buttons.append(nav_row)
