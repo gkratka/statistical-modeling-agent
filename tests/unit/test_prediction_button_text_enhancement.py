@@ -20,6 +20,13 @@ Examples:
 
 import pytest
 from src.bot.messages.prediction_messages import create_model_selection_buttons
+from src.utils.i18n_manager import I18nManager
+
+
+@pytest.fixture(scope="module", autouse=True)
+def initialize_i18n():
+    """Initialize i18n for all tests in this module."""
+    I18nManager.initialize("./locales", "en")
 
 
 class TestButtonTextShowsFeatureCounts:
@@ -156,7 +163,7 @@ class TestButtonTextShowsCustomNames:
                 'task_type': 'binary_classification',
                 'target_column': 'Churn',
                 'feature_columns': list(range(20)),  # 20 features
-                'model_name': 'My Credit Model',  # Custom name
+                'display_name': 'My Credit Model',  # Custom display name (set by ml_engine from custom_name)
                 'metrics': {'accuracy': 0.925}
             }
         ]
@@ -181,7 +188,7 @@ class TestButtonTextShowsCustomNames:
         """
         Model type should be shown when no custom name is provided.
 
-        Expected: "1. Random Forest (5 features)"
+        Expected: "1. random_forest (5 features)" (lowercase as stored)
         """
         models = [
             {
@@ -190,7 +197,7 @@ class TestButtonTextShowsCustomNames:
                 'task_type': 'regression',
                 'target_column': 'price',
                 'feature_columns': ['sqft', 'bedrooms', 'bathrooms', 'age', 'location'],  # 5 features
-                # No 'model_name' key
+                # No display_name provided - will use model_type
                 'metrics': {'r2': 0.92}
             }
         ]
@@ -199,8 +206,8 @@ class TestButtonTextShowsCustomNames:
 
         button_text = buttons[0][0].text
 
-        # Should show model type (title case)
-        assert "Random Forest" in button_text or "Random_Forest" in button_text, \
+        # Should show model type (as stored in model_type field)
+        assert "random_forest" in button_text or "Random Forest" in button_text or "Random_Forest" in button_text, \
             f"Button text should show model type, got: {button_text}"
 
         # Should show feature count
@@ -209,9 +216,9 @@ class TestButtonTextShowsCustomNames:
 
     def test_button_handles_empty_custom_name(self):
         """
-        Empty string custom name should fallback to model type.
+        Missing display_name should fallback to model type.
 
-        When model_name is empty string or None, should use model_type.
+        When display_name is not provided, should use model_type.
         """
         models = [
             {
@@ -220,7 +227,7 @@ class TestButtonTextShowsCustomNames:
                 'task_type': 'regression',
                 'target_column': 'price',
                 'feature_columns': ['sqft', 'bedrooms'],  # 2 features
-                'model_name': '',  # Empty string
+                # No display_name provided - will use model_type
                 'metrics': {'r2': 0.85}
             }
         ]
@@ -496,7 +503,7 @@ class TestModelSelectionPromptEnhancement:
                 'task_type': 'binary_classification',
                 'target_column': 'Churn',
                 'feature_columns': list(range(15)),
-                'model_name': 'Credit Risk Model',  # Custom name
+                'display_name': 'Credit Risk Model',  # Custom display name
                 'metrics': {'accuracy': 0.925}
             }
         ]

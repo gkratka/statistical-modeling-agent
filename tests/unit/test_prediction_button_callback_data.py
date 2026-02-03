@@ -188,8 +188,10 @@ class TestIndexBasedButtonCreation:
 
         buttons = create_model_selection_buttons(models)
 
-        # ALL model buttons (excluding back button) should have short callback data
-        model_buttons = buttons[:-1]  # Exclude last button (back button)
+        # ALL model buttons (excluding back and delete buttons at end) should have short callback data
+        # With 10 models (exactly MODELS_PER_PAGE), no pagination buttons are added
+        # Structure: 10 model buttons + back button + delete button = 12 rows
+        model_buttons = buttons[:-2]  # Exclude last 2 buttons (back and delete)
         for i, button_row in enumerate(model_buttons):
             callback_data = button_row[0].callback_data
             byte_length = len(callback_data.encode('utf-8'))
@@ -269,9 +271,10 @@ class TestEdgeCases:
         """Test button creation with empty model list."""
         models = []
         buttons = create_model_selection_buttons(models)
-        # Should only have back button
-        assert len(buttons) == 1, "Empty model list should have only back button"
-        assert buttons[0][0].callback_data == "workflow_back"
+        # Should have back button + delete button = 2 buttons
+        assert len(buttons) == 2, "Empty model list should have back + delete buttons"
+        assert buttons[0][0].callback_data == "pred_back"
+        assert buttons[1][0].callback_data == "pred_delete_start"
 
     def test_single_model(self):
         """Test button creation with single model."""
@@ -287,16 +290,21 @@ class TestEdgeCases:
 
         buttons = create_model_selection_buttons(models)
 
-        # Should have 1 model button + 1 back button = 2 total
-        assert len(buttons) == 2, "Should create 1 model button + 1 back button"
+        # Should have 1 model button + back button + delete button = 3 total
+        assert len(buttons) == 3, "Should create 1 model button + back + delete buttons"
         assert buttons[0][0].callback_data == "pred_model_0"
-        assert buttons[1][0].callback_data == "workflow_back"
+        assert buttons[1][0].callback_data == "pred_back"
+        assert buttons[2][0].callback_data == "pred_delete_start"
 
     def test_max_ten_models_displayed(self):
         """
-        Test that only first 10 models are shown as buttons.
+        Test pagination with more than 10 models.
 
-        Telegram best practice: Don't overwhelm users with too many buttons.
+        With pagination enabled, 15 models will show:
+        - First page: 10 model buttons
+        - Navigation row with "Next ▶" button
+        - Back button
+        - Delete button
         """
         models = [
             {
@@ -311,14 +319,20 @@ class TestEdgeCases:
 
         buttons = create_model_selection_buttons(models)
 
-        # Should have 10 model buttons + 1 back button = 11 total
-        assert len(buttons) == 11, "Should limit to 10 models + 1 back button"
+        # Should have 10 model buttons + navigation row + back + delete = 13 total
+        assert len(buttons) == 13, f"Should have 10 models + nav + back + delete, got {len(buttons)}"
 
         # Check last model button (index 9, 10th button)
         assert buttons[9][0].callback_data == "pred_model_9"
 
-        # Check back button is last
-        assert buttons[10][0].callback_data == "workflow_back"
+        # Check navigation button exists (Next button since we're on page 0)
+        assert buttons[10][0].callback_data == "pred_page_1", "Should have Next button for page 1"
+
+        # Check back button is second to last
+        assert buttons[11][0].callback_data == "pred_back"
+
+        # Check delete button is last
+        assert buttons[12][0].callback_data == "pred_delete_start"
 
 
 if __name__ == "__main__":

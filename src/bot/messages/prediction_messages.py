@@ -5,6 +5,9 @@ from telegram import InlineKeyboardButton
 from src.bot.utils.markdown_escape import escape_markdown_v1
 from src.utils.i18n_manager import I18nManager
 
+# Pagination settings for model selection
+MODELS_PER_PAGE = 10
+
 
 class PredictionMessages:
     """Consolidated message templates for ML prediction workflow."""
@@ -182,8 +185,25 @@ class PredictionMessages:
     @staticmethod
     def model_selection_prompt(
         models: List[Dict[str, Any]],
-        selected_features: List[str], locale: Optional[str] = None) -> str:
-        """Prompt for model selection with compatible models."""
+        selected_features: List[str],
+        locale: Optional[str] = None,
+        page: int = 0,
+        total_models: Optional[int] = None
+    ) -> str:
+        """Prompt for model selection with compatible models.
+
+        Args:
+            models: List of all compatible models
+            selected_features: Features selected by user
+            locale: Language code for translations
+            page: Current page number (0-indexed)
+            total_models: Total number of models (if None, uses len(models))
+
+        Returns:
+            Formatted message text with pagination info
+        """
+        from math import ceil
+
         if not models:
             return (
                 f"{I18nManager.t('workflows.prediction.feature_selection.no_compatible_models', locale=locale)}\n\n"
@@ -193,8 +213,24 @@ class PredictionMessages:
                 f"• {I18nManager.t('workflows.prediction.feature_selection.no_models_train', locale=locale)}"
             )
 
+        # Calculate pagination
+        if total_models is None:
+            total_models = len(models)
+        total_pages = ceil(total_models / MODELS_PER_PAGE) if total_models > 0 else 1
+
+        # Validate page number
+        page = max(0, min(page, total_pages - 1))
+
+        # Get models for current page
+        start_idx = page * MODELS_PER_PAGE
+        end_idx = start_idx + MODELS_PER_PAGE
+        page_models = models[start_idx:end_idx]
+
         models_text = ""
-        for i, model in enumerate(models[:10], 1):
+        for i, model in enumerate(page_models):
+            # Calculate display number (continuous across pages)
+            display_num = start_idx + i + 1
+
             # Get display name (prepared by ml_engine.list_models with custom_name priority)
             display_name = model.get('display_name', model.get('model_type', 'Unknown'))
             task_type = model.get('task_type', 'Unknown')
@@ -211,7 +247,7 @@ class PredictionMessages:
             escaped_task_type = escape_markdown_v1(task_type)
 
             # Build model line with feature count
-            models_text += f"{i}. **{escaped_display_name.title()}**"
+            models_text += f"{display_num}. **{escaped_display_name.title()}**"
             if feature_count is not None and feature_count > 0:
                 feature_word = I18nManager.t(
                     'workflows.prediction.model_selection.feature_singular' if feature_count == 1
@@ -227,16 +263,19 @@ class PredictionMessages:
                 models_text += f" | {I18nManager.t('workflows.prediction.model_selection.accuracy_label', locale=locale)}: {accuracy:.2%}"
             models_text += "\n\n"
 
-        if len(models) > 10:
-            models_text += f"... {I18nManager.t('common.and_more', locale=locale, count=len(models) - 10)}\n\n"
-
         compatible_word = I18nManager.t(
-            'workflows.prediction.model_selection.compatible_models' if len(models) == 1
+            'workflows.prediction.model_selection.compatible_models' if total_models == 1
             else 'workflows.prediction.model_selection.compatible_models_plural',
             locale=locale
         )
+
+        # Build header with pagination info if multiple pages
+        header = f"{I18nManager.t('workflows.prediction.model_selection.header', locale=locale)} ({total_models} {compatible_word})"
+        if total_pages > 1:
+            header += f"\nPage {page + 1} of {total_pages}"
+
         return (
-            f"{I18nManager.t('workflows.prediction.model_selection.header', locale=locale)} ({len(models)} {compatible_word})\n\n"
+            f"{header}\n\n"
             f"{models_text}"
             f"**{I18nManager.t('workflows.prediction.model_selection.prompt', locale=locale)}**"
         )
@@ -661,13 +700,44 @@ def create_ready_to_run_buttons(locale: Optional[str] = None) -> List[List[Inlin
 
 def create_model_selection_buttons(
     models: List[Dict[str, Any]],
-    locale: Optional[str] = None
+    locale: Optional[str] = None,
+    page: int = 0,
+    total_models: Optional[int] = None
 ) -> List[List[InlineKeyboardButton]]:
-    """Create model selection buttons using indices (up to 10 models)."""
+    """Create model selection buttons with pagination support.
+
+    Args:
+        models: List of all compatible models
+        locale: Language code for translations
+        page: Current page number (0-indexed)
+        total_models: Total number of models (if None, uses len(models))
+
+    Returns:
+        List of button rows for InlineKeyboardMarkup
+    """
     from src.bot.messages.local_path_messages import create_back_button
+    from math import ceil
 
     buttons = []
-    for i, model in enumerate(models[:10], 0):  # Start at 0 for index-based lookup
+
+    # Calculate pagination
+    if total_models is None:
+        total_models = len(models)
+    total_pages = ceil(total_models / MODELS_PER_PAGE) if total_models > 0 else 1
+
+    # Validate page number
+    page = max(0, min(page, total_pages - 1))
+
+    # Get models for current page
+    start_idx = page * MODELS_PER_PAGE
+    end_idx = start_idx + MODELS_PER_PAGE
+    page_models = models[start_idx:end_idx]
+
+    # Create model buttons for current page
+    for i, model in enumerate(page_models):
+        # Calculate display number (continuous across pages)
+        display_num = start_idx + i + 1
+
         # Get display name (prepared by ml_engine.list_models with custom_name priority)
         display_name = model.get('display_name', model.get('model_type', 'Unknown'))
 
@@ -676,7 +746,7 @@ def create_model_selection_buttons(
         feature_count = len(feature_columns) if feature_columns else None
 
         # Build button text
-        button_text = f"{i+1}. {display_name}"
+        button_text = f"{display_num}. {display_name}"
 
         # Add feature count if available
         if feature_count is not None and feature_count > 0:
@@ -690,12 +760,27 @@ def create_model_selection_buttons(
 
         button = InlineKeyboardButton(
             button_text,  # Enhanced display text
-            callback_data=f"pred_model_{i}"  # Callback uses 0-based index
+            callback_data=f"pred_model_{i}"  # Callback uses page-relative index
         )
         buttons.append([button])
 
+    # Add navigation row if multiple pages exist
+    if total_pages > 1:
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton(
+                I18nManager.t('models_browser.navigation.prev_button', locale=locale),
+                callback_data=f"pred_page_{page-1}"
+            ))
+        if page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton(
+                I18nManager.t('models_browser.navigation.next_button', locale=locale),
+                callback_data=f"pred_page_{page+1}"
+            ))
+        buttons.append(nav_row)
+
+    # Add back and delete buttons
     buttons.append([create_back_button(locale=locale, callback_data="pred_back")])
-    # Add delete models button
     buttons.append([InlineKeyboardButton(
         I18nManager.t('prediction.delete_models.button', locale=locale),
         callback_data="pred_delete_start"

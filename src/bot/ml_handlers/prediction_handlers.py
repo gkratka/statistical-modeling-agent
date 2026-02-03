@@ -785,9 +785,17 @@ class PredictionHandler:
         self,
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
-        session
+        session,
+        page: int = 0
     ) -> None:
-        """Show compatible models for selection."""
+        """Show compatible models for selection with pagination.
+
+        Args:
+            update: Telegram update
+            context: Bot context
+            session: User session
+            page: Current page number (0-indexed)
+        """
         # Extract locale from session
         locale = session.language if session.language else None
 
@@ -828,28 +836,64 @@ class PredictionHandler:
             if set(selected_features) == set(model_features):
                 compatible_models.append(model)
 
-        # Store models in session.selections for persistence (enables back button)
+        # Store models in session.selections for persistence (enables back button and pagination)
         session.selections['compatible_models'] = compatible_models
 
-        # Show model selection
-        keyboard = create_model_selection_buttons(compatible_models, locale=locale)
+        # Store or retrieve current page
+        if 'model_page' not in session.selections:
+            session.selections['model_page'] = page
+        else:
+            page = session.selections['model_page']
+
+        # Show model selection with pagination
+        total_models = len(compatible_models)
+        keyboard = create_model_selection_buttons(
+            compatible_models,
+            locale=locale,
+            page=page,
+            total_models=total_models
+        )
         reply_markup = InlineKeyboardMarkup(keyboard)
 
+        message_text = PredictionMessages.model_selection_prompt(
+            compatible_models,
+            selected_features,
+            locale=locale,
+            page=page,
+            total_models=total_models
+        )
+
         try:
-            await update.effective_message.reply_text(
-                PredictionMessages.model_selection_prompt(compatible_models, selected_features, locale=locale),
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
+            # Check if this is a callback query (pagination) or new message
+            if update.callback_query:
+                # Edit existing message for pagination
+                await update.callback_query.edit_message_text(
+                    message_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
+                # Send new message
+                await update.effective_message.reply_text(
+                    message_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
         except telegram.error.BadRequest as e:
             # Defensive: Catch markdown parsing errors (e.g., unescaped special chars)
             self.logger.error(f"Telegram markdown parse error in model selection: {e}")
 
             # Fallback: Send user-friendly error without markdown
-            await update.effective_message.reply_text(
-                I18nManager.t('prediction.errors.model_display_error', locale=locale, count=len(compatible_models)),
-                reply_markup=reply_markup  # Still show selection buttons if possible
-            )
+            if update.callback_query:
+                await update.callback_query.edit_message_text(
+                    I18nManager.t('prediction.errors.model_display_error', locale=locale, count=len(compatible_models)),
+                    reply_markup=reply_markup  # Still show selection buttons if possible
+                )
+            else:
+                await update.effective_message.reply_text(
+                    I18nManager.t('prediction.errors.model_display_error', locale=locale, count=len(compatible_models)),
+                    reply_markup=reply_markup  # Still show selection buttons if possible
+                )
 
     async def handle_model_selection(
         self,
@@ -863,8 +907,8 @@ class PredictionHandler:
         try:
             user_id = update.effective_user.id
             chat_id = update.effective_chat.id
-            # Parse index from callback_data (format: pred_model_{index})
-            index = int(query.data.split("pred_model_")[-1])
+            # Parse page-relative index from callback_data (format: pred_model_{index})
+            page_relative_index = int(query.data.split("pred_model_")[-1])
         except (AttributeError, ValueError) as e:
             logger.error(f"Malformed update in handle_model_selection: {e}")
             await query.edit_message_text(
@@ -887,16 +931,21 @@ class PredictionHandler:
             )
             return
 
+        # Get current page and calculate actual index
+        from src.bot.messages.prediction_messages import MODELS_PER_PAGE
+        current_page = session.selections.get('model_page', 0)
+        actual_index = current_page * MODELS_PER_PAGE + page_relative_index
+
         # Validate index is in range
-        if index >= len(compatible_models):
+        if actual_index >= len(compatible_models):
             await query.edit_message_text(
                 I18nManager.t('prediction.errors.invalid_selection', locale=locale),
                 parse_mode="Markdown"
             )
             return
 
-        # Lookup model from session by index
-        selected_model = compatible_models[index]
+        # Lookup model from session by actual index
+        selected_model = compatible_models[actual_index]
         model_id = selected_model['model_id']
 
         # Use model info from session (already populated from worker or local list_models)
@@ -945,6 +994,43 @@ class PredictionHandler:
 
         # Show prediction column confirmation
         await self._show_column_confirmation(update, context, session)
+
+    async def handle_model_pagination(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle pagination callbacks for model selection.
+
+        Callback format: pred_page_{page_number}
+        """
+        query = update.callback_query
+        await query.answer()
+
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+            # Parse page number from callback_data (format: pred_page_{page})
+            page = int(query.data.split("pred_page_")[-1])
+        except (AttributeError, ValueError) as e:
+            logger.error(f"Malformed pagination callback in handle_model_pagination: {e}")
+            await query.edit_message_text(
+                I18nManager.t('prediction.errors.invalid_selection'),
+                parse_mode="Markdown"
+            )
+            return
+
+        session = await self.state_manager.get_session(user_id, f"chat_{chat_id}")
+
+        # Extract locale from session
+        locale = session.language if session.language else None
+
+        # Update page in session
+        session.selections['model_page'] = page
+        await self.state_manager.update_session(session)
+
+        # Re-render model selection with new page
+        await self._show_model_selection(update, context, session, page=page)
 
     # =========================================================================
     # Delete Models Workflow
@@ -3283,6 +3369,14 @@ def register_prediction_handlers(
         CallbackQueryHandler(
             handler.handle_model_selection,
             pattern=r"^pred_model_"
+        )
+    )
+
+    # Model selection pagination handler
+    application.add_handler(
+        CallbackQueryHandler(
+            handler.handle_model_pagination,
+            pattern=r"^pred_page_"
         )
     )
 
